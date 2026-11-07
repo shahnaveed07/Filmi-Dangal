@@ -1,0 +1,6 @@
+{
+  "name": "Filmi Dangal: Lights. Camera. Knockout!",
+  "description": "An arcade 2D fighting game celebrating Bollywood cinema with 4 fighters, authentic combos, supers, CPU AI, and dynamic cinematic stages.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
