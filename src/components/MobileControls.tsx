@@ -8,7 +8,6 @@ import {
   Shield,
   Zap,
   Crosshair,
-  ArrowUpCircle,
 } from 'lucide-react';
 
 export const MobileControls: React.FC = () => {
@@ -56,25 +55,25 @@ export const MobileControls: React.FC = () => {
 
   return (
     <div className="absolute inset-0 pointer-events-none select-none flex items-end justify-between px-3 sm:px-6 pb-14 sm:pb-16 z-20">
-      {/* LEFT: 3D VIRTUAL DIRECTIONAL STICK + JUMP / CROUCH */}
+      {/* LEFT: 2D XY PLANE VIRTUAL DIRECTIONAL PAD (JUMP, CROUCH, LEFT, RIGHT) */}
       <div className="pointer-events-auto flex items-end gap-2">
         <div className="flex flex-col items-center">
-          {/* SIDESTEP IN (W / Z+) */}
+          {/* JUMP (UP / +Y) */}
           <button
             type="button"
-            onPointerDown={handlePointerDown('sidestep_up')}
-            onPointerUp={handlePointerUp('sidestep_up')}
-            onPointerCancel={handlePointerCancel('sidestep_up')}
-            onLostPointerCapture={handleLostPointerCapture('sidestep_up')}
+            onPointerDown={handlePointerDown('jump')}
+            onPointerUp={handlePointerUp('jump')}
+            onPointerCancel={handlePointerCancel('jump')}
+            onLostPointerCapture={handleLostPointerCapture('jump')}
             className="w-11 h-11 bg-[#10111B]/85 active:bg-[#D6A447] active:text-[#10111B] border-2 border-[#D6A447] text-[#D6A447] rounded-md flex flex-col items-center justify-center shadow-lg active:scale-95 transition-transform touch-none"
-            aria-label="Sidestep In"
+            aria-label="Jump"
           >
             <ChevronUp size={18} />
-            <span className="text-[7px] font-mono font-bold -mt-1">STEP IN</span>
+            <span className="text-[7px] font-mono font-bold -mt-1">JUMP</span>
           </button>
 
           <div className="flex gap-3 my-1">
-            {/* LEFT */}
+            {/* LEFT (-X) */}
             <button
               type="button"
               onPointerDown={handlePointerDown('left')}
@@ -87,21 +86,21 @@ export const MobileControls: React.FC = () => {
               <ChevronLeft size={22} />
             </button>
 
-            {/* SIDESTEP OUT (S / Z-) */}
+            {/* CROUCH (DOWN) */}
             <button
               type="button"
-              onPointerDown={handlePointerDown('sidestep_down')}
-              onPointerUp={handlePointerUp('sidestep_down')}
-              onPointerCancel={handlePointerCancel('sidestep_down')}
-              onLostPointerCapture={handleLostPointerCapture('sidestep_down')}
+              onPointerDown={handlePointerDown('crouch')}
+              onPointerUp={handlePointerUp('crouch')}
+              onPointerCancel={handlePointerCancel('crouch')}
+              onLostPointerCapture={handleLostPointerCapture('crouch')}
               className="w-11 h-11 bg-[#10111B]/85 active:bg-[#D6A447] active:text-[#10111B] border-2 border-[#D6A447] text-[#D6A447] rounded-md flex flex-col items-center justify-center shadow-lg active:scale-95 transition-transform touch-none"
-              aria-label="Sidestep Out"
+              aria-label="Crouch"
             >
               <ChevronDown size={18} />
-              <span className="text-[7px] font-mono font-bold -mt-1">STEP OUT</span>
+              <span className="text-[7px] font-mono font-bold -mt-1">CROUCH</span>
             </button>
 
-            {/* RIGHT */}
+            {/* RIGHT (+X) */}
             <button
               type="button"
               onPointerDown={handlePointerDown('right')}
@@ -114,34 +113,6 @@ export const MobileControls: React.FC = () => {
               <ChevronRight size={22} />
             </button>
           </div>
-        </div>
-
-        {/* JUMP & CROUCH DEDICATED STANCE BUTTONS */}
-        <div className="flex flex-col gap-1.5 mb-1">
-          <button
-            type="button"
-            onPointerDown={handlePointerDown('jump')}
-            onPointerUp={handlePointerUp('jump')}
-            onPointerCancel={handlePointerCancel('jump')}
-            onLostPointerCapture={handleLostPointerCapture('jump')}
-            className="w-11 h-10 bg-[#1E293B]/90 active:bg-[#FDE047] active:text-black border border-[#D6A447] text-[#FEF08A] rounded flex flex-col items-center justify-center text-[8px] font-bold touch-none"
-            aria-label="Jump"
-          >
-            <ArrowUpCircle size={13} />
-            <span>JUMP</span>
-          </button>
-
-          <button
-            type="button"
-            onPointerDown={handlePointerDown('crouch')}
-            onPointerUp={handlePointerUp('crouch')}
-            onPointerCancel={handlePointerCancel('crouch')}
-            onLostPointerCapture={handleLostPointerCapture('crouch')}
-            className="w-11 h-10 bg-[#1E293B]/90 active:bg-[#FDE047] active:text-black border border-[#D6A447] text-[#FEF08A] rounded flex flex-col items-center justify-center text-[8px] font-bold touch-none"
-            aria-label="Crouch"
-          >
-            <span>CROUCH</span>
-          </button>
         </div>
       </div>
 

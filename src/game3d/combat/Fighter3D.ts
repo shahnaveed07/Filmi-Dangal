@@ -1,3 +1,4 @@
+import { Vector2 } from '@babylonjs/core';
 import {
   AttackFrameData,
   AttackType,
@@ -13,22 +14,59 @@ import {
 } from '../../types/fighter';
 import { HitboxSystem3D } from '../hitboxes/HitboxSystem3D';
 
-export const STAGE_3D_GRAVITY = 28.0; // m/s^2 in 3D world units
+export const STAGE_3D_GRAVITY = 28.0; // m/s^2 in 2D XY world units
 export const STAGE_3D_GROUND_FRICTION = 0.8;
+export const FIXED_RENDER_PLANE_Z = 0;
 
 /**
- * 3D Fighter simulation model operating in (X, Y, Z) world coordinates.
+ * 2D XY Plane position/velocity wrapper backed by Babylon.js Vector2.
+ * Keeps Z permanently locked to FIXED_RENDER_PLANE_Z (0) so all gameplay
+ * occurs strictly on the 2D XY plane while remaining compatible with 3D scene queries.
+ */
+export class PlaneVector2D implements Vector3D {
+  public readonly vec2: Vector2;
+
+  constructor(x = 0, y = 0) {
+    this.vec2 = new Vector2(x, y);
+  }
+
+  public get x(): number {
+    return this.vec2.x;
+  }
+  public set x(val: number) {
+    this.vec2.x = val;
+  }
+
+  public get y(): number {
+    return this.vec2.y;
+  }
+  public set y(val: number) {
+    this.vec2.y = val;
+  }
+
+  public get z(): number {
+    return FIXED_RENDER_PLANE_Z;
+  }
+  public set z(_val: number) {
+    // Z-axis gameplay is disabled; all fighters remain on the fixed Z = 0 plane.
+  }
+}
+
+/**
+ * Fighter simulation model with 3D visuals and strict 2D XY plane gameplay.
  * X: horizontal stage axis (-7.5 to +7.5m)
  * Y: vertical height axis (0 = stage floor)
- * Z: depth/sidestep axis (-3.2 to +3.2m)
+ * Z: permanently fixed at 0 (no Z-axis movement or sidestepping)
  */
 export class Fighter3D {
+  private static activationSequence = 0;
+
   public readonly playerIndex: 0 | 1;
   public def: CharacterDef;
   public id: CharacterId;
 
-  public position: Vector3D;
-  public velocity: Vector3D;
+  private _position: PlaneVector2D;
+  private _velocity: PlaneVector2D;
   public facing: 1 | -1;
 
   public health: number;
@@ -41,6 +79,10 @@ export class Fighter3D {
   public currentMoveType: AttackType | null = null;
   public currentMove: AttackFrameData | null = null;
   public moveHasHit = false;
+
+  // Unique activation tracking for guaranteed-hit SuperMove and SuperShot
+  public currentSpecialActivationId: string | null = null;
+  public specialDamageResolvedForActivation = false;
 
   public hitstunFrames = 0;
   public blockstunFrames = 0;
@@ -65,17 +107,43 @@ export class Fighter3D {
     def: CharacterDef,
     startX3D: number,
     floorY3D = 0,
-    startZ3D = 0
+    _unusedZ = 0
   ) {
     this.playerIndex = playerIndex;
     this.def = def;
     this.id = def.id;
-    this.position = { x: startX3D, y: floorY3D, z: startZ3D };
-    this.velocity = { x: 0, y: 0, z: 0 };
+    this._position = new PlaneVector2D(startX3D, floorY3D);
+    this._velocity = new PlaneVector2D(0, 0);
     this.facing = playerIndex === 0 ? 1 : -1;
     this.maxHealth = def.stats.maxHealth;
     this.health = this.maxHealth;
-    this.specialMeter = 25; // Start with 25 meter so SuperShot can be tested immediately
+    this.specialMeter = 25; // Start with 25 meter so SuperShot is ready
+  }
+
+  public get position2D(): Vector2 {
+    return this._position.vec2;
+  }
+
+  public get velocity2D(): Vector2 {
+    return this._velocity.vec2;
+  }
+
+  public get position(): PlaneVector2D {
+    return this._position;
+  }
+
+  public set position(val: { x: number; y: number; z?: number }) {
+    this._position.x = val.x;
+    this._position.y = val.y;
+  }
+
+  public get velocity(): PlaneVector2D {
+    return this._velocity;
+  }
+
+  public set velocity(val: { x: number; y: number; z?: number }) {
+    this._velocity.x = val.x;
+    this._velocity.y = val.y;
   }
 
   public setCharacterDef(def: CharacterDef): void {
@@ -84,50 +152,52 @@ export class Fighter3D {
     this.maxHealth = def.stats.maxHealth;
   }
 
-  // Compatibility 2D pixel getters/setters mapped cleanly to 3D meters (1m = 80px, center = 640px)
+  // Compatibility 2D pixel getters/setters mapped cleanly to 2D XY meters (1m = 80px, center = 640px)
   public get x(): number {
-    return 640 + this.position.x * 80;
+    return 640 + this._position.x * 80;
   }
   public set x(px: number) {
-    this.position.x = (px - 640) / 80;
+    this._position.x = (px - 640) / 80;
   }
 
   public get y(): number {
-    return 570 - this.position.y * 80;
+    return 570 - this._position.y * 80;
   }
   public set y(py: number) {
-    this.position.y = Math.max(0, (570 - py) / 80);
+    this._position.y = Math.max(0, (570 - py) / 80);
   }
 
   public get z(): number {
-    return this.position.z;
+    return FIXED_RENDER_PLANE_Z;
   }
-  public set z(val: number) {
-    this.position.z = val;
+  public set z(_val: number) {
+    // Locked to 0
   }
 
   public get vx(): number {
-    return this.velocity.x;
+    return this._velocity.x;
   }
   public set vx(val: number) {
-    this.velocity.x = val;
+    this._velocity.x = val;
   }
 
   public get vy(): number {
-    return -this.velocity.y;
+    return -this._velocity.y;
   }
   public set vy(val: number) {
-    this.velocity.y = -val;
+    this._velocity.y = -val;
   }
 
   public resetForRound(
     startX3D: number,
     floorY3D = 0,
-    startZ3D = 0,
+    _unusedZ = 0,
     fullMeterReset = false
   ): void {
-    this.position = { x: startX3D, y: floorY3D, z: startZ3D };
-    this.velocity = { x: 0, y: 0, z: 0 };
+    this._position.x = startX3D;
+    this._position.y = floorY3D;
+    this._velocity.x = 0;
+    this._velocity.y = 0;
     this.facing = this.playerIndex === 0 ? 1 : -1;
     this.maxHealth = this.def.stats.maxHealth;
     this.health = this.maxHealth;
@@ -137,6 +207,8 @@ export class Fighter3D {
     this.currentMoveType = null;
     this.currentMove = null;
     this.moveHasHit = false;
+    this.currentSpecialActivationId = null;
+    this.specialDamageResolvedForActivation = false;
     this.hitstunFrames = 0;
     this.blockstunFrames = 0;
     this.knockdownFrames = 0;
@@ -151,6 +223,10 @@ export class Fighter3D {
     this.comboTimerFrames = 0;
   }
 
+  public isEligibleTarget(): boolean {
+    return this.health > 0 && this.state !== 'defeat';
+  }
+
   public canAct(): boolean {
     return (
       this.state === 'idle' ||
@@ -158,7 +234,6 @@ export class Fighter3D {
       this.state === 'walk_forward' ||
       this.state === 'walk_backward' ||
       this.state === 'run' ||
-      this.state === 'sidestep' ||
       this.state === 'crouch' ||
       this.state === 'block' ||
       this.state === 'crouch_block' ||
@@ -185,8 +260,8 @@ export class Fighter3D {
     if (this.isAttacking() || this.state === 'knockdown' || this.state === 'defeat') {
       return;
     }
-    if (Math.abs(opponent.position.x - this.position.x) > 0.05) {
-      this.facing = opponent.position.x >= this.position.x ? 1 : -1;
+    if (Math.abs(opponent.position.x - this._position.x) > 0.05) {
+      this.facing = opponent.position.x >= this._position.x ? 1 : -1;
     }
   }
 
@@ -268,7 +343,7 @@ export class Fighter3D {
     }
 
     if (input.kickJustPressed) {
-      if (input.crouch && this.isGrounded) {
+      if ((input.crouch || input.down) && this.isGrounded) {
         this.startAttack('sweep');
       } else if (holdingForward && this.isGrounded) {
         this.startAttack('forward_kick');
@@ -281,76 +356,61 @@ export class Fighter3D {
     if (!this.isGrounded) {
       const airMoveSpeed = this.def.stats.walkSpeed * 0.85;
       if (input.left) {
-        this.velocity.x = -airMoveSpeed;
+        this._velocity.x = -airMoveSpeed;
       } else if (input.right) {
-        this.velocity.x = airMoveSpeed;
+        this._velocity.x = airMoveSpeed;
       }
       return;
     }
 
     // 5. Dedicated Block (SHIFT / B) or holding back while opponent attacks
     if (input.block || (holdingBack && opponent.isAttacking())) {
-      this.state = input.crouch ? 'crouch_block' : 'block';
+      this.state = input.crouch || input.down ? 'crouch_block' : 'block';
       this.isBlocking = true;
-      this.isCrouching = input.crouch;
-      this.velocity.x *= 0.5;
-      this.velocity.z *= 0.5;
+      this.isCrouching = input.crouch || input.down;
+      this._velocity.x *= 0.5;
       return;
     }
     this.isBlocking = false;
 
-    // 6. Jump (SPACE)
+    // 6. Jump (SPACE / W / UP)
     if (input.jumpJustPressed || input.upJustPressed) {
       this.state = 'jump';
       this.stateFrame = 0;
       this.isGrounded = false;
       this.isCrouching = false;
-      this.velocity.y = Math.abs(this.def.stats.jumpVelocity) * 0.72; // ~11.2 m/s upward
+      this._velocity.y = Math.abs(this.def.stats.jumpVelocity) * 0.72;
       if (input.left) {
-        this.velocity.x = -this.def.stats.walkSpeed * 0.9;
+        this._velocity.x = -this.def.stats.walkSpeed * 0.9;
       } else if (input.right) {
-        this.velocity.x = this.def.stats.walkSpeed * 0.9;
+        this._velocity.x = this.def.stats.walkSpeed * 0.9;
       }
       return;
     }
 
-    // 7. Crouch (CTRL / C)
-    if (input.crouch) {
+    // 7. Crouch (CTRL / C / S / DOWN)
+    if (input.crouch || input.down) {
       this.state = 'crouch';
       this.isCrouching = true;
-      this.velocity.x *= 0.6;
-      this.velocity.z *= 0.6;
+      this._velocity.x *= 0.6;
       return;
     }
     this.isCrouching = false;
 
-    // 8. 3D Movement: X (horizontal spacing) and Z (3D sidestepping into/out of foreground)
-    const walkSpeed3D = this.def.stats.walkSpeed * 1.05;
-    const zSidestepSpeed = (this.def.stats.sidestepSpeed || this.def.stats.walkSpeed * 0.85) * 0.95;
-
+    // 8. Strictly 2D Horizontal X-Axis Movement (No Z-axis movement or sidestepping)
+    const walkSpeed = this.def.stats.walkSpeed * 1.05;
     let movingX = false;
-    let movingZ = false;
 
     if (input.left) {
-      this.velocity.x = -walkSpeed3D * (holdingBack ? 0.85 : 1.08);
+      this._velocity.x = -walkSpeed * (holdingBack ? 0.85 : 1.08);
       movingX = true;
     } else if (input.right) {
-      this.velocity.x = walkSpeed3D * (holdingForward ? 1.08 : 0.85);
+      this._velocity.x = walkSpeed * (holdingForward ? 1.08 : 0.85);
       movingX = true;
     }
 
-    if (input.sidestepUp) {
-      this.velocity.z = zSidestepSpeed;
-      movingZ = true;
-    } else if (input.sidestepDown) {
-      this.velocity.z = -zSidestepSpeed;
-      movingZ = true;
-    }
-
-    if (movingZ && !movingX) {
-      this.state = 'sidestep';
-    } else if (movingX || movingZ) {
-      this.state = holdingForward && !movingZ ? 'run' : 'walk';
+    if (movingX) {
+      this.state = holdingForward ? 'run' : 'walk';
     } else {
       this.state = 'idle';
     }
@@ -384,28 +444,36 @@ export class Fighter3D {
     this.projectileSpawnedForCurrentMove = false;
     this.isBlocking = false;
 
+    if (resolvedType === 'super_move' || resolvedType === 'super_shot') {
+      Fighter3D.activationSequence += 1;
+      this.currentSpecialActivationId = `${this.id}_${resolvedType}_act_${Fighter3D.activationSequence}`;
+      this.specialDamageResolvedForActivation = false;
+    } else {
+      this.currentSpecialActivationId = null;
+      this.specialDamageResolvedForActivation = false;
+    }
+
     if (resolvedType === 'super_move') {
       this.invulnerableFrames = move.startupFrames + 6;
       if (this.id === 'action_sultan' || this.id === 'dance_dynamo') {
-        this.velocity.x = this.facing * 6.5;
+        this._velocity.x = this.facing * 6.5;
       } else if (this.id === 'romance_raja') {
-        this.velocity.x = this.facing * 4.5;
+        this._velocity.x = this.facing * 4.5;
       } else {
-        this.velocity.x = this.facing * 5.2;
+        this._velocity.x = this.facing * 5.2;
       }
     } else if (resolvedType === 'forward_punch' || resolvedType === 'forward_kick') {
-      this.velocity.x = this.facing * 3.8;
+      this._velocity.x = this.facing * 3.8;
     } else if (resolvedType === 'grab') {
-      this.velocity.x = this.facing * 2.2;
+      this._velocity.x = this.facing * 2.2;
     } else if (this.isGrounded) {
-      this.velocity.x *= 0.35;
-      this.velocity.z *= 0.35;
+      this._velocity.x *= 0.35;
     }
     return true;
   }
 
   public stepPhysics(
-    bounds3D = { minX: -7.5, maxX: 7.5, minZ: -3.2, maxZ: 3.2, floorY: 0 },
+    bounds = { minX: -7.5, maxX: 7.5, minZ: 0, maxZ: 0, floorY: 0 },
     dt = 1 / 60
   ): void {
     this.stateFrame += 1;
@@ -461,16 +529,15 @@ export class Fighter3D {
       }
     }
 
-    // Apply 3D velocities
-    this.position.x += this.velocity.x * dt;
-    this.position.y += this.velocity.y * dt;
-    this.position.z += this.velocity.z * dt;
+    // Apply strictly 2D XY velocities
+    this._position.x += this._velocity.x * dt;
+    this._position.y += this._velocity.y * dt;
 
     if (!this.isGrounded) {
-      this.velocity.y -= STAGE_3D_GRAVITY * dt;
-      if (this.position.y <= bounds3D.floorY) {
-        this.position.y = bounds3D.floorY;
-        this.velocity.y = 0;
+      this._velocity.y -= STAGE_3D_GRAVITY * dt;
+      if (this._position.y <= bounds.floorY) {
+        this._position.y = bounds.floorY;
+        this._velocity.y = 0;
         this.isGrounded = true;
 
         if (this.state === 'knockback') {
@@ -486,25 +553,21 @@ export class Fighter3D {
         }
       }
     } else {
-      this.position.y = bounds3D.floorY;
-      this.velocity.y = 0;
+      this._position.y = bounds.floorY;
+      this._velocity.y = 0;
       if (
         this.state !== 'walk' &&
         this.state !== 'walk_forward' &&
         this.state !== 'walk_backward' &&
-        this.state !== 'run' &&
-        this.state !== 'sidestep'
+        this.state !== 'run'
       ) {
-        this.velocity.x *= STAGE_3D_GROUND_FRICTION;
-        this.velocity.z *= STAGE_3D_GROUND_FRICTION;
-        if (Math.abs(this.velocity.x) < 0.02) this.velocity.x = 0;
-        if (Math.abs(this.velocity.z) < 0.02) this.velocity.z = 0;
+        this._velocity.x *= STAGE_3D_GROUND_FRICTION;
+        if (Math.abs(this._velocity.x) < 0.02) this._velocity.x = 0;
       }
     }
 
-    // Clamp to 3D Arena Boundaries
-    this.position.x = Math.max(bounds3D.minX, Math.min(bounds3D.maxX, this.position.x));
-    this.position.z = Math.max(bounds3D.minZ, Math.min(bounds3D.maxZ, this.position.z));
+    // Clamp to 2D horizontal arena boundaries
+    this._position.x = Math.max(bounds.minX, Math.min(bounds.maxX, this._position.x));
   }
 
   public isMoveInActiveWindow(): boolean {
@@ -520,7 +583,7 @@ export class Fighter3D {
       this.state === 'super_shot' &&
       this.currentMove &&
       !this.projectileSpawnedForCurrentMove &&
-      this.stateFrame >= this.currentMove.startupFrames
+      this.stateFrame >= 1
     ) {
       this.projectileSpawnedForCurrentMove = true;
       return true;
@@ -529,36 +592,36 @@ export class Fighter3D {
   }
 
   /**
-   * Returns the 3D capsule hurtbox representing the fighter's body in world coordinates.
+   * Returns the capsule hurtbox on the fixed Z = 0 plane.
    */
   public getCapsuleHurtbox3D(): CapsuleHurtbox3D {
     const heightScale = this.def.visuals.proportions.heightScale;
     const shoulderWidth = this.def.visuals.proportions.shoulderWidth;
     const topY = this.isCrouching
-      ? this.position.y + 1.15 * heightScale
+      ? this._position.y + 1.15 * heightScale
       : this.state === 'knockdown'
-      ? this.position.y + 0.45
-      : this.position.y + 1.82 * heightScale;
+      ? this._position.y + 0.45
+      : this._position.y + 1.82 * heightScale;
 
-    const bottomY = this.position.y + 0.22;
+    const bottomY = this._position.y + 0.22;
     const radius = Math.max(0.32, shoulderWidth * 0.72);
 
     const headSphere = HitboxSystem3D.createSphere(
-      this.position.x,
+      this._position.x,
       topY - 0.14,
-      this.position.z,
+      FIXED_RENDER_PLANE_Z,
       0.24
     );
     const torsoSphere = HitboxSystem3D.createSphere(
-      this.position.x,
+      this._position.x,
       (bottomY + topY) * 0.52,
-      this.position.z,
+      FIXED_RENDER_PLANE_Z,
       radius
     );
     const legsSphere = HitboxSystem3D.createSphere(
-      this.position.x,
+      this._position.x,
       bottomY + 0.25,
-      this.position.z,
+      FIXED_RENDER_PLANE_Z,
       radius * 0.9
     );
 
@@ -566,8 +629,8 @@ export class Fighter3D {
       lowerSphere: legsSphere,
       upperSphere: headSphere,
       cylinderRadius: radius,
-      bottom: { x: this.position.x, y: bottomY, z: this.position.z },
-      top: { x: this.position.x, y: topY, z: this.position.z },
+      bottom: { x: this._position.x, y: bottomY, z: FIXED_RENDER_PLANE_Z },
+      top: { x: this._position.x, y: topY, z: FIXED_RENDER_PLANE_Z },
       radius,
       headSphere,
       torsoSphere,
@@ -576,14 +639,21 @@ export class Fighter3D {
   }
 
   /**
-   * Returns the 3D bone-attached attack hitbox sphere during active attack frames,
-   * or null if the fighter does not have an active melee attack hitbox on this frame.
+   * Returns the bone-attached attack hitbox sphere on the fixed Z = 0 plane during active
+   * normal melee attack frames.
+   * Note: SuperShot and SuperMove bypass normal hitbox collision and resolve via
+   * CombatSystem3D.applyGuaranteedSpecialHit.
    */
   public getActiveAttackSphere3D(): Sphere3D | null {
     if (!this.isMoveInActiveWindow() || !this.currentMove || this.moveHasHit) {
       return null;
     }
-    if (this.currentMove.isProjectile) {
+    if (
+      this.currentMove.isProjectile ||
+      this.currentMoveType === 'super_shot' ||
+      this.currentMoveType === 'super_move' ||
+      this.currentMoveType === 'super'
+    ) {
       return null;
     }
 
@@ -603,11 +673,15 @@ export class Fighter3D {
 
     const cx = bonePos
       ? bonePos.x + this.facing * 0.22
-      : this.position.x + this.facing * reachMeters;
-    const cy = bonePos ? bonePos.y : this.position.y + heightMeters;
-    const cz = bonePos ? bonePos.z : this.position.z;
+      : this._position.x + this.facing * reachMeters;
+    const cy = bonePos ? bonePos.y : this._position.y + heightMeters;
 
-    return HitboxSystem3D.createSphere(cx, cy, cz, move.hitRadius3D || 0.48);
+    return HitboxSystem3D.createSphere(
+      cx,
+      cy,
+      FIXED_RENDER_PLANE_Z,
+      move.hitRadius3D || 0.48
+    );
   }
 
   public registerComboHit(rawDamage: number): number {
@@ -636,10 +710,10 @@ export class Fighter3D {
       name: this.def.name,
       x: this.x,
       y: this.y,
-      z: this.position.z,
-      vx: this.velocity.x,
-      vy: this.velocity.y,
-      vz: this.velocity.z,
+      z: FIXED_RENDER_PLANE_Z,
+      vx: this._velocity.x,
+      vy: this._velocity.y,
+      vz: 0,
       facing: this.facing,
       health: Math.max(0, Math.round(this.health)),
       maxHealth: this.maxHealth,

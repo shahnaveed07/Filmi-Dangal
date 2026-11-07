@@ -1,10 +1,11 @@
 import { Scene, UniversalCamera, Vector3 } from '@babylonjs/core';
-import { Fighter3D } from '../combat/Fighter3D';
+import { Fighter3D, FIXED_RENDER_PLANE_Z } from '../combat/Fighter3D';
 
 /**
- * Cinematic 3/4 perspective fighting camera for Filmi Dangal 2.0.
- * Smoothly frames both fighters in 3D space, zooms dynamically during SuperMoves,
- * prevents clipping, and applies trauma-based impact shake.
+ * Fixed Side-View 3D Camera for Filmi Dangal 2.0.
+ * Keeps gameplay strictly framed from a perpendicular side-view perspective looking
+ * straight at the Z = 0 fighting plane, tracking horizontal midpoint X and vertical Y
+ * while zooming cleanly during SuperMoves.
  */
 export class DynamicFightCamera3D {
   public readonly camera: UniversalCamera;
@@ -16,11 +17,15 @@ export class DynamicFightCamera3D {
   private elapsed = 0;
 
   constructor(scene: Scene) {
-    this.currentPos = new Vector3(0, 2.35, -6.8);
-    this.currentTarget = new Vector3(0, 1.15, 0);
+    this.currentPos = new Vector3(0, 2.1, -6.8);
+    this.currentTarget = new Vector3(0, 1.15, FIXED_RENDER_PLANE_Z);
 
-    this.camera = new UniversalCamera('FilmiFightCamera3D', this.currentPos.clone(), scene);
-    this.camera.fov = 0.68; // Cinematic ~39 deg vertical FOV
+    this.camera = new UniversalCamera(
+      'FilmiFightCamera3D',
+      this.currentPos.clone(),
+      scene
+    );
+    this.camera.fov = 0.66;
     this.camera.minZ = 0.15;
     this.camera.maxZ = 85;
     this.camera.setTarget(this.currentTarget);
@@ -30,7 +35,10 @@ export class DynamicFightCamera3D {
     this.trauma = Math.min(1.0, this.trauma + amount);
   }
 
-  public triggerSuperMoveZoom(fighterIndex: 0 | 1, durationSeconds = 1.15): void {
+  public triggerSuperMoveZoom(
+    fighterIndex: 0 | 1,
+    durationSeconds = 1.15
+  ): void {
     this.specialFocusIndex = fighterIndex;
     this.specialZoomTimer = durationSeconds;
     this.addTrauma(0.45);
@@ -48,36 +56,41 @@ export class DynamicFightCamera3D {
 
     const midX = (f1.position.x + f2.position.x) * 0.5;
     const midY = Math.max(1.05, (f1.position.y + f2.position.y) * 0.5 + 1.08);
-    const midZ = (f1.position.z + f2.position.z) * 0.5;
+    const separation = Math.abs(f1.position.x - f2.position.x);
 
-    const spanX = Math.abs(f1.position.x - f2.position.x);
-    const spanZ = Math.abs(f1.position.z - f2.position.z);
-    const separation = Math.sqrt(spanX * spanX + spanZ * spanZ);
+    // True fixed side-view alignment: camera X matches target X on the Z = 0 plane
+    let desiredTarget = new Vector3(midX, midY, FIXED_RENDER_PLANE_Z);
+    let desiredDistZ = Math.max(5.4, Math.min(11.2, 4.4 + separation * 0.72));
+    let desiredHeightY = 1.85 + separation * 0.09;
+    let desiredPosX = midX;
 
-    let desiredTarget = new Vector3(midX, midY, midZ);
-    // Base distance scales smoothly with fighter separation so neither fighter ever clips off-screen
-    let desiredDistZ = Math.max(5.4, Math.min(10.8, 4.3 + separation * 0.72));
-    let desiredHeightY = 1.95 + separation * 0.11;
-    let desiredOffsetX = midX * 0.92;
-
-    // Dramatic close-up 3/4 camera zoom during SuperMove activation
+    // Side-view dramatic zoom during SuperMove activation
     if (this.specialZoomTimer > 0 && this.specialFocusIndex !== null) {
       const focusFighter = this.specialFocusIndex === 0 ? f1 : f2;
+      desiredPosX = focusFighter.position.x + focusFighter.facing * 0.35;
       desiredTarget = new Vector3(
-        focusFighter.position.x + focusFighter.facing * 0.45,
-        focusFighter.position.y + 1.25,
-        focusFighter.position.z
+        desiredPosX,
+        focusFighter.position.y + 1.2,
+        FIXED_RENDER_PLANE_Z
       );
-      desiredDistZ = 3.9;
-      desiredHeightY = 1.55;
-      desiredOffsetX = focusFighter.position.x - focusFighter.facing * 0.65;
+      desiredDistZ = 4.1;
+      desiredHeightY = 1.5;
     }
 
-    const desiredPos = new Vector3(desiredOffsetX, desiredHeightY, midZ - desiredDistZ);
+    const desiredPos = new Vector3(
+      desiredPosX,
+      desiredHeightY,
+      FIXED_RENDER_PLANE_Z - desiredDistZ
+    );
 
     const smoothFactor = Math.min(1, dt * 8.5);
     Vector3.LerpToRef(this.currentPos, desiredPos, smoothFactor, this.currentPos);
-    Vector3.LerpToRef(this.currentTarget, desiredTarget, smoothFactor, this.currentTarget);
+    Vector3.LerpToRef(
+      this.currentTarget,
+      desiredTarget,
+      smoothFactor,
+      this.currentTarget
+    );
 
     // Apply decaying trauma camera shake
     let shakeX = 0;

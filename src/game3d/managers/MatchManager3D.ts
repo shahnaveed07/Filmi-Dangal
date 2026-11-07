@@ -60,7 +60,10 @@ export class MatchManager3D {
 
     if (p1) p1.resetForRound(MatchManager3D.P1_SPAWN_X_3D, 0, 0, true);
     if (p2) p2.resetForRound(MatchManager3D.P2_SPAWN_X_3D, 0, 0, true);
-    if (combat) combat.projectileManager.clear();
+    if (combat) {
+      combat.projectileManager.clear();
+      combat.clearResolvedActivations();
+    }
     if (cpu) cpu.reset();
   }
 
@@ -73,7 +76,10 @@ export class MatchManager3D {
     this.startRound(this.currentRound);
     p1.resetForRound(MatchManager3D.P1_SPAWN_X_3D, 0, 0, false);
     p2.resetForRound(MatchManager3D.P2_SPAWN_X_3D, 0, 0, false);
-    if (combat) combat.projectileManager.clear();
+    if (combat) {
+      combat.projectileManager.clear();
+      combat.clearResolvedActivations();
+    }
     if (cpu) cpu.reset();
   }
 
@@ -204,7 +210,10 @@ export class MatchManager3D {
           this.startRound(this.currentRound + 1);
           p1.resetForRound(MatchManager3D.P1_SPAWN_X_3D, 0, 0, false);
           p2.resetForRound(MatchManager3D.P2_SPAWN_X_3D, 0, 0, false);
-          if (combat) combat.projectileManager.clear();
+          if (combat) {
+            combat.projectileManager.clear();
+            combat.clearResolvedActivations();
+          }
           if (cpu) cpu.reset();
         }
         break;

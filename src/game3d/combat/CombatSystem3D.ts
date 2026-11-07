@@ -1,9 +1,11 @@
 import { AttackType, CombatHitEvent, Vector3D } from '../../types/fighter';
-import { Fighter3D } from './Fighter3D';
+import { MatchPhase } from '../../engine/MatchManager';
+import { Fighter3D, FIXED_RENDER_PLANE_Z } from './Fighter3D';
 import { HitboxSystem3D } from '../hitboxes/HitboxSystem3D';
-import { ActiveProjectile3D, ProjectileManager3D } from './Projectile3D';
+import { ProjectileManager3D } from './Projectile3D';
 
 export interface CombatHitEvent3D extends CombatHitEvent {
+  activationId?: string;
   attackerIndex: 0 | 1;
   defenderIndex: 0 | 1;
   moveType: AttackType;
@@ -20,16 +22,31 @@ export interface CombatHitEvent3D extends CombatHitEvent {
 }
 
 /**
- * 3D Combat resolution engine handling 3D pushbox separation, bone-attached melee spheres,
- * 3D capsule hurtboxes, and 3D SuperShot projectiles.
+ * CombatSystem3D
+ *
+ * Authoritative combat system on the 2D XY plane (Z = 0).
+ * Resolves 2D XY plane pushboxes, standard hitbox/hurtbox collision for normal attacks,
+ * and guaranteed-hit opponent damage for SuperMove and SuperShot.
  */
 export class CombatSystem3D {
   public readonly projectileManager = new ProjectileManager3D();
+  private readonly resolvedSpecialActivationIds = new Set<string>();
 
+  public hasResolvedActivation(activationId: string): boolean {
+    return this.resolvedSpecialActivationIds.has(activationId);
+  }
+
+  public clearResolvedActivations(): void {
+    this.resolvedSpecialActivationIds.clear();
+  }
+
+  /**
+   * Resolves horizontal X-axis pushbox overlap on the 2D XY plane.
+   */
   public resolvePushboxes3D(
     f1: Fighter3D,
     f2: Fighter3D,
-    bounds3D = { minX: -7.5, maxX: 7.5, minZ: -3.2, maxZ: 3.2 }
+    bounds = { minX: -7.5, maxX: 7.5, minZ: 0, maxZ: 0 }
   ): void {
     const r1 = Math.max(0.32, f1.def.visuals.proportions.shoulderWidth * 0.72);
     const r2 = Math.max(0.32, f2.def.visuals.proportions.shoulderWidth * 0.72);
@@ -45,31 +62,154 @@ export class CombatSystem3D {
 
     const halfPush = sep.overlap * 0.52;
     f1.position.x -= sep.dirX * halfPush;
-    f1.position.z -= sep.dirZ * halfPush;
     f2.position.x += sep.dirX * halfPush;
-    f2.position.z += sep.dirZ * halfPush;
 
-    f1.position.x = Math.max(bounds3D.minX, Math.min(bounds3D.maxX, f1.position.x));
-    f1.position.z = Math.max(bounds3D.minZ, Math.min(bounds3D.maxZ, f1.position.z));
-    f2.position.x = Math.max(bounds3D.minX, Math.min(bounds3D.maxX, f2.position.x));
-    f2.position.z = Math.max(bounds3D.minZ, Math.min(bounds3D.maxZ, f2.position.z));
+    f1.position.x = Math.max(bounds.minX, Math.min(bounds.maxX, f1.position.x));
+    f2.position.x = Math.max(bounds.minX, Math.min(bounds.maxX, f2.position.x));
+  }
+
+  /**
+   * AUTHORITATIVE GUARANTEED-HIT COMBAT FUNCTION FOR SPECIAL ATTACKS (SuperMove & SuperShot).
+   *
+   * Guarantees positive character-specific damage whenever activated against an eligible
+   * opposing fighter:
+   * - No maximum distance or range check
+   * - No projectile collision requirement
+   * - Blocking cannot prevent or reduce the guaranteed damage
+   * - Applies damage exactly once per activation via unique activationId deduplication
+   * - Triggers opponent hit reaction (hurt / knockback)
+   * - Respects match-end and KO states and never damages an already defeated opponent
+   */
+  public applyGuaranteedSpecialHit(
+    attacker: Fighter3D,
+    defender: Fighter3D,
+    abilityType: 'super_shot' | 'super_move',
+    activationId: string,
+    matchPhase: MatchPhase = 'fighting'
+  ): CombatHitEvent3D | null {
+    if (matchPhase !== 'fighting') {
+      return null;
+    }
+
+    if (!activationId || this.resolvedSpecialActivationIds.has(activationId)) {
+      return null;
+    }
+
+    if (
+      attacker.playerIndex === defender.playerIndex ||
+      !attacker.isEligibleTarget() ||
+      !defender.isEligibleTarget()
+    ) {
+      return null;
+    }
+
+    // Lock activation ID so damage can never be applied more than once for this activation
+    this.resolvedSpecialActivationIds.add(activationId);
+    attacker.moveHasHit = true;
+    attacker.specialDamageResolvedForActivation = true;
+
+    const move = attacker.def.moves[abilityType];
+    const isSuperMove = abilityType === 'super_move';
+    const moveName = isSuperMove
+      ? attacker.def.superMoveInfo.name
+      : attacker.def.superShotInfo.name;
+
+    // Guaranteed positive character-specific damage (never zero, never prevented by block)
+    const rawDamage =
+      (move.damage * attacker.def.stats.powerMultiplier) /
+      defender.def.stats.defenseMultiplier;
+    const confirmedDamage = Math.max(1, Math.round(rawDamage));
+
+    attacker.comboCount += 1;
+    attacker.comboTimerFrames = 60;
+    attacker.comboDamage += confirmedDamage;
+
+    // Bypass block, dodge, and invulnerability on confirmed special hit
+    defender.isBlocking = false;
+    defender.invulnerableFrames = 0;
+    defender.currentMove = null;
+    defender.currentMoveType = null;
+    defender.health = Math.max(0, defender.health - confirmedDamage);
+
+    defender.gainMeter(isSuperMove ? 15 : 8);
+
+    const pushDirX =
+      defender.position.x >= attacker.position.x ? 1 : -1;
+    const causesKO = defender.health <= 0;
+    const causesKnockdown = isSuperMove || !!move.causesKnockdown || causesKO;
+
+    const kbX = Math.min(8.5, Math.max(2.5, move.knockbackX * 0.55));
+    const kbY = Math.min(9.5, Math.max(2.5, Math.abs(move.knockbackY) * 0.55));
+
+    if (causesKnockdown) {
+      defender.state = 'knockback';
+      defender.stateFrame = 0;
+      defender.hitstunFrames = move.hitStunFrames + 12;
+      defender.isGrounded = false;
+      defender.velocity.x = pushDirX * kbX;
+      defender.velocity.y = Math.max(4.6, kbY);
+    } else {
+      defender.state = 'hurt';
+      defender.stateFrame = 0;
+      defender.hitstunFrames = move.hitStunFrames;
+      defender.velocity.x = pushDirX * kbX * 0.65;
+    }
+
+    const contactPoint3D: Vector3D = {
+      x: defender.position.x,
+      y: defender.position.y + 1.15,
+      z: FIXED_RENDER_PLANE_Z,
+    };
+    const contactX2D = 640 + contactPoint3D.x * 80;
+    const contactY2D = 570 - contactPoint3D.y * 80;
+
+    return {
+      activationId,
+      attackerId: attacker.id,
+      defenderId: defender.id,
+      attackerIndex: attacker.playerIndex,
+      defenderIndex: defender.playerIndex,
+      moveType: abilityType,
+      attackType: abilityType,
+      moveName,
+      damage: confirmedDamage,
+      blocked: false,
+      isBlocked: false,
+      isCounter: false,
+      isCritical: isSuperMove,
+      isGrab: false,
+      isProjectile: !isSuperMove,
+      causedKnockdown: causesKnockdown,
+      isSuperMove,
+      isSuperShot: !isSuperMove,
+      hitRegion: 'torso',
+      contactPoint3D,
+      contactX2D,
+      contactY2D,
+      hitX: contactX2D,
+      hitY: contactY2D,
+      hitZ: FIXED_RENDER_PLANE_Z,
+      comboCount: attacker.comboCount,
+      dialogueLine: isSuperMove
+        ? attacker.def.dialogues.superQuote
+        : attacker.def.dialogues.superShotQuote,
+    };
   }
 
   public updateAndResolveCombat(
     f1: Fighter3D,
     f2: Fighter3D,
-    dt = 1 / 60
+    dt = 1 / 60,
+    matchPhase: MatchPhase = 'fighting'
   ): CombatHitEvent3D[] {
-    const events: CombatHitEvent3D[] = [];
-
-    // 1. Check if either fighter spawns a SuperShot projectile on this frame
+    // 1. Spawn & advance visual 3D SuperShot projectiles on the 2D XY plane (preserved visual animation)
     if (f1.shouldSpawnProjectileThisFrame()) {
       this.projectileManager.spawnSuperShot(
         0,
         f1.id,
         f1.position,
         f1.facing,
-        f2.position.z
+        FIXED_RENDER_PLANE_Z
       );
     }
     if (f2.shouldSpawnProjectileThisFrame()) {
@@ -78,43 +218,34 @@ export class CombatSystem3D {
         f2.id,
         f2.position,
         f2.facing,
-        f1.position.z
+        FIXED_RENDER_PLANE_Z
       );
     }
 
-    // 2. Advance active 3D projectiles and check collisions
     this.projectileManager.updateFrame(dt);
     for (const proj of this.projectileManager.getActiveProjectiles()) {
       if (!proj.active) continue;
-      const attacker = proj.ownerIndex === 0 ? f1 : f2;
       const defender = proj.ownerIndex === 0 ? f2 : f1;
-
-      if (
-        defender.invulnerableFrames > 0 ||
-        defender.state === 'knockdown' ||
-        defender.state === 'defeat'
-      ) {
-        continue;
-      }
-
-      const projSphere = this.projectileManager.getProjectileSphere(proj);
-      const hurtbox = defender.getCapsuleHurtbox3D();
-      const hitCheck = HitboxSystem3D.checkAttackHit3D(projSphere, hurtbox);
-
-      if (hitCheck.overlaps) {
+      if (proj.ageFrames >= 8 && Math.abs(proj.position.x - defender.position.x) < 0.45) {
         proj.active = false;
-        const evt = this.applyProjectileHit(
-          attacker,
-          defender,
-          proj,
-          hitCheck.contactPoint,
-          hitCheck.hitRegion
-        );
-        events.push(evt);
       }
     }
 
-    // 3. Resolve melee bone-attached 3D attack spheres
+    // Respect match-end and KO states: do not resolve damage outside active fighting phase
+    if (matchPhase !== 'fighting') {
+      return [];
+    }
+
+    const events: CombatHitEvent3D[] = [];
+
+    // 2. Resolve Guaranteed Special Hits (SuperShot & SuperMove) via authoritative combat function
+    const specialEvt1 = this.checkAndResolvePendingSpecial(f1, f2, matchPhase);
+    if (specialEvt1) events.push(specialEvt1);
+
+    const specialEvt2 = this.checkAndResolvePendingSpecial(f2, f1, matchPhase);
+    if (specialEvt2) events.push(specialEvt2);
+
+    // 3. Resolve normal attacks (punch, kick, sweep, forward_punch, forward_kick, grab) with standard hitbox/hurtbox collision
     const hit1 = this.checkFighterMeleeAttack(f1, f2);
     const hit2 = this.checkFighterMeleeAttack(f2, f1);
 
@@ -124,10 +255,57 @@ export class CombatSystem3D {
     return events;
   }
 
+  private checkAndResolvePendingSpecial(
+    attacker: Fighter3D,
+    defender: Fighter3D,
+    matchPhase: MatchPhase
+  ): CombatHitEvent3D | null {
+    if (
+      !attacker.currentSpecialActivationId ||
+      attacker.specialDamageResolvedForActivation
+    ) {
+      return null;
+    }
+
+    if (
+      attacker.state === 'super_shot' ||
+      attacker.currentMoveType === 'super_shot'
+    ) {
+      return this.applyGuaranteedSpecialHit(
+        attacker,
+        defender,
+        'super_shot',
+        attacker.currentSpecialActivationId,
+        matchPhase
+      );
+    }
+
+    if (
+      attacker.state === 'super_move' ||
+      attacker.state === 'super' ||
+      attacker.currentMoveType === 'super_move' ||
+      attacker.currentMoveType === 'super'
+    ) {
+      return this.applyGuaranteedSpecialHit(
+        attacker,
+        defender,
+        'super_move',
+        attacker.currentSpecialActivationId,
+        matchPhase
+      );
+    }
+
+    return null;
+  }
+
   private checkFighterMeleeAttack(
     attacker: Fighter3D,
     defender: Fighter3D
   ): CombatHitEvent3D | null {
+    if (!attacker.isEligibleTarget() || !defender.isEligibleTarget()) {
+      return null;
+    }
+
     const attackSphere = attacker.getActiveAttackSphere3D();
     if (!attackSphere || !attacker.currentMove || !attacker.currentMoveType) {
       return null;
@@ -142,7 +320,10 @@ export class CombatSystem3D {
     }
 
     const defenderCapsule = defender.getCapsuleHurtbox3D();
-    const hitResult = HitboxSystem3D.checkAttackHit3D(attackSphere, defenderCapsule);
+    const hitResult = HitboxSystem3D.checkAttackHit3D(
+      attackSphere,
+      defenderCapsule
+    );
     if (!hitResult.overlaps) {
       return null;
     }
@@ -158,10 +339,7 @@ export class CombatSystem3D {
       moveType !== 'grab' && !(move.isLow && !defender.isCrouching);
 
     const isBlocked = defender.isBlocking && canBlockMove;
-    const isSuperMove = moveType === 'super_move' || moveType === 'super';
-    const moveName = isSuperMove
-      ? attacker.def.superMoveInfo.name
-      : moveType.toUpperCase();
+    const moveName = moveType.toUpperCase();
 
     const contactX2D = 640 + hitResult.contactPoint.x * 80;
     const contactY2D = 570 - hitResult.contactPoint.y * 80;
@@ -198,7 +376,7 @@ export class CombatSystem3D {
         isCritical: false,
         isGrab: false,
         causedKnockdown: false,
-        isSuperMove,
+        isSuperMove: false,
         isSuperShot: false,
         hitRegion: hitResult.hitRegion,
         contactPoint3D: hitResult.contactPoint,
@@ -206,7 +384,7 @@ export class CombatSystem3D {
         contactY2D,
         hitX: contactX2D,
         hitY: contactY2D,
-        hitZ: hitResult.contactPoint.z,
+        hitZ: FIXED_RENDER_PLANE_Z,
         comboCount: 0,
       };
     }
@@ -260,10 +438,10 @@ export class CombatSystem3D {
       blocked: false,
       isBlocked: false,
       isCounter: false,
-      isCritical: isSuperMove,
+      isCritical: false,
       isGrab: moveType === 'grab',
       causedKnockdown: causesKnockdown,
-      isSuperMove,
+      isSuperMove: false,
       isSuperShot: false,
       hitRegion: hitResult.hitRegion,
       contactPoint3D: hitResult.contactPoint,
@@ -271,116 +449,8 @@ export class CombatSystem3D {
       contactY2D,
       hitX: contactX2D,
       hitY: contactY2D,
-      hitZ: hitResult.contactPoint.z,
+      hitZ: FIXED_RENDER_PLANE_Z,
       comboCount: attacker.comboCount,
-      dialogueLine: isSuperMove ? attacker.def.dialogues.superQuote : undefined,
-    };
-  }
-
-  private applyProjectileHit(
-    attacker: Fighter3D,
-    defender: Fighter3D,
-    proj: ActiveProjectile3D,
-    contactPoint: Vector3D,
-    hitRegion: 'head' | 'torso' | 'legs' | 'none'
-  ): CombatHitEvent3D {
-    const pushDirX = proj.velocity.x >= 0 ? 1 : -1;
-    const contactX2D = 640 + contactPoint.x * 80;
-    const contactY2D = 570 - contactPoint.y * 80;
-
-    if (defender.isBlocking) {
-      const chip = Math.max(2, Math.round(proj.damage * 0.15));
-      defender.health = Math.max(1, defender.health - chip);
-      defender.state = defender.isCrouching ? 'crouch_block' : 'block';
-      defender.stateFrame = 0;
-      defender.blockstunFrames = proj.blockstun;
-      defender.velocity.x = pushDirX * 2.4;
-      defender.gainMeter(5);
-
-      return {
-        attackerId: attacker.id,
-        defenderId: defender.id,
-        attackerIndex: attacker.playerIndex,
-        defenderIndex: defender.playerIndex,
-        moveType: 'super_shot',
-        attackType: 'super_shot',
-        moveName: proj.name,
-        damage: chip,
-        blocked: true,
-        isBlocked: true,
-        isCounter: false,
-        isCritical: false,
-        isGrab: false,
-         isProjectile: true,
-        causedKnockdown: false,
-        isSuperMove: false,
-        isSuperShot: true,
-        hitRegion,
-        contactPoint3D: contactPoint,
-        contactX2D,
-        contactY2D,
-        hitX: contactX2D,
-        hitY: contactY2D,
-        hitZ: contactPoint.z,
-        comboCount: 0,
-      };
-    }
-
-    const rawDamage =
-      (proj.damage * attacker.def.stats.powerMultiplier) /
-      defender.def.stats.defenseMultiplier;
-    const scaledDamage = attacker.registerComboHit(rawDamage);
-
-    defender.health = Math.max(0, defender.health - scaledDamage);
-    defender.isBlocking = false;
-    defender.currentMove = null;
-    defender.currentMoveType = null;
-    defender.gainMeter(8);
-
-    const causesKO = defender.health <= 0;
-    const causesKnockdown = proj.causesKnockdown || causesKO;
-
-    if (causesKnockdown) {
-      defender.state = 'knockback';
-      defender.stateFrame = 0;
-      defender.hitstunFrames = proj.hitstun + 10;
-      defender.isGrounded = false;
-      defender.velocity.x = pushDirX * proj.knockbackX;
-      defender.velocity.y = Math.max(4.5, proj.knockbackY);
-    } else {
-      defender.state = 'hurt';
-      defender.stateFrame = 0;
-      defender.hitstunFrames = proj.hitstun;
-      defender.velocity.x = pushDirX * proj.knockbackX * 0.65;
-    }
-
-    return {
-      attackerId: attacker.id,
-      defenderId: defender.id,
-      attackerIndex: attacker.playerIndex,
-      defenderIndex: defender.playerIndex,
-      moveType: 'super_shot',
-      attackType: 'super_shot',
-      moveName: proj.name,
-      damage: scaledDamage,
-      blocked: false,
-      isBlocked: false,
-      isCounter: false,
-      isCritical: false,
-      isGrab: false,
-      isProjectile: true,
-      causedKnockdown: causesKnockdown,
-      isSuperMove: false,
-      isSuperShot: true,
-      hitRegion,
-      contactPoint3D: contactPoint,
-      contactX2D,
-      contactY2D,
-      hitX: contactX2D,
-      hitY: contactY2D,
-      hitZ: contactPoint.z,
-      comboCount: attacker.comboCount,
-      dialogueLine: attacker.def.dialogues.superShotQuote,
     };
   }
 }

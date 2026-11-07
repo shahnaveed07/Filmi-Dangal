@@ -1,5 +1,6 @@
 import { CharacterId, Sphere3D, Vector3D } from '../../types/fighter';
 import { HitboxSystem3D } from '../hitboxes/HitboxSystem3D';
+import { FIXED_RENDER_PLANE_Z } from './Fighter3D';
 
 export interface ActiveProjectile3D {
   id: string;
@@ -23,7 +24,8 @@ export interface ActiveProjectile3D {
 }
 
 /**
- * Factory and updater for character-specific 3D SuperShot projectiles.
+ * Factory and updater for character-specific 3D SuperShot visual projectiles on the 2D XY plane (Z = 0).
+ * Visual projectiles travel along the X axis at Z = 0, independent of guaranteed-hit damage resolution.
  */
 export class ProjectileManager3D {
   private projectiles: ActiveProjectile3D[] = [];
@@ -34,13 +36,11 @@ export class ProjectileManager3D {
     characterId: CharacterId,
     origin: Vector3D,
     facing: 1 | -1,
-    targetZ: number
+    _unusedTargetZ = 0
   ): ActiveProjectile3D {
     const id = `proj_${this.nextId++}`;
-    const dz = targetZ - origin.z;
-    const zVel = Math.max(-1.8, Math.min(1.8, dz * 1.4));
 
-    let speedX = 11.0;
+    let speedX = 12.5;
     let radius = 0.45;
     let damage = 90;
     let hitstun = 20;
@@ -54,7 +54,7 @@ export class ProjectileManager3D {
 
     if (characterId === 'action_sultan') {
       name = 'POWERLINE BLAST';
-      speedX = 11.5;
+      speedX = 12.5;
       radius = 0.48;
       damage = 95;
       knockbackX = 5.2;
@@ -63,7 +63,7 @@ export class ProjectileManager3D {
       secondaryHex = '#DC2626';
     } else if (characterId === 'romance_raja') {
       name = 'DIL SE PULSE';
-      speedX = 12.2;
+      speedX = 13.0;
       radius = 0.46;
       damage = 88;
       knockbackX = 3.8;
@@ -72,7 +72,7 @@ export class ProjectileManager3D {
       secondaryHex = '#FBBF24';
     } else if (characterId === 'dance_dynamo') {
       name = 'BEAT DROP';
-      speedX = 13.5;
+      speedX = 14.0;
       radius = 0.44;
       damage = 82;
       hitstun = 22;
@@ -82,7 +82,7 @@ export class ProjectileManager3D {
       secondaryHex = '#EC4899';
     } else if (characterId === 'villain_saab') {
       name = 'UNDERWORLD BARRAGE';
-      speedX = 10.5;
+      speedX = 11.5;
       radius = 0.52;
       damage = 100;
       knockbackX = 6.0;
@@ -100,12 +100,12 @@ export class ProjectileManager3D {
       position: {
         x: origin.x + facing * 0.75,
         y: origin.y + 1.05,
-        z: origin.z,
+        z: FIXED_RENDER_PLANE_Z,
       },
       velocity: {
         x: facing * speedX,
         y: 0,
-        z: zVel,
+        z: 0,
       },
       radius,
       damage,
@@ -130,14 +130,10 @@ export class ProjectileManager3D {
       if (!p.active) continue;
       p.position.x += p.velocity.x * dt;
       p.position.y += p.velocity.y * dt;
-      p.position.z += p.velocity.z * dt;
+      p.position.z = FIXED_RENDER_PLANE_Z;
       p.ageFrames += 1;
 
-      if (
-        p.ageFrames >= p.maxLifetimeFrames ||
-        Math.abs(p.position.x) > 10.5 ||
-        Math.abs(p.position.z) > 5.0
-      ) {
+      if (p.ageFrames >= p.maxLifetimeFrames || Math.abs(p.position.x) > 12.0) {
         p.active = false;
       }
     }
@@ -152,7 +148,7 @@ export class ProjectileManager3D {
     return HitboxSystem3D.createSphere(
       proj.position.x,
       proj.position.y,
-      proj.position.z,
+      FIXED_RENDER_PLANE_Z,
       proj.radius
     );
   }

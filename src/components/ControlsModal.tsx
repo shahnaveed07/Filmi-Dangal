@@ -39,20 +39,20 @@ export const ControlsModal: React.FC<ControlsModalProps> = ({ onClose }) => {
           <div className="bg-black/40 border border-[#D6A447]/30 rounded-lg p-3.5">
             <div className="flex items-center gap-2 text-xs font-['Cinzel'] font-black text-[#D6A447] mb-2 uppercase">
               <Keyboard size={16} />
-              <span>DESKTOP 3D CONTROLS</span>
+              <span>DESKTOP 2D PLANE CONTROLS</span>
             </div>
             <div className="space-y-1.5 text-xs font-mono text-[#F1E7D0]">
               <div className="flex justify-between border-b border-white/10 pb-1">
-                <span>3D MOVEMENT &amp; SIDESTEP</span>
-                <span className="font-bold text-[#FDE047]">W / A / S / D</span>
+                <span>HORIZONTAL MOVE (X-AXIS)</span>
+                <span className="font-bold text-[#FDE047]">A / D or &larr; / &rarr;</span>
               </div>
               <div className="flex justify-between border-b border-white/10 pb-1">
-                <span>JUMP</span>
-                <span className="font-bold text-[#FDE047]">SPACE</span>
+                <span>JUMP (Y-AXIS)</span>
+                <span className="font-bold text-[#FDE047]">SPACE / W / &uarr;</span>
               </div>
               <div className="flex justify-between border-b border-white/10 pb-1">
                 <span>CROUCH</span>
-                <span className="font-bold text-[#FDE047]">CTRL or C</span>
+                <span className="font-bold text-[#FDE047]">S / CTRL / C / &darr;</span>
               </div>
               <div className="flex justify-between border-b border-white/10 pb-1">
                 <span>BLOCK / GUARD</span>
@@ -71,7 +71,7 @@ export const ControlsModal: React.FC<ControlsModalProps> = ({ onClose }) => {
                 <span className="font-bold text-[#FDE047]">I</span>
               </div>
               <div className="flex justify-between border-b border-white/10 pb-1">
-                <span>SUPERSHOT (RANGED)</span>
+                <span>SUPERSHOT (GUARANTEED HIT)</span>
                 <span className="font-bold text-[#38BDF8]">U (25% Meter)</span>
               </div>
               <div className="flex justify-between border-b border-white/10 pb-1">
@@ -85,25 +85,25 @@ export const ControlsModal: React.FC<ControlsModalProps> = ({ onClose }) => {
             </div>
           </div>
 
-          {/* MOBILE MULTITOUCH & 3D TACTICS */}
+          {/* MOBILE MULTITOUCH & 2.5D COMBAT TACTICS */}
           <div className="bg-black/40 border border-[#D6A447]/30 rounded-lg p-3.5 flex flex-col justify-between">
             <div>
               <div className="flex items-center gap-2 text-xs font-['Cinzel'] font-black text-[#D6A447] mb-2 uppercase">
                 <Smartphone size={16} />
-                <span>3D ARENA &amp; MOBILE TOUCH</span>
+                <span>3D VISUALS &amp; 2D XY GAMEPLAY</span>
               </div>
               <p className="text-xs text-[#F1E7D0]/80 leading-relaxed mb-3">
-                Use W/S or Step In/Out on mobile to sidestep along the Z-axis and evade incoming 3D SuperShot projectiles or linear charges!
+                Fighters battle strictly on a fixed 2D XY plane with a side-view 3D camera. Normal melee attacks require close range, while signature specials strike from any distance!
               </p>
             </div>
 
             <div className="p-2.5 bg-[#BE123C]/20 border border-[#BE123C] rounded text-xs space-y-1">
               <div className="flex items-center gap-1.5 font-bold text-[#FEF08A]">
                 <Shield size={14} />
-                <span>3D GUARD &amp; SIGNATURE MOVES</span>
+                <span>GUARANTEED SIGNATURE SPECIALS</span>
               </div>
               <p className="text-[11px] text-white/80">
-                Hold SHIFT or GUARD to block high/mid attacks and projectiles. Press U for your ranged SuperShot (25% meter) and L at 100% meter to trigger your cinematic SuperMove finisher!
+                Hold SHIFT or GUARD to block normal attacks. Press U for your signature SuperShot (25% meter) or L at 100% meter for your blockbuster SuperMove—both guarantee confirmed damage across the entire arena!
               </p>
             </div>
           </div>

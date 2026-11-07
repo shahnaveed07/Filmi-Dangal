@@ -34,7 +34,6 @@ export const CharacterPreview3D: React.FC<CharacterPreview3DProps> = ({
   const sceneControllerRef = useRef<CharacterPreviewScene | null>(null);
 
   const [selectedState, setSelectedState] = useState<FighterStateName>('idle');
-  const [renderMode, setRenderMode] = useState<'stylized' | 'graybox'>('stylized');
   const [lodLevel, setLodLevel] = useState<0 | 1 | 2>(0);
   const [telemetry, setTelemetry] = useState<PreviewTelemetrySnapshot | null>(null);
   const lastTelemetryRef = useRef<number>(0);
@@ -68,19 +67,11 @@ export const CharacterPreview3D: React.FC<CharacterPreview3DProps> = ({
     sceneControllerRef.current?.triggerAnimationState(state);
   };
 
-  const handleToggleRenderMode = () => {
-    const next = renderMode === 'stylized' ? 'graybox' : 'stylized';
-    setRenderMode(next);
-    sceneControllerRef.current?.setRenderMode(next);
-  };
-
   const handleCycleLod = () => {
     const next = ((lodLevel + 1) % 3) as 0 | 1 | 2;
     setLodLevel(next);
     sceneControllerRef.current?.setLODLevel(next);
   };
-
-  const isVerticalSlice = characterId === 'action_sultan';
 
   return (
     <div className="relative w-full h-56 sm:h-64 rounded-lg overflow-hidden border border-[#D6A447]/60 bg-[#0D0B18] shadow-inner">
@@ -94,14 +85,8 @@ export const CharacterPreview3D: React.FC<CharacterPreview3DProps> = ({
 
       {/* TOP LEFT: COMPACT GLB & ANIMATION EVENT STATUS */}
       <div className="absolute top-1.5 left-1.5 flex items-center gap-1.5 pointer-events-none">
-        <div
-          className={`px-1.5 py-0.5 rounded border text-[8px] font-mono uppercase tracking-wider ${
-            isVerticalSlice
-              ? 'bg-[#14532D]/90 border-[#4ADE80] text-[#BBF7D0]'
-              : 'bg-black/80 border-[#D6A447]/50 text-[#FEF08A]'
-          }`}
-        >
-          {isVerticalSlice ? 'SLICE #1 VERIFIED · GLB v2.0' : 'STAGE 2 · GLB v2.0'}
+        <div className="px-1.5 py-0.5 rounded border text-[8px] font-mono uppercase tracking-wider bg-[#14532D]/90 border-[#4ADE80] text-[#BBF7D0]">
+          3D STYLIZED · GLB v2.0
         </div>
         {telemetry && (
           <div className="px-1.5 py-0.5 rounded bg-black/80 border border-white/15 text-[8px] font-mono text-[#E2E8F0] flex items-center gap-1.5">
@@ -114,20 +99,8 @@ export const CharacterPreview3D: React.FC<CharacterPreview3DProps> = ({
         )}
       </div>
 
-      {/* TOP RIGHT: GRAYBOX PROXY & LOD TOGGLES */}
+      {/* TOP RIGHT: 3D LEVEL OF DETAIL TOGGLE */}
       <div className="absolute top-2 right-2 flex items-center gap-1">
-        <button
-          type="button"
-          onClick={handleToggleRenderMode}
-          className={`px-2 py-0.5 rounded border text-[9px] font-mono uppercase cursor-pointer transition-colors ${
-            renderMode === 'graybox'
-              ? 'bg-[#F97316] text-black border-[#FDBA74] font-bold'
-              : 'bg-black/75 text-[#CBD5E1] border-white/25 hover:border-[#D6A447]'
-          }`}
-          title="Toggle between Stylized 3D Mesh and Labeled Graybox Proxy"
-        >
-          {renderMode === 'graybox' ? 'GRAYBOX PROXY' : '3D STYLIZED'}
-        </button>
         <button
           type="button"
           onClick={handleCycleLod}

@@ -170,7 +170,7 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
       {/* BOTTOM SAFE MARGIN: CLEAN FLAT CONTROL HINT LINE */}
       <div className="relative z-10 w-full text-center py-2 border-t border-[#D6A447]/20">
         <p className="font-mono text-xs sm:text-sm text-[#F1E7D0]/60 tracking-wider">
-          <span className="text-[#FDE047] font-bold">WASD</span> 3D Move · <span className="text-[#FDE047] font-bold">Space</span> Jump · <span className="text-[#FDE047] font-bold">Ctrl</span> Crouch · <span className="text-[#FDE047] font-bold">Shift</span> Block · <span className="text-[#FDE047] font-bold">J/K/I</span> Attack · <span className="text-[#38BDF8] font-bold">U</span> SuperShot · <span className="text-[#FDE047] font-bold">L</span> SuperMove
+          <span className="text-[#FDE047] font-bold">A/D</span> Move · <span className="text-[#FDE047] font-bold">Space/W</span> Jump · <span className="text-[#FDE047] font-bold">S/Ctrl</span> Crouch · <span className="text-[#FDE047] font-bold">Shift</span> Block · <span className="text-[#FDE047] font-bold">J/K/I</span> Attack · <span className="text-[#38BDF8] font-bold">U</span> SuperShot · <span className="text-[#FDE047] font-bold">L</span> SuperMove
         </p>
       </div>
     </div>

@@ -7,7 +7,7 @@ interface DifficultyProfile3D {
   decisionIntervalFrames: number;
   aggression: number;
   blockChance: number;
-  sidestepDodgeChance: number;
+  jumpEvadeChance: number;
   superMoveChance: number;
   superShotChance: number;
   comboFollowupChance: number;
@@ -19,7 +19,7 @@ const PROFILES_3D: Record<DifficultyLevel, DifficultyProfile3D> = {
     decisionIntervalFrames: 18,
     aggression: 0.38,
     blockChance: 0.22,
-    sidestepDodgeChance: 0.25,
+    jumpEvadeChance: 0.2,
     superMoveChance: 0.35,
     superShotChance: 0.28,
     comboFollowupChance: 0.2,
@@ -29,7 +29,7 @@ const PROFILES_3D: Record<DifficultyLevel, DifficultyProfile3D> = {
     decisionIntervalFrames: 10,
     aggression: 0.65,
     blockChance: 0.55,
-    sidestepDodgeChance: 0.6,
+    jumpEvadeChance: 0.5,
     superMoveChance: 0.75,
     superShotChance: 0.55,
     comboFollowupChance: 0.55,
@@ -39,7 +39,7 @@ const PROFILES_3D: Record<DifficultyLevel, DifficultyProfile3D> = {
     decisionIntervalFrames: 5,
     aggression: 0.88,
     blockChance: 0.84,
-    sidestepDodgeChance: 0.88,
+    jumpEvadeChance: 0.8,
     superMoveChance: 0.95,
     superShotChance: 0.78,
     comboFollowupChance: 0.85,
@@ -48,21 +48,16 @@ const PROFILES_3D: Record<DifficultyLevel, DifficultyProfile3D> = {
 };
 
 /**
- * 3D CPU AI Controller for Filmi Dangal 2.0.
- * Navigates (X, Y, Z) space, sidesteps incoming 3D projectiles, aligns Z-depth before striking,
- * blocks, punishes whiffs, and triggers character-specific SuperShots & SuperMoves.
+ * 2D XY Plane CPU AI Controller for Filmi Dangal 2.0.
+ * Operates strictly on the 2D XY plane (no Z-axis or sidestepping), managing horizontal
+ * spacing, vertical jumps, crouch/block defense, melee combos, and guaranteed SuperShot
+ * & SuperMove activations.
  */
 export class CPUController3D {
   private difficulty: DifficultyLevel;
   private cooldownFrames = 0;
-  private currentIntent:
-    | 'idle'
-    | 'approach'
-    | 'retreat'
-    | 'block'
-    | 'crouch'
-    | 'sidestep_up'
-    | 'sidestep_down' = 'idle';
+  private currentIntent: 'idle' | 'approach' | 'retreat' | 'block' | 'crouch' =
+    'idle';
   private rngState = 987654321;
 
   constructor(difficulty: DifficultyLevel) {
@@ -92,41 +87,13 @@ export class CPUController3D {
     const profile = PROFILES_3D[this.difficulty];
 
     const dx = player.position.x - cpu.position.x;
-    const dz = player.position.z - cpu.position.z;
     const absDx = Math.abs(dx);
-    const absDz = Math.abs(dz);
     const towardLeft = dx < 0;
     const towardRight = dx > 0;
     const awayLeft = !towardLeft;
     const awayRight = !towardRight;
 
-    // 1. Check for incoming 3D enemy projectile to dodge via Z-sidestep or block
-    const incomingProj = activeProjectiles.find(
-      (p) =>
-        p.ownerIndex !== cpu.playerIndex &&
-        Math.abs(p.position.x - cpu.position.x) < 4.2 &&
-        Math.abs(p.position.z - cpu.position.z) < 0.85
-    );
-
-    if (incomingProj && cpu.canAct()) {
-      if (this.random() < profile.sidestepDodgeChance) {
-        if (cpu.position.z <= 0) {
-          frame.sidestepUp = true;
-          frame.up = true;
-        } else {
-          frame.sidestepDown = true;
-          frame.down = true;
-        }
-        return frame;
-      } else if (this.random() < profile.blockChance) {
-        frame.block = true;
-        frame.left = awayLeft;
-        frame.right = awayRight;
-        return frame;
-      }
-    }
-
-    // 2. Combo cancel into SuperMove when meter is full on hit
+    // 1. Combo cancel into SuperMove when meter is full on hit
     if (
       cpu.isAttacking() &&
       cpu.moveHasHit &&
@@ -148,8 +115,11 @@ export class CPUController3D {
 
     this.cooldownFrames = profile.decisionIntervalFrames;
 
-    // 3. Defensive reaction when player attacks in close/mid range
-    if (player.isAttacking() && absDx < 2.3 && absDz < 0.9) {
+    // 2. Defensive reaction when player attacks in close/mid range or visual projectile approaches on XY plane
+    const incomingProj = activeProjectiles.find(
+      (pr) => pr.ownerIndex !== cpu.playerIndex && Math.abs(pr.position.x - cpu.position.x) < 3.5
+    );
+    if ((player.isAttacking() && absDx < 2.3) || incomingProj) {
       if (this.random() < profile.blockChance) {
         this.currentIntent = 'block';
         frame.block = true;
@@ -160,22 +130,23 @@ export class CPUController3D {
           frame.down = true;
         }
         return frame;
-      } else if (this.random() < profile.sidestepDodgeChance) {
-        this.currentIntent = cpu.position.z <= 0 ? 'sidestep_up' : 'sidestep_down';
-        this.applyOngoingIntent(frame, towardLeft, towardRight, awayLeft, awayRight);
+      } else if (this.random() < profile.jumpEvadeChance && cpu.isGrounded) {
+        frame.jump = true;
+        frame.jumpJustPressed = true;
+        frame.up = true;
+        frame.upJustPressed = true;
+        frame.left = awayLeft;
+        frame.right = awayRight;
         return frame;
       }
     }
 
-    // 4. Align Z lane if misaligned before committing to melee attacks
-    if (absDz > 0.55 && absDx < 3.5) {
-      this.currentIntent = dz > 0 ? 'sidestep_up' : 'sidestep_down';
-      this.applyOngoingIntent(frame, towardLeft, towardRight, awayLeft, awayRight);
-      return frame;
-    }
-
-    // 5. Anti-air when player jumps in
-    if (!player.isGrounded && absDx < 2.1 && this.random() < profile.antiAirChance) {
+    // 3. Anti-air when player jumps in
+    if (
+      !player.isGrounded &&
+      absDx < 2.1 &&
+      this.random() < profile.antiAirChance
+    ) {
       frame.left = towardLeft;
       frame.right = towardRight;
       frame.kick = true;
@@ -184,19 +155,18 @@ export class CPUController3D {
       return frame;
     }
 
-    // 6. Close-range melee & signature finisher logic
-    if (absDx <= 1.85 && absDz <= 0.7) {
-      // Unleash SuperMove when meter is 100!
-      if (cpu.specialMeter >= 100 && this.random() < profile.superMoveChance) {
-        frame.superMove = true;
-        frame.superMoveJustPressed = true;
-        frame.special = true;
-        frame.specialJustPressed = true;
-        this.currentIntent = 'idle';
-        return frame;
-      }
+    // 4. Unleash guaranteed SuperMove whenever meter is 100
+    if (cpu.specialMeter >= 100 && this.random() < profile.superMoveChance) {
+      frame.superMove = true;
+      frame.superMoveJustPressed = true;
+      frame.special = true;
+      frame.specialJustPressed = true;
+      this.currentIntent = 'idle';
+      return frame;
+    }
 
-      // If opponent is blocking, use Grab (I) or low Sweep to break guard
+    // 5. Close-range melee logic
+    if (absDx <= 1.85) {
       if (player.isBlocking && this.random() < profile.aggression) {
         if (this.random() < 0.55 && absDx <= 1.35) {
           frame.grab = true;
@@ -239,10 +209,9 @@ export class CPUController3D {
       return frame;
     }
 
-    // 7. Mid-to-long range: fire SuperShot projectile or close distance
+    // 6. Mid-to-long range: fire guaranteed SuperShot or close distance
     if (
       absDx > 2.2 &&
-      absDz < 0.85 &&
       cpu.specialMeter >= 25 &&
       cpu.superShotCooldownFrames <= 0 &&
       this.random() < profile.superShotChance
@@ -288,12 +257,6 @@ export class CPUController3D {
       frame.right = awayRight;
     } else if (this.currentIntent === 'crouch') {
       frame.crouch = true;
-      frame.down = true;
-    } else if (this.currentIntent === 'sidestep_up') {
-      frame.sidestepUp = true;
-      frame.up = true;
-    } else if (this.currentIntent === 'sidestep_down') {
-      frame.sidestepDown = true;
       frame.down = true;
     }
   }

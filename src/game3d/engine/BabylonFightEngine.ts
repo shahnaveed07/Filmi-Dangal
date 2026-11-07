@@ -357,7 +357,12 @@ export class BabylonFightEngine {
     this.combat.resolvePushboxes3D(this.p1, this.p2, arenaDef.bounds3D);
 
     if (this.match.phase === 'fighting') {
-      const hitEvents = this.combat.updateAndResolveCombat(this.p1, this.p2, 1 / 60);
+      const hitEvents = this.combat.updateAndResolveCombat(
+        this.p1,
+        this.p2,
+        1 / 60,
+        this.match.phase
+      );
       for (const ev of hitEvents) {
         const isP1Attacker = ev.attackerIndex === 0;
         this.match.recordHitEvent(ev, isP1Attacker);
@@ -392,6 +397,9 @@ export class BabylonFightEngine {
           this.cameraController.addTrauma(0.18);
           this.hitstopTimer = Math.max(this.hitstopTimer, 3);
         }
+      }
+      if (hitEvents.length > 0) {
+        this.pushHUDUpdate();
       }
     }
 
@@ -448,10 +456,12 @@ export class BabylonFightEngine {
       if (fighter.id === 'villain_saab') {
         this.blackoutTimer = 1.25;
       }
+      this.pushHUDUpdate();
     } else if (fighter.state === 'super_shot') {
       AudioManager3D.playSuperShotSound(fighter.id);
       this.specialCallout = `${fighter.def.superShotInfo.name}!`;
       this.specialCalloutFrames = 45;
+      this.pushHUDUpdate();
     } else if (fighter.isAttacking() || fighter.state === 'jump') {
       audio.playSound('whoosh');
     }
@@ -461,11 +471,7 @@ export class BabylonFightEngine {
     const bridge = GameBridge.getInstance();
 
     if (this.p1Rig) {
-      this.p1Rig.rootNode.position.set(
-        this.p1.position.x,
-        this.p1.position.y,
-        this.p1.position.z
-      );
+      this.p1Rig.rootNode.position.set(this.p1.position.x, this.p1.position.y, 0);
       this.animController.updateRigPose(
         this.p1Rig,
         this.p1.id,
@@ -473,16 +479,12 @@ export class BabylonFightEngine {
         this.p1.stateFrame / 60,
         dt,
         this.p1.facing,
-        this.p1.velocity.z
+        0
       );
     }
 
     if (this.p2Rig) {
-      this.p2Rig.rootNode.position.set(
-        this.p2.position.x,
-        this.p2.position.y,
-        this.p2.position.z
-      );
+      this.p2Rig.rootNode.position.set(this.p2.position.x, this.p2.position.y, 0);
       this.animController.updateRigPose(
         this.p2Rig,
         this.p2.id,
@@ -490,7 +492,7 @@ export class BabylonFightEngine {
         this.p2.stateFrame / 60,
         dt,
         this.p2.facing,
-        this.p2.velocity.z
+        0
       );
     }
 

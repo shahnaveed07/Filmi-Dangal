@@ -1,23 +1,13 @@
 import { CharacterId } from '../../types/fighter';
+import { CombatHitEvent3D, CombatSystem3D } from './CombatSystem3D';
 import { Fighter3D } from './Fighter3D';
 
 /**
  * CharacterSpecialMoveController
  *
  * Coordinates the two completely unique special attacks (`SuperShot` and `SuperMove`)
- * for each of the four characters:
- * 1. Action Sultan:
- *    - SuperShot: POWERLINE BLAST (Anim_AS_SuperShot_PowerlineBlast)
- *    - SuperMove: SULTAN BREAKER (Anim_AS_SuperMove_SultanBreaker)
- * 2. Romance Raja:
- *    - SuperShot: DIL SE PULSE (Anim_RR_SuperShot_DilSePulse)
- *    - SuperMove: BAADSHAH'S GRAND GESTURE (Anim_RR_SuperMove_BaadshahGrandGesture)
- * 3. Dance Dynamo:
- *    - SuperShot: BEAT DROP (Anim_DD_SuperShot_BeatDrop)
- *    - SuperMove: RHYTHM OVERDRIVE (Anim_DD_SuperMove_RhythmOverdrive)
- * 4. Villain Saab:
- *    - SuperShot: UNDERWORLD BARRAGE (Anim_VS_SuperShot_UnderworldBarrage)
- *    - SuperMove: BLACKOUT VERDICT (Anim_VS_SuperMove_BlackoutVerdict)
+ * for each of the four characters and connects them to the dedicated guaranteed-hit
+ * combat resolution function (`CombatSystem3D.applyGuaranteedSpecialHit`).
  */
 
 export interface SpecialMoveProfile {
@@ -118,16 +108,52 @@ export class CharacterSpecialMoveController {
   }
 
   /**
-   * Attempts to initiate a character's ranged SuperShot.
+   * Initiates a character's ranged SuperShot and optionally resolves guaranteed damage immediately.
    */
-  public static tryExecuteSuperShot(fighter: Fighter3D): boolean {
-    return fighter.startAttack('super_shot');
+  public static tryExecuteSuperShot(
+    fighter: Fighter3D,
+    defender?: Fighter3D,
+    combat?: CombatSystem3D,
+    matchPhase: 'round_intro' | 'fighting' | 'ko' | 'time_over' | 'round_end' | 'match_end' = 'fighting'
+  ): CombatHitEvent3D | boolean {
+    const started = fighter.startAttack('super_shot');
+    if (!started) return false;
+    if (defender && combat && fighter.currentSpecialActivationId) {
+      return (
+        combat.applyGuaranteedSpecialHit(
+          fighter,
+          defender,
+          'super_shot',
+          fighter.currentSpecialActivationId,
+          matchPhase
+        ) ?? true
+      );
+    }
+    return true;
   }
 
   /**
-   * Attempts to initiate a character's cinematic SuperMove finisher.
+   * Initiates a character's cinematic SuperMove and optionally resolves guaranteed damage immediately.
    */
-  public static tryExecuteSuperMove(fighter: Fighter3D): boolean {
-    return fighter.startAttack('super_move');
+  public static tryExecuteSuperMove(
+    fighter: Fighter3D,
+    defender?: Fighter3D,
+    combat?: CombatSystem3D,
+    matchPhase: 'round_intro' | 'fighting' | 'ko' | 'time_over' | 'round_end' | 'match_end' = 'fighting'
+  ): CombatHitEvent3D | boolean {
+    const started = fighter.startAttack('super_move');
+    if (!started) return false;
+    if (defender && combat && fighter.currentSpecialActivationId) {
+      return (
+        combat.applyGuaranteedSpecialHit(
+          fighter,
+          defender,
+          'super_move',
+          fighter.currentSpecialActivationId,
+          matchPhase
+        ) ?? true
+      );
+    }
+    return true;
   }
 }

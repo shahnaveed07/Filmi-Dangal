@@ -93,109 +93,121 @@ test('2. AnimationController3D generates distinct poses across all 18 animation 
   }
 });
 
-test('3. 3D Fighter movement (X horizontal, Z sidestep, Y jump) and 3D arena bounds clamping', () => {
+test('3. Strict 2D XY Plane Fighter3D movement (Vector2 X horizontal, Y vertical, Z = 0 fixed plane) and bounds clamping', () => {
   const bounds = ARENAS.award_night.bounds3D;
   const p1 = new Fighter3D(0, CHARACTERS.action_sultan, -2.0, 0, 0);
   const p2 = new Fighter3D(1, CHARACTERS.romance_raja, 2.0, 0, 0);
 
+  // Verify Vector2 instances for position2D and velocity2D
+  assert.equal(p1.position2D.x, -2.0);
+  assert.equal(p1.position2D.y, 0);
+  assert.equal(p1.position.z, 0, 'Fighter3D is locked to Z = 0 fixed rendering plane');
+
   // Move forward along +X
   p1.processInput({ ...EMPTY_INPUT_FRAME, right: true }, p2);
   p1.stepPhysics(bounds);
-  assert.ok(p1.position.x > -2.0, 'Fighter3D advances along +X');
+  assert.ok(p1.position2D.x > -2.0, 'Fighter3D advances along +X on 2D XY plane');
+  assert.equal(p1.position.z, 0, 'Z coordinate remains strictly 0');
   assert.equal(p1.state, 'run');
 
-  // Sidestep in along +Z
-  p1.processInput({ ...EMPTY_INPUT_FRAME, sidestepUp: true }, p2);
+  // Verify sidestep inputs do NOT move along Z-axis (no Z-axis gameplay or depth movement)
+  p1.processInput({ ...EMPTY_INPUT_FRAME, sidestepUp: true, sidestepDown: true }, p2);
   p1.stepPhysics(bounds);
-  assert.ok(p1.position.z > 0, 'Fighter3D sidesteps into foreground/depth along +Z');
-  assert.equal(p1.state, 'sidestep');
+  assert.equal(p1.position.z, 0, 'Sidestep inputs never change Z position');
+  assert.equal(p1.velocity.z, 0, 'Z velocity is always 0');
 
-  // Sidestep out along -Z
-  const prevZ = p1.position.z;
-  p1.processInput({ ...EMPTY_INPUT_FRAME, sidestepDown: true }, p2);
+  // Jump along +Y
+  p1.processInput({ ...EMPTY_INPUT_FRAME, jumpJustPressed: true, jump: true }, p2);
   p1.stepPhysics(bounds);
-  assert.ok(p1.position.z < prevZ, 'Fighter3D sidesteps along -Z');
+  assert.ok(p1.position2D.y > 0, 'Fighter3D jumps vertically along +Y');
+  assert.equal(p1.isGrounded, false);
+  assert.equal(p1.position.z, 0);
 
-  // Clamp to 3D stage boundaries
+  // Clamp to horizontal arena boundaries while keeping Z = 0
   p1.position.x = -20;
-  p1.position.z = 15;
+  p1.position.z = 15; // Attempting to set Z is ignored on fixed rendering plane
   p1.stepPhysics(bounds);
-  assert.equal(p1.position.x, bounds.minX, 'Clamped to 3D minX');
-  assert.equal(p1.position.z, bounds.maxZ, 'Clamped to 3D maxZ');
+  assert.equal(p1.position.x, bounds.minX, 'Clamped to arena minX');
+  assert.equal(p1.position.z, 0, 'Remains locked on Z = 0 plane');
 });
 
-test('4. 3D Bone-attached attack spheres, 3D capsule hurtboxes, and Z-axis sidestep evasion', () => {
+test('4. Normal melee attacks retain ordinary hitbox rules and respect attack range', () => {
   const p1 = new Fighter3D(0, CHARACTERS.action_sultan, 0, 0, 0);
   const p2 = new Fighter3D(1, CHARACTERS.romance_raja, 0.95, 0, 0);
   const combat = new CombatSystem3D();
 
-  // Case A: Aligned in Z (z = 0) -> Punch connects with 3D capsule hurtbox
+  // Case A: Close range (dx = 0.95m) -> Normal punch connects with hurtbox
   p1.startAttack('punch');
   for (let i = 0; i < p1.def.moves.punch.startupFrames; i++) {
     p1.stepPhysics();
   }
   const atkSphere = p1.getActiveAttackSphere3D();
-  assert.ok(atkSphere, 'Active 3D attack sphere exists during active frames');
+  assert.ok(atkSphere, 'Active 3D attack sphere exists for normal melee attack during active frames');
 
-  const eventsAligned = combat.updateAndResolveCombat(p1, p2);
-  assert.equal(eventsAligned.length, 1, 'Melee attack hits when aligned in X and Z');
-  assert.equal(eventsAligned[0].blocked, false);
+  const eventsClose = combat.updateAndResolveCombat(p1, p2);
+  assert.equal(eventsClose.length, 1, 'Normal melee attack hits when within attack range');
+  assert.equal(eventsClose[0].blocked, false);
   assert.ok(p2.health < p2.maxHealth);
 
-  // Case B: Defender sidestepped along Z (z = 1.8m) -> Melee attack whiffs in 3D space!
+  // Case B: Out of range (dx = 4.0m) -> Normal melee attack misses!
   p1.resetForRound(0, 0, 0, true);
-  p2.resetForRound(0.95, 0, 1.8, true);
+  p2.resetForRound(4.0, 0, 0, true);
 
   p1.startAttack('punch');
   for (let i = 0; i < p1.def.moves.punch.startupFrames; i++) {
     p1.stepPhysics();
   }
-  const eventsSidestepped = combat.updateAndResolveCombat(p1, p2);
+  const eventsOutOfRange = combat.updateAndResolveCombat(p1, p2);
   assert.equal(
-    eventsSidestepped.length,
+    eventsOutOfRange.length,
     0,
-    '3D sidestep along Z evades linear melee attack'
+    'Normal melee attack respects attack range and misses distant opponent'
   );
+  assert.equal(p2.health, p2.maxHealth, 'Out-of-range normal attack deals zero damage');
 });
 
-test('5. All 4 character SuperShot 3D projectiles and cooldown/meter mechanics', () => {
+test('5. All 4 character SuperShots guarantee damage once per activation and spawn independent visual projectiles', () => {
   for (const char of CHARACTER_LIST) {
-    const attacker = new Fighter3D(0, char, -1.5, 0, 0);
-    const defender = new Fighter3D(1, CHARACTERS.action_sultan, 1.5, 0, 0);
+    const attacker = new Fighter3D(0, char, -4.5, 0, 0);
+    const defender = new Fighter3D(1, CHARACTERS.action_sultan, 4.5, 0, 0);
     const combat = new CombatSystem3D();
 
     attacker.specialMeter = 50;
+    const initialDefenderHp = defender.health;
     const started = attacker.startAttack('super_shot');
     assert.equal(started, true, `${char.id} starts SuperShot (${char.superShotInfo.name})`);
+    assert.ok(attacker.currentSpecialActivationId, 'Unique activationId assigned on SuperShot start');
     assert.ok(attacker.superShotCooldownFrames > 0, 'Cooldown applied on SuperShot');
 
-    // Step through startup frames to spawn projectile
-    for (let f = 0; f <= attacker.def.moves.super_shot.startupFrames + 1; f++) {
+    // Step through startup frames: guaranteed hit resolves immediately on active frame, independent of projectile travel
+    let hitEventsCount = 0;
+    let totalDamageDealt = 0;
+    for (let f = 0; f <= attacker.def.moves.super_shot.startupFrames + 15; f++) {
       attacker.stepPhysics();
-      combat.updateAndResolveCombat(attacker, defender);
-    }
-
-    const activeProjs = combat.projectileManager.getActiveProjectiles();
-    assert.equal(activeProjs.length, 1, `${char.id} spawned 3D SuperShot projectile`);
-    assert.equal(activeProjs[0].name, char.superShotInfo.name);
-
-    // Step frames until projectile reaches defender
-    let hitDetected = false;
-    for (let f = 0; f < 45; f++) {
       const evs = combat.updateAndResolveCombat(attacker, defender);
-      if (evs.some((e) => e.isSuperShot)) {
-        hitDetected = true;
-        break;
+      for (const e of evs) {
+        if (e.isSuperShot) {
+          hitEventsCount++;
+          totalDamageDealt += e.damage;
+        }
       }
     }
-    assert.equal(hitDetected, true, `${char.superShotInfo.name} 3D projectile hits target`);
+
+    assert.equal(hitEventsCount, 1, `${char.id} SuperShot applies damage exactly once per activation`);
+    assert.ok(totalDamageDealt > 0, `${char.id} SuperShot deals positive character-specific damage`);
+    assert.equal(defender.health, initialDefenderHp - totalDamageDealt);
+
+    // Visual projectile was also spawned independently on Z = 0 plane
+    const activeProjs = combat.projectileManager.getActiveProjectiles();
+    assert.equal(activeProjs.length, 1, `${char.id} spawned independent visual 3D SuperShot projectile`);
+    assert.equal(activeProjs[0].position.z, 0, 'Projectile travels strictly on Z = 0 plane');
   }
 });
 
-test('6. All 4 character SuperMove finishers require 100 meter and execute signature damage', () => {
+test('6. All 4 character SuperMove finishers require 100 meter and guarantee damage regardless of distance', () => {
   for (const char of CHARACTER_LIST) {
-    const attacker = new Fighter3D(0, char, -0.5, 0, 0);
-    const defender = new Fighter3D(1, CHARACTERS.villain_saab, 0.5, 0, 0);
+    const attacker = new Fighter3D(0, char, -6.0, 0, 0);
+    const defender = new Fighter3D(1, CHARACTERS.villain_saab, 6.0, 0, 0);
     const combat = new CombatSystem3D();
 
     attacker.specialMeter = 50;
@@ -206,56 +218,63 @@ test('6. All 4 character SuperMove finishers require 100 meter and execute signa
     );
 
     attacker.specialMeter = 100;
+    const initialDefenderHp = defender.health;
     assert.equal(
       attacker.startAttack('super_move'),
       true,
       `${char.id} triggers SuperMove (${char.superMoveInfo.name}) at 100 meter`
     );
     assert.equal(attacker.specialMeter, 0, 'SuperMove consumes 100 meter');
+    assert.ok(attacker.currentSpecialActivationId, 'Unique activationId assigned on SuperMove start');
 
-    let superHit = false;
-    for (let f = 0; f < 20; f++) {
+    let superHitCount = 0;
+    let superDamage = 0;
+    for (let f = 0; f < 25; f++) {
       attacker.stepPhysics();
-      // Keep defender in front of charging attacker
-      defender.position.x = attacker.position.x + 0.65;
       const evs = combat.updateAndResolveCombat(attacker, defender);
-      if (evs.some((e) => e.isSuperMove)) {
-        superHit = true;
-        break;
+      for (const e of evs) {
+        if (e.isSuperMove) {
+          superHitCount++;
+          superDamage += e.damage;
+        }
       }
     }
-    assert.equal(superHit, true, `${char.superMoveInfo.name} connects with heavy 3D impact`);
+    assert.equal(superHitCount, 1, `${char.superMoveInfo.name} resolves guaranteed damage exactly once even across max arena distance`);
+    assert.ok(superDamage > 0, `${char.superMoveInfo.name} deals positive character-specific finisher damage`);
+    assert.equal(defender.health, initialDefenderHp - superDamage);
   }
 });
 
-test('7. CPUController3D sidesteps incoming 3D projectiles and unleashes SuperMove at 100 meter', () => {
+test('7. CPUController3D operates strictly on 2D XY plane and unleashes SuperMove at 100 meter', () => {
   const p1 = new Fighter3D(0, CHARACTERS.action_sultan, -2.5, 0, 0);
   const cpuFighter = new Fighter3D(1, CHARACTERS.dance_dynamo, 1.5, 0, 0);
   const combat = new CombatSystem3D();
   const cpu = new CPUController3D('hard');
 
-  // Spawn an incoming P1 SuperShot projectile heading toward CPU at Z = 0
+  // Spawn an incoming P1 SuperShot projectile heading toward CPU on XY plane
   combat.projectileManager.spawnSuperShot(0, 'action_sultan', { x: -0.5, y: 0, z: 0 }, 1, 0);
 
-  let sidesteppedOrBlocked = false;
+  let reactedOn2DPlane = false;
   for (let i = 0; i < 10; i++) {
     const inp = cpu.computeInput(
       cpuFighter,
       p1,
       combat.projectileManager.getActiveProjectiles()
     );
-    if (inp.sidestepUp || inp.sidestepDown || inp.block) {
-      sidesteppedOrBlocked = true;
+    assert.equal(inp.sidestepUp, false, 'CPU never uses Z-axis sidestepUp');
+    assert.equal(inp.sidestepDown, false, 'CPU never uses Z-axis sidestepDown');
+    if (inp.jump || inp.block) {
+      reactedOn2DPlane = true;
       break;
     }
   }
   assert.equal(
-    sidesteppedOrBlocked,
+    reactedOn2DPlane,
     true,
-    '3D CPU reacts to incoming 3D projectile with sidestep or guard'
+    'CPU reacts to incoming projectile on 2D XY plane with jump or guard'
   );
 
-  // Give CPU 100 meter in close range and verify it triggers SuperMove
+  // Give CPU 100 meter and verify it triggers SuperMove
   combat.projectileManager.clear();
   cpu.reset();
   p1.position = { x: 0.5, y: 0, z: 0 };
@@ -270,7 +289,7 @@ test('7. CPUController3D sidesteps incoming 3D projectiles and unleashes SuperMo
       break;
     }
   }
-  assert.equal(triggeredSuper, true, 'Hard CPU triggers SuperMove in close range at 100 meter');
+  assert.equal(triggeredSuper, true, 'Hard CPU triggers SuperMove at 100 meter');
 });
 
 test('8. MatchManager3D round flow, K.O., time expiry, and rematch reset', () => {
@@ -410,4 +429,231 @@ test('10. Final Character Asset Production Directive: CharacterAssetValidator, A
     'Opposing 3D SuperShot projectiles cancel on mid-air collision'
   );
 });
+
+test('11. Section E Validation Matrix: Every character SuperMove & SuperShot vs every opposing character across all 7 scenarios guarantees positive damage once per activation', () => {
+  const combat = new CombatSystem3D();
+
+  interface ValidationScenario {
+    name: string;
+    setup: (attacker: Fighter3D, defender: Fighter3D) => void;
+  }
+
+  const scenarios: ValidationScenario[] = [
+    {
+      name: '1. Point-blank range',
+      setup: (attacker, defender) => {
+        attacker.position.x = 0;
+        attacker.position.y = 0;
+        defender.position.x = 0.55;
+        defender.position.y = 0;
+      },
+    },
+    {
+      name: '2. Medium range',
+      setup: (attacker, defender) => {
+        attacker.position.x = -1.5;
+        attacker.position.y = 0;
+        defender.position.x = 1.5;
+        defender.position.y = 0;
+      },
+    },
+    {
+      name: '3. Maximum arena distance',
+      setup: (attacker, defender) => {
+        attacker.position.x = ARENAS.award_night.bounds3D.minX;
+        attacker.position.y = 0;
+        defender.position.x = ARENAS.award_night.bounds3D.maxX;
+        defender.position.y = 0;
+      },
+    },
+    {
+      name: '4. Opposite sides of the arena',
+      setup: (attacker, defender) => {
+        attacker.position.x = ARENAS.film_city.bounds3D.maxX;
+        attacker.position.y = 0;
+        attacker.facing = -1;
+        defender.position.x = ARENAS.film_city.bounds3D.minX;
+        defender.position.y = 0;
+        defender.facing = 1;
+      },
+    },
+    {
+      name: '5. While opponent is airborne',
+      setup: (attacker, defender) => {
+        attacker.position.x = -2.0;
+        attacker.position.y = 0;
+        defender.position.x = 2.5;
+        defender.position.y = 2.4;
+        defender.isGrounded = false;
+        defender.state = 'jump';
+        defender.velocity.y = 3.5;
+      },
+    },
+    {
+      name: '6. While opponent is blocking',
+      setup: (attacker, defender) => {
+        attacker.position.x = -2.0;
+        attacker.position.y = 0;
+        defender.position.x = 2.0;
+        defender.position.y = 0;
+        defender.isBlocking = true;
+        defender.state = 'block';
+      },
+    },
+    {
+      name: '7. While opponent is moving',
+      setup: (attacker, defender) => {
+        attacker.position.x = -3.0;
+        attacker.position.y = 0;
+        defender.position.x = 3.0;
+        defender.position.y = 0;
+        defender.state = 'run';
+        defender.velocity.x = 4.8;
+      },
+    },
+  ];
+
+  const abilities: Array<'super_shot' | 'super_move'> = ['super_shot', 'super_move'];
+  let totalValidatedCases = 0;
+
+  for (const attackerChar of CHARACTER_LIST) {
+    for (const defenderChar of CHARACTER_LIST) {
+      for (const ability of abilities) {
+        for (const scenario of scenarios) {
+          const attacker = new Fighter3D(0, attackerChar, -2.0, 0, 0);
+          const defender = new Fighter3D(1, defenderChar, 2.0, 0, 0);
+          scenario.setup(attacker, defender);
+
+          // Ensure Z = 0 fixed plane
+          assert.equal(attacker.position.z, 0);
+          assert.equal(defender.position.z, 0);
+
+          attacker.specialMeter = 100;
+          attacker.superShotCooldownFrames = 0;
+          const initialDefenderHp = defender.health;
+
+          const started = attacker.startAttack(ability);
+          assert.equal(
+            started,
+            true,
+            `${attackerChar.id} vs ${defenderChar.id} [${ability}] failed to start in ${scenario.name}`
+          );
+
+          const activationId = attacker.currentSpecialActivationId;
+          assert.ok(
+            activationId,
+            `Activation ID must exist for ${attackerChar.id} [${ability}]`
+          );
+
+          // Step simulation through startup and active frames
+          let hitEventsForAbility = 0;
+          let confirmedDamage = 0;
+
+          for (let f = 0; f < 35; f++) {
+            attacker.stepPhysics();
+            const evs = combat.updateAndResolveCombat(attacker, defender);
+            for (const ev of evs) {
+              if (
+                (ability === 'super_shot' && ev.isSuperShot) ||
+                (ability === 'super_move' && ev.isSuperMove)
+              ) {
+                hitEventsForAbility++;
+                confirmedDamage += ev.damage;
+                assert.equal(
+                  ev.blocked,
+                  false,
+                  `Guaranteed special [${ability}] must never be block-cancelled (${scenario.name})`
+                );
+                assert.ok(
+                  defender.state === 'hurt' || defender.state === 'knockback',
+                  `Guaranteed special [${ability}] must trigger opponent hit reaction (${defender.state})`
+                );
+              }
+            }
+          }
+
+          assert.equal(
+            hitEventsForAbility,
+            1,
+            `${attackerChar.id} vs ${defenderChar.id} [${ability}] in ${scenario.name} must apply damage EXACTLY ONCE per activation`
+          );
+          assert.ok(
+            confirmedDamage > 0,
+            `${attackerChar.id} vs ${defenderChar.id} [${ability}] in ${scenario.name} must deal positive damage`
+          );
+          assert.equal(
+            defender.health,
+            initialDefenderHp - confirmedDamage,
+            `Defender health must immediately reflect guaranteed ${ability} damage`
+          );
+
+          // Verify duplicate call with the same activationId is rejected (0 extra damage)
+          const duplicateEvt = combat.applyGuaranteedSpecialHit(
+            attacker,
+            defender,
+            ability,
+            activationId!
+          );
+          assert.equal(
+            duplicateEvt,
+            null,
+            'Duplicate activationId must not deal damage a second time'
+          );
+          assert.equal(
+            defender.health,
+            initialDefenderHp - confirmedDamage,
+            'Defender health unchanged after duplicate activationId check'
+          );
+
+          totalValidatedCases++;
+        }
+      }
+    }
+  }
+
+  // 4 attackers * 4 defenders * 2 abilities * 7 scenarios = 224 validated cases
+  assert.equal(totalValidatedCases, 224, 'All 224 matchup-ability-scenario combinations verified');
+
+  // Verify MatchManager3D accurately detects KO when a guaranteed special attack reduces opponent health to 0
+  const koAttacker = new Fighter3D(0, CHARACTERS.action_sultan, -6.5, 0, 0);
+  const koDefender = new Fighter3D(1, CHARACTERS.villain_saab, 6.5, 0, 0);
+  const match = new MatchManager3D();
+  for (let i = 0; i < 90; i++) {
+    match.update(koAttacker, koDefender, combat);
+  }
+  assert.equal(match.phase, 'fighting');
+
+  koDefender.health = 10; // Low HP across the arena
+  koAttacker.specialMeter = 100;
+  const koResult = CharacterSpecialMoveController.tryExecuteSuperMove(koAttacker, koDefender, combat, match.phase);
+  assert.ok(koResult && typeof koResult === 'object' && koResult.damage >= 10);
+  assert.equal(koDefender.health, 0);
+
+  match.update(koAttacker, koDefender, combat);
+  assert.equal(match.phase, 'ko', 'MatchManager3D immediately detects KO from guaranteed special attack');
+  assert.equal(match.roundWinner, 'p1');
+
+  // Verify an already defeated opponent (health = 0 or state = 'defeat') and KO/match_end states are respected
+  koAttacker.specialMeter = 100;
+  const postKoEvt = combat.applyGuaranteedSpecialHit(
+    koAttacker,
+    koDefender,
+    'super_shot',
+    'post_ko_act_1',
+    match.phase
+  );
+  assert.equal(postKoEvt, null, 'Guaranteed special attack must not apply damage during KO phase');
+
+  koDefender.health = 500;
+  koDefender.state = 'defeat';
+  const defeatedTargetEvt = combat.applyGuaranteedSpecialHit(
+    koAttacker,
+    koDefender,
+    'super_move',
+    'defeated_target_act_1',
+    'fighting'
+  );
+  assert.equal(defeatedTargetEvt, null, 'Guaranteed special attack must not damage an already defeated opponent');
+});
+
 
