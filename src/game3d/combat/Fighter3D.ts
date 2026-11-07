@@ -12,6 +12,8 @@ import {
   Sphere3D,
   Vector3D,
 } from '../../types/fighter';
+import { MatchPhase } from '../../engine/MatchManager';
+import { FighterAnimationEvents } from '../animation/FighterAnimationEvents';
 import { HitboxSystem3D } from '../hitboxes/HitboxSystem3D';
 
 export const STAGE_3D_GRAVITY = 28.0; // m/s^2 in 2D XY world units
@@ -64,6 +66,7 @@ export class Fighter3D {
   public readonly playerIndex: 0 | 1;
   public def: CharacterDef;
   public id: CharacterId;
+  public readonly animEvents = new FighterAnimationEvents();
 
   private _position: PlaneVector2D;
   private _velocity: PlaneVector2D;
@@ -80,9 +83,11 @@ export class Fighter3D {
   public currentMove: AttackFrameData | null = null;
   public moveHasHit = false;
 
-  // Unique activation tracking for guaranteed-hit SuperMove and SuperShot
+  // Unique activation tracking & animation-event triggers for SuperMove and SuperShot
   public currentSpecialActivationId: string | null = null;
   public specialDamageResolvedForActivation = false;
+  public pendingProjectileSpawn = false;
+  public pendingSpecialImpact = false;
 
   public hitstunFrames = 0;
   public blockstunFrames = 0;
@@ -118,6 +123,31 @@ export class Fighter3D {
     this.maxHealth = def.stats.maxHealth;
     this.health = this.maxHealth;
     this.specialMeter = 25; // Start with 25 meter so SuperShot is ready
+
+    // Connect FighterAnimationEvents directly to combat triggers
+    this.animEvents.onEvent((evt) => {
+      if (evt.characterId !== this.id) return;
+      if (
+        evt.type === 'ON_PROJECTILE_SPAWN' &&
+        (this.state === 'super_shot' || this.currentMoveType === 'super_shot')
+      ) {
+        this.pendingProjectileSpawn = true;
+        if (this.currentSpecialActivationId && !this.specialDamageResolvedForActivation) {
+          this.pendingSpecialImpact = true;
+        }
+      } else if (
+        evt.type === 'ON_SUPERMOVE_PHASE' &&
+        evt.superMovePhase === 'CLIMAX_IMPACT' &&
+        (this.state === 'super_move' ||
+          this.state === 'super' ||
+          this.currentMoveType === 'super_move' ||
+          this.currentMoveType === 'super')
+      ) {
+        if (this.currentSpecialActivationId && !this.specialDamageResolvedForActivation) {
+          this.pendingSpecialImpact = true;
+        }
+      }
+    });
   }
 
   public get position2D(): Vector2 {
@@ -209,6 +239,8 @@ export class Fighter3D {
     this.moveHasHit = false;
     this.currentSpecialActivationId = null;
     this.specialDamageResolvedForActivation = false;
+    this.pendingProjectileSpawn = false;
+    this.pendingSpecialImpact = false;
     this.hitstunFrames = 0;
     this.blockstunFrames = 0;
     this.knockdownFrames = 0;
@@ -225,6 +257,20 @@ export class Fighter3D {
 
   public isEligibleTarget(): boolean {
     return this.health > 0 && this.state !== 'defeat';
+  }
+
+  public hasUnresolvedSpecial(): boolean {
+    return (
+      (this.state === 'super_move' ||
+        this.state === 'super' ||
+        this.state === 'super_shot' ||
+        this.currentMoveType === 'super_move' ||
+        this.currentMoveType === 'super' ||
+        this.currentMoveType === 'super_shot') &&
+      this.currentSpecialActivationId !== null &&
+      !this.specialDamageResolvedForActivation &&
+      this.health > 0
+    );
   }
 
   public canAct(): boolean {
@@ -265,7 +311,15 @@ export class Fighter3D {
     }
   }
 
-  public processInput(input: InputFrame, opponent: Fighter3D): void {
+  public processInput(
+    input: InputFrame,
+    opponent: Fighter3D,
+    matchPhase: MatchPhase = 'fighting'
+  ): void {
+    if (matchPhase !== 'fighting') {
+      return;
+    }
+
     this.updateFacing(opponent);
 
     if (
@@ -289,7 +343,7 @@ export class Fighter3D {
 
       if (canSpecialCancel) {
         if ((input.superMoveJustPressed || input.specialJustPressed) && this.specialMeter >= 100) {
-          this.startAttack('super_move');
+          this.startAttack('super_move', matchPhase);
           return;
         }
         if (
@@ -297,7 +351,7 @@ export class Fighter3D {
           this.specialMeter >= (this.def.moves.super_shot.meterCost ?? 25) &&
           this.superShotCooldownFrames <= 0
         ) {
-          this.startAttack('super_shot');
+          this.startAttack('super_shot', matchPhase);
           return;
         }
       }
@@ -306,7 +360,7 @@ export class Fighter3D {
 
     // 1. Check SuperMove (L) - Requires 100 meter
     if ((input.superMoveJustPressed || input.specialJustPressed) && this.specialMeter >= 100) {
-      this.startAttack('super_move');
+      this.startAttack('super_move', matchPhase);
       return;
     }
 
@@ -317,13 +371,13 @@ export class Fighter3D {
       this.specialMeter >= shotCost &&
       this.superShotCooldownFrames <= 0
     ) {
-      this.startAttack('super_shot');
+      this.startAttack('super_shot', matchPhase);
       return;
     }
 
     // 3. Check Grab (I)
     if (input.grabJustPressed && this.isGrounded) {
-      this.startAttack('grab');
+      this.startAttack('grab', matchPhase);
       return;
     }
 
@@ -335,20 +389,20 @@ export class Fighter3D {
     // 4. Check Punch / Kick / Directional Command Attacks
     if (input.punchJustPressed) {
       if (holdingForward && this.isGrounded) {
-        this.startAttack('forward_punch');
+        this.startAttack('forward_punch', matchPhase);
       } else {
-        this.startAttack('punch');
+        this.startAttack('punch', matchPhase);
       }
       return;
     }
 
     if (input.kickJustPressed) {
       if ((input.crouch || input.down) && this.isGrounded) {
-        this.startAttack('sweep');
+        this.startAttack('sweep', matchPhase);
       } else if (holdingForward && this.isGrounded) {
-        this.startAttack('forward_kick');
+        this.startAttack('forward_kick', matchPhase);
       } else {
-        this.startAttack('kick');
+        this.startAttack('kick', matchPhase);
       }
       return;
     }
@@ -416,7 +470,14 @@ export class Fighter3D {
     }
   }
 
-  public startAttack(type: AttackType): boolean {
+  public startAttack(
+    type: AttackType,
+    matchPhase: MatchPhase = 'fighting'
+  ): boolean {
+    if (matchPhase !== 'fighting' || !this.isEligibleTarget()) {
+      return false;
+    }
+
     const resolvedType: AttackType = type === 'super' ? 'super_move' : type;
     const move = this.def.moves[resolvedType];
     if (!move) return false;
@@ -442,19 +503,25 @@ export class Fighter3D {
     this.currentMove = move;
     this.moveHasHit = false;
     this.projectileSpawnedForCurrentMove = false;
+    this.pendingProjectileSpawn = false;
+    this.pendingSpecialImpact = false;
     this.isBlocking = false;
 
     if (resolvedType === 'super_move' || resolvedType === 'super_shot') {
       Fighter3D.activationSequence += 1;
       this.currentSpecialActivationId = `${this.id}_${resolvedType}_act_${Fighter3D.activationSequence}`;
       this.specialDamageResolvedForActivation = false;
+      // Grant special armor against normal melee interruption until the special finishes its active window
+      this.invulnerableFrames = Math.max(
+        this.invulnerableFrames,
+        move.startupFrames + move.activeFrames
+      );
     } else {
       this.currentSpecialActivationId = null;
       this.specialDamageResolvedForActivation = false;
     }
 
     if (resolvedType === 'super_move') {
-      this.invulnerableFrames = move.startupFrames + 6;
       if (this.id === 'action_sultan' || this.id === 'dance_dynamo') {
         this._velocity.x = this.facing * 6.5;
       } else if (this.id === 'romance_raja') {
@@ -477,6 +544,9 @@ export class Fighter3D {
     dt = 1 / 60
   ): void {
     this.stateFrame += 1;
+
+    // Evaluate frame-accurate animation events for the current simulation step
+    this.animEvents.evaluateFrame(this.id, this.state, this.stateFrame);
 
     if (this.comboTimerFrames > 0) {
       this.comboTimerFrames -= 1;
@@ -524,6 +594,8 @@ export class Fighter3D {
         this.currentMove = null;
         this.currentMoveType = null;
         this.moveHasHit = false;
+        this.pendingProjectileSpawn = false;
+        this.pendingSpecialImpact = false;
         this.state = this.isGrounded ? (this.isCrouching ? 'crouch' : 'idle') : 'jump';
         this.stateFrame = 0;
       }
@@ -548,6 +620,8 @@ export class Fighter3D {
         } else if (this.state === 'jump' || this.isAttacking()) {
           this.currentMove = null;
           this.currentMoveType = null;
+          this.pendingProjectileSpawn = false;
+          this.pendingSpecialImpact = false;
           this.state = 'idle';
           this.stateFrame = 0;
         }
@@ -578,14 +652,35 @@ export class Fighter3D {
     );
   }
 
+  /**
+   * Returns true only on the configured animation release frame (ON_PROJECTILE_SPAWN).
+   */
   public shouldSpawnProjectileThisFrame(): boolean {
     if (
       this.state === 'super_shot' &&
       this.currentMove &&
-      !this.projectileSpawnedForCurrentMove &&
-      this.stateFrame >= 1
+      this.pendingProjectileSpawn &&
+      !this.projectileSpawnedForCurrentMove
     ) {
+      this.pendingProjectileSpawn = false;
       this.projectileSpawnedForCurrentMove = true;
+      return true;
+    }
+    return false;
+  }
+
+  /**
+   * Returns true only when FighterAnimationEvents has fired the configured
+   * special impact/release event (ON_PROJECTILE_SPAWN for SuperShot or
+   * ON_SUPERMOVE_PHASE CLIMAX_IMPACT for SuperMove).
+   */
+  public consumePendingSpecialImpact(): boolean {
+    if (
+      this.pendingSpecialImpact &&
+      this.currentSpecialActivationId &&
+      !this.specialDamageResolvedForActivation
+    ) {
+      this.pendingSpecialImpact = false;
       return true;
     }
     return false;
@@ -642,7 +737,7 @@ export class Fighter3D {
    * Returns the bone-attached attack hitbox sphere on the fixed Z = 0 plane during active
    * normal melee attack frames.
    * Note: SuperShot and SuperMove bypass normal hitbox collision and resolve via
-   * CombatSystem3D.applyGuaranteedSpecialHit.
+   * CombatSystem3D.applyGuaranteedSpecialHit at their animation event frames.
    */
   public getActiveAttackSphere3D(): Sphere3D | null {
     if (!this.isMoveInActiveWindow() || !this.currentMove || this.moveHasHit) {

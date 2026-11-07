@@ -87,11 +87,11 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
 
       {/* CENTER FOCAL HERO PIECE: BESPOKE RETRO TITLE LOCKUP */}
       <div className="relative z-10 flex flex-col items-center text-center my-auto max-w-3xl">
-        {/* HINDI SCRIPT BANNER */}
+        {/* CINEMA ARCADE BANNER */}
         <div className="flex items-center gap-2 mb-2">
           <span className="text-[#D6A447] text-base sm:text-xl">★ ★ ★</span>
           <span className="font-bold text-[#F1E7D0] tracking-widest text-sm sm:text-base font-['Cinzel']">
-            फ़िल्मी दंगल 3D
+            BOLLYWOOD 3D ARCADE SHOWDOWN
           </span>
           <span className="text-[#D6A447] text-base sm:text-xl">★ ★ ★</span>
         </div>

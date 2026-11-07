@@ -95,7 +95,9 @@ export const FightHUD: React.FC<FightHUDProps> = ({ hudState, onPause, onToggleM
               {hudState.roundTimer.toString().padStart(2, '0')}
             </span>
             <div className="text-[10px] sm:text-xs font-black tracking-widest text-[#D6A447] uppercase font-['Cinzel']">
-              ROUND {hudState.currentRound}
+              {hudState.gameMode === 'arcade' && hudState.arcadeStageNumber
+                ? `STAGE ${hudState.arcadeStageNumber}/${hudState.arcadeTotalStages ?? 3} · R${hudState.currentRound}`
+                : `ROUND ${hudState.currentRound}`}
             </div>
           </div>
 
@@ -190,7 +192,7 @@ export const FightHUD: React.FC<FightHUDProps> = ({ hudState, onPause, onToggleM
               {hudState.comboP1} HITS!
             </span>
             <span className="text-[10px] sm:text-xs font-black text-white uppercase tracking-widest">
-              FILMI DHAMAKA!
+              CINEMA COMBO!
             </span>
           </div>
         )}
@@ -203,7 +205,7 @@ export const FightHUD: React.FC<FightHUDProps> = ({ hudState, onPause, onToggleM
               {hudState.comboP2} HITS!
             </span>
             <span className="text-[10px] sm:text-xs font-black text-white uppercase tracking-widest">
-              FILMI DHAMAKA!
+              CINEMA COMBO!
             </span>
           </div>
         )}

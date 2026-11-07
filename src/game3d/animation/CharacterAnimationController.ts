@@ -50,7 +50,7 @@ export class CharacterAnimationController {
     state: FighterStateName,
     stateTimeSec: number,
     heightScale = 1.0,
-    zVelocity = 0
+    _zVelocity = 0
   ): BonePoseMap {
     const pose: BonePoseMap = {
       Hips: { rot: [0, 0, 0], posOffset: [0, 0, 0] },
@@ -165,20 +165,6 @@ export class CharacterAnimationController {
         pose.RightLowerLeg.rot = [Math.max(0.2, -fastCycle * 0.9), 0, 0];
         pose.LeftUpperArm.rot = [-0.7 + fastCycle * 0.6, 0.1, 0.25];
         pose.RightUpperArm.rot = [-0.7 - fastCycle * 0.6, -0.1, -0.25];
-        break;
-      }
-
-      case 'sidestep': {
-        const leanZ = zVelocity >= 0 ? -0.22 : 0.22;
-        pose.Hips.posOffset = [0, -0.06, 0];
-        pose.Spine.rot = [0.15, 0, leanZ];
-        pose.Chest.rot = [0.1, 0, leanZ * 0.6];
-        pose.LeftUpperLeg.rot = [-0.35, 0, 0.18];
-        pose.LeftLowerLeg.rot = [0.65, 0, 0];
-        pose.RightUpperLeg.rot = [-0.35, 0, -0.18];
-        pose.RightLowerLeg.rot = [0.65, 0, 0];
-        pose.LeftUpperArm.rot = [-0.8, 0.3, 0.35];
-        pose.RightUpperArm.rot = [-0.8, -0.3, -0.35];
         break;
       }
 

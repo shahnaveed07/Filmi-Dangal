@@ -49,7 +49,6 @@ export const REQUIRED_CORE_ANIMATION_CLIPS = [
   'Idle',
   'Walk',
   'Run',
-  'Sidestep',
   'Jump',
   'Crouch',
   'Block',

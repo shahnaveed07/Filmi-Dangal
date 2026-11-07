@@ -73,7 +73,6 @@
     "Idle",
     "Walk",
     "Run",
-    "Sidestep",
     "Jump",
     "Crouch",
     "Block",

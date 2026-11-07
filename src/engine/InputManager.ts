@@ -3,8 +3,8 @@ import { InputFrame } from '../types/fighter';
 export interface InputSnapshot {
   moveLeft: boolean;
   moveRight: boolean;
-  sidestepUpHeld: boolean;
-  sidestepDownHeld: boolean;
+  upHeld: boolean;
+  downHeld: boolean;
   jumpJustPressed: boolean;
   jumpHeld: boolean;
   crouchHeld: boolean;
@@ -25,8 +25,6 @@ export const EMPTY_INPUT_FRAME: InputFrame = {
   right: false,
   up: false,
   down: false,
-  sidestepUp: false,
-  sidestepDown: false,
   jump: false,
   crouch: false,
   block: false,
@@ -199,8 +197,9 @@ export class InputManager {
   }
 
   /**
-   * Produce 60Hz input snapshot supporting both 3D controls (WASD 3D movement, SPACE jump,
-   * CTRL crouch, SHIFT block, J punch, K kick, I grab, U SuperShot, L SuperMove) and touch inputs.
+   * Produces a 60Hz input snapshot strictly for 2D XY plane controls
+   * (A/D or Left/Right horizontal movement, Space/W/Up jump, S/Ctrl/C/Down crouch,
+   * Shift/B block, J punch, K kick, I grab, U SuperShot, L SuperMove) and multitouch inputs.
    */
   public pollSnapshot(): InputSnapshot {
     const isHeld = (keys: string[]): boolean => {
@@ -213,15 +212,29 @@ export class InputManager {
 
     const superMoveJust = isJust(['l', 'keyl', 'supermove', 'super_move', 'super']);
     const superShotJust = isJust(['u', 'keyu', 'supershot', 'super_shot']);
+    const jumpKeys = [' ', 'space', 'jump', 'up', 'w', 'keyw', 'arrowup'];
+    const crouchKeys = [
+      'control',
+      'controlleft',
+      'controlright',
+      'ctrl',
+      'c',
+      'keyc',
+      'crouch',
+      's',
+      'keys',
+      'arrowdown',
+      'down',
+    ];
 
     const snapshot: InputSnapshot = {
       moveLeft: isHeld(['a', 'keya', 'arrowleft', 'left']),
       moveRight: isHeld(['d', 'keyd', 'arrowright', 'right']),
-      sidestepUpHeld: isHeld(['w', 'keyw', 'arrowup', 'sidestep_up', 'up']),
-      sidestepDownHeld: isHeld(['s', 'keys', 'arrowdown', 'sidestep_down', 'down']),
-      jumpJustPressed: isJust([' ', 'space', 'jump', 'up', 'w', 'keyw', 'arrowup']),
-      jumpHeld: isHeld([' ', 'space', 'jump', 'up', 'w', 'keyw', 'arrowup']),
-      crouchHeld: isHeld(['control', 'controlleft', 'controlright', 'ctrl', 'c', 'keyc', 'crouch', 's', 'keys', 'arrowdown', 'down']),
+      upHeld: isHeld(jumpKeys),
+      downHeld: isHeld(crouchKeys),
+      jumpJustPressed: isJust(jumpKeys),
+      jumpHeld: isHeld(jumpKeys),
+      crouchHeld: isHeld(crouchKeys),
       blockHeld: isHeld(['shift', 'shiftleft', 'shiftright', 'b', 'keyb', 'block']),
       punchJustPressed: isJust(['j', 'keyj', 'punch']),
       kickJustPressed: isJust(['k', 'keyk', 'kick']),
@@ -244,10 +257,8 @@ export class InputManager {
     return {
       left: snap.moveLeft,
       right: snap.moveRight,
-      up: snap.sidestepUpHeld,
-      down: snap.sidestepDownHeld,
-      sidestepUp: snap.sidestepUpHeld,
-      sidestepDown: snap.sidestepDownHeld,
+      up: snap.upHeld,
+      down: snap.downHeld,
       jump: snap.jumpHeld,
       crouch: snap.crouchHeld,
       block: snap.blockHeld,

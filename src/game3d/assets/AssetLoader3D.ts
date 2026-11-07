@@ -881,7 +881,13 @@ export async function loadCharacterRig3D(
     setRenderMode,
     setLODLevel,
     dispose: () => {
+      const uniqueMats = new Set(originalMaterials.values());
+      uniqueMats.add(grayboxBodyMat);
+      uniqueMats.add(grayboxJointMat);
       rootNode.dispose();
+      for (const mat of uniqueMats) {
+        mat.dispose();
+      }
     },
   };
 

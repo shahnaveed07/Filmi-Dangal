@@ -18,6 +18,7 @@ export interface CombatHitEvent3D extends CombatHitEvent {
   contactPoint3D: Vector3D;
   contactX2D: number;
   contactY2D: number;
+  impactFrame?: number;
   dialogueLine?: string;
 }
 
@@ -26,7 +27,7 @@ export interface CombatHitEvent3D extends CombatHitEvent {
  *
  * Authoritative combat system on the 2D XY plane (Z = 0).
  * Resolves 2D XY plane pushboxes, standard hitbox/hurtbox collision for normal attacks,
- * and guaranteed-hit opponent damage for SuperMove and SuperShot.
+ * and animation-event-synchronized guaranteed opponent damage for SuperMove and SuperShot.
  */
 export class CombatSystem3D {
   public readonly projectileManager = new ProjectileManager3D();
@@ -71,13 +72,13 @@ export class CombatSystem3D {
   /**
    * AUTHORITATIVE GUARANTEED-HIT COMBAT FUNCTION FOR SPECIAL ATTACKS (SuperMove & SuperShot).
    *
-   * Guarantees positive character-specific damage whenever activated against an eligible
-   * opposing fighter:
+   * Guarantees positive character-specific damage whenever resolved at the configured
+   * animation impact/release event against an eligible opposing fighter:
    * - No maximum distance or range check
    * - No projectile collision requirement
-   * - Blocking cannot prevent or reduce the guaranteed damage
+   * - Blocking, crouching, jumping, or invulnerability cannot prevent or reduce the guaranteed damage
    * - Applies damage exactly once per activation via unique activationId deduplication
-   * - Triggers opponent hit reaction (hurt / knockback)
+   * - Triggers opponent hit reaction (hurt / knockback) unless defender is mid-unresolved-special with > 0 HP
    * - Respects match-end and KO states and never damages an already defeated opponent
    */
   public applyGuaranteedSpecialHit(
@@ -85,7 +86,8 @@ export class CombatSystem3D {
     defender: Fighter3D,
     abilityType: 'super_shot' | 'super_move',
     activationId: string,
-    matchPhase: MatchPhase = 'fighting'
+    matchPhase: MatchPhase = 'fighting',
+    allowSimultaneousTrade = false
   ): CombatHitEvent3D | null {
     if (matchPhase !== 'fighting') {
       return null;
@@ -95,10 +97,15 @@ export class CombatSystem3D {
       return null;
     }
 
+    const attackerEligible = allowSimultaneousTrade
+      ? attacker.state !== 'defeat'
+      : attacker.isEligibleTarget();
+    const defenderEligible = defender.isEligibleTarget();
+
     if (
       attacker.playerIndex === defender.playerIndex ||
-      !attacker.isEligibleTarget() ||
-      !defender.isEligibleTarget()
+      !attackerEligible ||
+      !defenderEligible
     ) {
       return null;
     }
@@ -107,6 +114,7 @@ export class CombatSystem3D {
     this.resolvedSpecialActivationIds.add(activationId);
     attacker.moveHasHit = true;
     attacker.specialDamageResolvedForActivation = true;
+    attacker.pendingSpecialImpact = false;
 
     const move = attacker.def.moves[abilityType];
     const isSuperMove = abilityType === 'super_move';
@@ -124,35 +132,44 @@ export class CombatSystem3D {
     attacker.comboTimerFrames = 60;
     attacker.comboDamage += confirmedDamage;
 
+    const defenderHadUnresolvedSpecial = defender.hasUnresolvedSpecial();
+
     // Bypass block, dodge, and invulnerability on confirmed special hit
     defender.isBlocking = false;
-    defender.invulnerableFrames = 0;
-    defender.currentMove = null;
-    defender.currentMoveType = null;
     defender.health = Math.max(0, defender.health - confirmedDamage);
-
     defender.gainMeter(isSuperMove ? 15 : 8);
 
-    const pushDirX =
-      defender.position.x >= attacker.position.x ? 1 : -1;
+    const pushDirX = defender.position.x >= attacker.position.x ? 1 : -1;
     const causesKO = defender.health <= 0;
     const causesKnockdown = isSuperMove || !!move.causesKnockdown || causesKO;
 
     const kbX = Math.min(8.5, Math.max(2.5, move.knockbackX * 0.55));
     const kbY = Math.min(9.5, Math.max(2.5, Math.abs(move.knockbackY) * 0.55));
 
-    if (causesKnockdown) {
-      defender.state = 'knockback';
-      defender.stateFrame = 0;
-      defender.hitstunFrames = move.hitStunFrames + 12;
-      defender.isGrounded = false;
-      defender.velocity.x = pushDirX * kbX;
-      defender.velocity.y = Math.max(4.6, kbY);
+    // If defender is mid-special and survives the hit, preserve their active special state
+    // so simultaneous special attacks both complete deterministically; otherwise apply hit reaction.
+    if (defenderHadUnresolvedSpecial && !causesKO) {
+      defender.velocity.x = pushDirX * kbX * 0.25;
     } else {
-      defender.state = 'hurt';
-      defender.stateFrame = 0;
-      defender.hitstunFrames = move.hitStunFrames;
-      defender.velocity.x = pushDirX * kbX * 0.65;
+      defender.invulnerableFrames = 0;
+      defender.currentMove = null;
+      defender.currentMoveType = null;
+      defender.pendingProjectileSpawn = false;
+      defender.pendingSpecialImpact = false;
+
+      if (causesKnockdown) {
+        defender.state = 'knockback';
+        defender.stateFrame = 0;
+        defender.hitstunFrames = move.hitStunFrames + 12;
+        defender.isGrounded = false;
+        defender.velocity.x = pushDirX * kbX;
+        defender.velocity.y = Math.max(4.6, kbY);
+      } else {
+        defender.state = 'hurt';
+        defender.stateFrame = 0;
+        defender.hitstunFrames = move.hitStunFrames;
+        defender.velocity.x = pushDirX * kbX * 0.65;
+      }
     }
 
     const contactPoint3D: Vector3D = {
@@ -190,6 +207,7 @@ export class CombatSystem3D {
       hitY: contactY2D,
       hitZ: FIXED_RENDER_PLANE_Z,
       comboCount: attacker.comboCount,
+      impactFrame: attacker.stateFrame,
       dialogueLine: isSuperMove
         ? attacker.def.dialogues.superQuote
         : attacker.def.dialogues.superShotQuote,
@@ -202,7 +220,7 @@ export class CombatSystem3D {
     dt = 1 / 60,
     matchPhase: MatchPhase = 'fighting'
   ): CombatHitEvent3D[] {
-    // 1. Spawn & advance visual 3D SuperShot projectiles on the 2D XY plane (preserved visual animation)
+    // 1. Spawn & advance visual 3D SuperShot projectiles at their configured animation release frame
     if (f1.shouldSpawnProjectileThisFrame()) {
       this.projectileManager.spawnSuperShot(
         0,
@@ -226,7 +244,7 @@ export class CombatSystem3D {
     for (const proj of this.projectileManager.getActiveProjectiles()) {
       if (!proj.active) continue;
       const defender = proj.ownerIndex === 0 ? f2 : f1;
-      if (proj.ageFrames >= 8 && Math.abs(proj.position.x - defender.position.x) < 0.45) {
+      if (proj.ageFrames >= 4 && Math.abs(proj.position.x - defender.position.x) < 0.45) {
         proj.active = false;
       }
     }
@@ -238,12 +256,32 @@ export class CombatSystem3D {
 
     const events: CombatHitEvent3D[] = [];
 
-    // 2. Resolve Guaranteed Special Hits (SuperShot & SuperMove) via authoritative combat function
-    const specialEvt1 = this.checkAndResolvePendingSpecial(f1, f2, matchPhase);
-    if (specialEvt1) events.push(specialEvt1);
+    // 2. Resolve Guaranteed Special Hits at their configured animation event frame
+    const f1EligiblePre = f1.isEligibleTarget();
+    const f2EligiblePre = f2.isEligibleTarget();
+    const f1ImpactReady = f1.consumePendingSpecialImpact();
+    const f2ImpactReady = f2.consumePendingSpecialImpact();
+    const simultaneousImpact = f1ImpactReady && f2ImpactReady && f1EligiblePre && f2EligiblePre;
 
-    const specialEvt2 = this.checkAndResolvePendingSpecial(f2, f1, matchPhase);
-    if (specialEvt2) events.push(specialEvt2);
+    if (f1ImpactReady && f1EligiblePre && f2EligiblePre) {
+      const specialEvt1 = this.resolvePendingSpecialAtImpact(
+        f1,
+        f2,
+        matchPhase,
+        simultaneousImpact
+      );
+      if (specialEvt1) events.push(specialEvt1);
+    }
+
+    if (f2ImpactReady && f2EligiblePre && (simultaneousImpact || f2.isEligibleTarget())) {
+      const specialEvt2 = this.resolvePendingSpecialAtImpact(
+        f2,
+        f1,
+        matchPhase,
+        simultaneousImpact
+      );
+      if (specialEvt2) events.push(specialEvt2);
+    }
 
     // 3. Resolve normal attacks (punch, kick, sweep, forward_punch, forward_kick, grab) with standard hitbox/hurtbox collision
     const hit1 = this.checkFighterMeleeAttack(f1, f2);
@@ -255,10 +293,11 @@ export class CombatSystem3D {
     return events;
   }
 
-  private checkAndResolvePendingSpecial(
+  private resolvePendingSpecialAtImpact(
     attacker: Fighter3D,
     defender: Fighter3D,
-    matchPhase: MatchPhase
+    matchPhase: MatchPhase,
+    allowSimultaneousTrade = false
   ): CombatHitEvent3D | null {
     if (
       !attacker.currentSpecialActivationId ||
@@ -276,7 +315,8 @@ export class CombatSystem3D {
         defender,
         'super_shot',
         attacker.currentSpecialActivationId,
-        matchPhase
+        matchPhase,
+        allowSimultaneousTrade
       );
     }
 
@@ -291,7 +331,8 @@ export class CombatSystem3D {
         defender,
         'super_move',
         attacker.currentSpecialActivationId,
-        matchPhase
+        matchPhase,
+        allowSimultaneousTrade
       );
     }
 

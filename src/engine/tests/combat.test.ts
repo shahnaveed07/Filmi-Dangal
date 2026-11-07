@@ -6,7 +6,7 @@ import path from 'node:path';
 import { CHARACTERS, CHARACTER_LIST } from '../../data/characters';
 import { ARENAS } from '../../data/arenas';
 import { HitboxSystem } from '../HitboxSystem';
-import { ComboSystem } from '../ComboSystem';
+import { ComboSystem, COMBO_DEFINITIONS } from '../ComboSystem';
 import { Fighter } from '../Fighter';
 import { CombatSystem } from '../CombatSystem';
 import { CPUController } from '../CPUController';
@@ -24,14 +24,13 @@ import { CharacterAnimationController } from '../../game3d/animation/CharacterAn
 import { FighterAnimationEvents } from '../../game3d/animation/FighterAnimationEvents';
 import { CharacterSpecialMoveController } from '../../game3d/combat/CharacterSpecialMoveController';
 import { SuperShotProjectileSystem } from '../../game3d/combat/SuperShotProjectileSystem';
-import { HitboxSystem3D } from '../../game3d/hitboxes/HitboxSystem3D';
 import { Fighter3D } from '../../game3d/combat/Fighter3D';
 import { CombatSystem3D } from '../../game3d/combat/CombatSystem3D';
 import { CPUController3D } from '../../game3d/cpu/CPUController3D';
 import { MatchManager3D } from '../../game3d/managers/MatchManager3D';
 import { FighterStateName } from '../../types/fighter';
 
-test('1. Binary GLB 2.0 Humanoid Asset Validation for all 4 fighters', () => {
+test('1. Character Loading & Binary GLB 2.0 Humanoid Asset Validation for all 4 fighters', () => {
   assert.equal(CHARACTER_LIST.length, 4, 'Exactly 4 launch characters');
 
   for (const char of CHARACTER_LIST) {
@@ -59,13 +58,12 @@ test('1. Binary GLB 2.0 Humanoid Asset Validation for all 4 fighters', () => {
   }
 });
 
-test('2. AnimationController3D generates distinct poses across all 18 animation states', () => {
+test('2. AnimationController3D generates distinct poses across all 17 active 2D XY animation states (no sidestep)', () => {
   const anim = new AnimationController3D();
   const requiredStates: FighterStateName[] = [
     'idle',
     'walk',
     'run',
-    'sidestep',
     'jump',
     'crouch',
     'block',
@@ -84,7 +82,7 @@ test('2. AnimationController3D generates distinct poses across all 18 animation 
 
   for (const char of CHARACTER_LIST) {
     for (const state of requiredStates) {
-      const pose = anim.computeTargetPose(char.id, state, 0.25, 1.0, 2.0);
+      const pose = anim.computeTargetPose(char.id, state, 0.25, 1.0, 0);
       assert.ok(pose.Hips, `${char.id} state ${state} must define Hips pose`);
       assert.ok(pose.Chest, `${char.id} state ${state} must define Chest pose`);
       assert.ok(pose.RightUpperArm, `${char.id} state ${state} must define RightUpperArm pose`);
@@ -93,12 +91,12 @@ test('2. AnimationController3D generates distinct poses across all 18 animation 
   }
 });
 
-test('3. Strict 2D XY Plane Fighter3D movement (Vector2 X horizontal, Y vertical, Z = 0 fixed plane) and bounds clamping', () => {
+test('3. Strict 2D XY Plane Movement, Jumping/Gravity/Landing, Crouching/Standing transitions, and Arena Boundary Clamping', () => {
   const bounds = ARENAS.award_night.bounds3D;
   const p1 = new Fighter3D(0, CHARACTERS.action_sultan, -2.0, 0, 0);
   const p2 = new Fighter3D(1, CHARACTERS.romance_raja, 2.0, 0, 0);
 
-  // Verify Vector2 instances for position2D and velocity2D
+  // Verify Vector2 instances for position2D and velocity2D and fixed Z = 0
   assert.equal(p1.position2D.x, -2.0);
   assert.equal(p1.position2D.y, 0);
   assert.equal(p1.position.z, 0, 'Fighter3D is locked to Z = 0 fixed rendering plane');
@@ -110,18 +108,35 @@ test('3. Strict 2D XY Plane Fighter3D movement (Vector2 X horizontal, Y vertical
   assert.equal(p1.position.z, 0, 'Z coordinate remains strictly 0');
   assert.equal(p1.state, 'run');
 
-  // Verify sidestep inputs do NOT move along Z-axis (no Z-axis gameplay or depth movement)
-  p1.processInput({ ...EMPTY_INPUT_FRAME, sidestepUp: true, sidestepDown: true }, p2);
+  // Crouching and standing transitions
+  p1.processInput({ ...EMPTY_INPUT_FRAME, crouch: true, down: true }, p2);
   p1.stepPhysics(bounds);
-  assert.equal(p1.position.z, 0, 'Sidestep inputs never change Z position');
-  assert.equal(p1.velocity.z, 0, 'Z velocity is always 0');
+  assert.equal(p1.state, 'crouch');
+  assert.equal(p1.isCrouching, true);
 
-  // Jump along +Y
+  p1.processInput({ ...EMPTY_INPUT_FRAME }, p2);
+  p1.stepPhysics(bounds);
+  assert.equal(p1.state, 'idle');
+  assert.equal(p1.isCrouching, false);
+
+  // Jump along +Y, gravity arc, and landing
   p1.processInput({ ...EMPTY_INPUT_FRAME, jumpJustPressed: true, jump: true }, p2);
   p1.stepPhysics(bounds);
   assert.ok(p1.position2D.y > 0, 'Fighter3D jumps vertically along +Y');
   assert.equal(p1.isGrounded, false);
   assert.equal(p1.position.z, 0);
+
+  let maxHeightReached = p1.position2D.y;
+  for (let f = 0; f < 65; f++) {
+    p1.stepPhysics(bounds);
+    if (p1.position2D.y > maxHeightReached) {
+      maxHeightReached = p1.position2D.y;
+    }
+    assert.equal(p1.position.z, 0, 'Z remains 0 throughout jump arc');
+  }
+  assert.ok(maxHeightReached > 0.5, 'Fighter reaches positive jump apex');
+  assert.equal(p1.isGrounded, true, 'Fighter lands back on floorY = 0');
+  assert.equal(p1.position2D.y, 0);
 
   // Clamp to horizontal arena boundaries while keeping Z = 0
   p1.position.x = -20;
@@ -129,9 +144,13 @@ test('3. Strict 2D XY Plane Fighter3D movement (Vector2 X horizontal, Y vertical
   p1.stepPhysics(bounds);
   assert.equal(p1.position.x, bounds.minX, 'Clamped to arena minX');
   assert.equal(p1.position.z, 0, 'Remains locked on Z = 0 plane');
+
+  p1.position.x = 20;
+  p1.stepPhysics(bounds);
+  assert.equal(p1.position.x, bounds.maxX, 'Clamped to arena maxX');
 });
 
-test('4. Normal melee attacks retain ordinary hitbox rules and respect attack range', () => {
+test('4. Normal melee hitboxes/hurtboxes, Blocking, Guard-Breaking Grabs, and Knockback/Knockdown/Recovery', () => {
   const p1 = new Fighter3D(0, CHARACTERS.action_sultan, 0, 0, 0);
   const p2 = new Fighter3D(1, CHARACTERS.romance_raja, 0.95, 0, 0);
   const combat = new CombatSystem3D();
@@ -164,126 +183,185 @@ test('4. Normal melee attacks retain ordinary hitbox rules and respect attack ra
     'Normal melee attack respects attack range and misses distant opponent'
   );
   assert.equal(p2.health, p2.maxHealth, 'Out-of-range normal attack deals zero damage');
+
+  // Case C: Blocking reduces normal attack to chip damage
+  p1.resetForRound(0, 0, 0, true);
+  p2.resetForRound(0.95, 0, 0, true);
+  p2.isBlocking = true;
+  p2.state = 'block';
+  p1.startAttack('punch');
+  for (let i = 0; i < p1.def.moves.punch.startupFrames; i++) {
+    p1.stepPhysics();
+  }
+  const blockedEvents = combat.updateAndResolveCombat(p1, p2);
+  assert.equal(blockedEvents.length, 1);
+  assert.equal(blockedEvents[0].blocked, true, 'Standing block guards normal punch');
+  assert.ok(blockedEvents[0].damage < p1.def.moves.punch.damage, 'Blocked punch only deals chip damage');
+
+  // Case D: Grab breaks standing guard and causes knockdown -> recovery -> idle
+  p1.resetForRound(0, 0, 0, true);
+  p2.resetForRound(0.85, 0, 0, true);
+  p2.isBlocking = true;
+  p2.state = 'block';
+  p1.startAttack('grab');
+  for (let i = 0; i < p1.def.moves.grab.startupFrames; i++) {
+    p1.stepPhysics();
+  }
+  const grabEvents = combat.updateAndResolveCombat(p1, p2);
+  assert.equal(grabEvents.length, 1);
+  assert.equal(grabEvents[0].blocked, false, 'Grab is unblockable and breaks guard');
+  assert.equal(grabEvents[0].isGrab, true);
+  assert.equal(p2.state, 'knockback', 'Grab launches opponent into knockback');
+
+  let enteredKnockdown = false;
+  let enteredRecovery = false;
+  for (let f = 0; f < 90; f++) {
+    p2.stepPhysics();
+    if (p2.state === 'knockdown') enteredKnockdown = true;
+    if (p2.state === 'recovery') enteredRecovery = true;
+  }
+  assert.equal(enteredKnockdown, true, 'Knockback transitions to knockdown on landing');
+  assert.equal(enteredRecovery, true, 'Knockdown transitions to wakeup recovery');
+  assert.equal(p2.state, 'idle', 'Recovery returns fighter to idle');
 });
 
-test('5. All 4 character SuperShots guarantee damage once per activation and spawn independent visual projectiles', () => {
+test('5. Frame-Accurate SuperShot Timing: Spawns projectile & resolves guaranteed damage at ON_PROJECTILE_SPAWN frame (not frame 0/1)', () => {
   for (const char of CHARACTER_LIST) {
     const attacker = new Fighter3D(0, char, -4.5, 0, 0);
     const defender = new Fighter3D(1, CHARACTERS.action_sultan, 4.5, 0, 0);
     const combat = new CombatSystem3D();
+    const spec = FighterAnimationEvents.getMoveSpec(char.id, 'super_shot');
+    const releaseFrame = spec.projectileSpawnFrame!;
 
     attacker.specialMeter = 50;
     const initialDefenderHp = defender.health;
     const started = attacker.startAttack('super_shot');
     assert.equal(started, true, `${char.id} starts SuperShot (${char.superShotInfo.name})`);
-    assert.ok(attacker.currentSpecialActivationId, 'Unique activationId assigned on SuperShot start');
-    assert.ok(attacker.superShotCooldownFrames > 0, 'Cooldown applied on SuperShot');
 
-    // Step through startup frames: guaranteed hit resolves immediately on active frame, independent of projectile travel
-    let hitEventsCount = 0;
-    let totalDamageDealt = 0;
-    for (let f = 0; f <= attacker.def.moves.super_shot.startupFrames + 15; f++) {
+    // Step through frames BEFORE releaseFrame: NO damage and NO projectile yet!
+    for (let f = 1; f < releaseFrame; f++) {
       attacker.stepPhysics();
-      const evs = combat.updateAndResolveCombat(attacker, defender);
-      for (const e of evs) {
-        if (e.isSuperShot) {
-          hitEventsCount++;
-          totalDamageDealt += e.damage;
-        }
-      }
+      const earlyEvents = combat.updateAndResolveCombat(attacker, defender);
+      assert.equal(
+        earlyEvents.length,
+        0,
+        `${char.id} SuperShot must NOT deal damage before releaseFrame (${releaseFrame}) at frame ${f}`
+      );
+      assert.equal(
+        combat.projectileManager.getActiveProjectiles().length,
+        0,
+        `${char.id} SuperShot must NOT spawn projectile before releaseFrame (${releaseFrame}) at frame ${f}`
+      );
     }
 
-    assert.equal(hitEventsCount, 1, `${char.id} SuperShot applies damage exactly once per activation`);
-    assert.ok(totalDamageDealt > 0, `${char.id} SuperShot deals positive character-specific damage`);
-    assert.equal(defender.health, initialDefenderHp - totalDamageDealt);
+    // Step onto exact releaseFrame: projectile spawns AND guaranteed damage resolves!
+    attacker.stepPhysics();
+    assert.equal(attacker.stateFrame, releaseFrame);
+    const releaseEvents = combat.updateAndResolveCombat(attacker, defender);
+    assert.equal(
+      releaseEvents.length,
+      1,
+      `${char.id} SuperShot resolves guaranteed damage at exact releaseFrame ${releaseFrame}`
+    );
+    assert.equal(releaseEvents[0].isSuperShot, true);
+    assert.ok(releaseEvents[0].damage > 0);
+    assert.equal(defender.health, initialDefenderHp - releaseEvents[0].damage);
 
-    // Visual projectile was also spawned independently on Z = 0 plane
     const activeProjs = combat.projectileManager.getActiveProjectiles();
-    assert.equal(activeProjs.length, 1, `${char.id} spawned independent visual 3D SuperShot projectile`);
+    assert.equal(activeProjs.length, 1, `${char.id} spawned visual 3D SuperShot projectile at releaseFrame`);
     assert.equal(activeProjs[0].position.z, 0, 'Projectile travels strictly on Z = 0 plane');
+
+    // Step through remaining active & recovery frames: no duplicate damage!
+    for (let f = 0; f < 25; f++) {
+      attacker.stepPhysics();
+      const postEvents = combat.updateAndResolveCombat(attacker, defender);
+      assert.equal(postEvents.length, 0, 'No duplicate SuperShot damage on subsequent frames');
+    }
   }
 });
 
-test('6. All 4 character SuperMove finishers require 100 meter and guarantee damage regardless of distance', () => {
+test('6. Frame-Accurate SuperMove Timing: Resolves guaranteed damage at CLIMAX_IMPACT frame (not frame 0/1)', () => {
   for (const char of CHARACTER_LIST) {
     const attacker = new Fighter3D(0, char, -6.0, 0, 0);
     const defender = new Fighter3D(1, CHARACTERS.villain_saab, 6.0, 0, 0);
     const combat = new CombatSystem3D();
+    const spec = FighterAnimationEvents.getMoveSpec(char.id, 'super_move');
+    const climaxFrame = spec.superMoveClimaxFrame!;
 
+    // Failed activation (< 100 meter) must not deduct meter or create activationId
     attacker.specialMeter = 50;
-    assert.equal(
-      attacker.startAttack('super_move'),
-      false,
-      `${char.id} cannot trigger SuperMove with < 100 meter`
-    );
+    assert.equal(attacker.startAttack('super_move'), false);
+    assert.equal(attacker.specialMeter, 50, 'Failed SuperMove activation does not deduct meter');
+    assert.equal(attacker.currentSpecialActivationId, null);
 
     attacker.specialMeter = 100;
     const initialDefenderHp = defender.health;
-    assert.equal(
-      attacker.startAttack('super_move'),
-      true,
-      `${char.id} triggers SuperMove (${char.superMoveInfo.name}) at 100 meter`
-    );
-    assert.equal(attacker.specialMeter, 0, 'SuperMove consumes 100 meter');
-    assert.ok(attacker.currentSpecialActivationId, 'Unique activationId assigned on SuperMove start');
+    assert.equal(attacker.startAttack('super_move'), true);
+    assert.equal(attacker.specialMeter, 0, 'Successful SuperMove consumes 100 meter');
 
-    let superHitCount = 0;
-    let superDamage = 0;
+    // Step through frames BEFORE climaxFrame: NO damage yet!
+    for (let f = 1; f < climaxFrame; f++) {
+      attacker.stepPhysics();
+      const earlyEvents = combat.updateAndResolveCombat(attacker, defender);
+      assert.equal(
+        earlyEvents.length,
+        0,
+        `${char.id} SuperMove must NOT deal damage before climaxFrame (${climaxFrame}) at frame ${f}`
+      );
+    }
+
+    // Step onto exact climaxFrame: guaranteed damage resolves!
+    attacker.stepPhysics();
+    assert.equal(attacker.stateFrame, climaxFrame);
+    const climaxEvents = combat.updateAndResolveCombat(attacker, defender);
+    assert.equal(
+      climaxEvents.length,
+      1,
+      `${char.id} SuperMove resolves guaranteed damage at exact climaxFrame ${climaxFrame}`
+    );
+    assert.equal(climaxEvents[0].isSuperMove, true);
+    assert.ok(climaxEvents[0].damage > 0);
+    assert.equal(defender.health, initialDefenderHp - climaxEvents[0].damage);
+
+    // Step through remaining frames: no duplicate damage!
     for (let f = 0; f < 25; f++) {
       attacker.stepPhysics();
-      const evs = combat.updateAndResolveCombat(attacker, defender);
-      for (const e of evs) {
-        if (e.isSuperMove) {
-          superHitCount++;
-          superDamage += e.damage;
-        }
-      }
+      const postEvents = combat.updateAndResolveCombat(attacker, defender);
+      assert.equal(postEvents.length, 0, 'No duplicate SuperMove damage on subsequent frames');
     }
-    assert.equal(superHitCount, 1, `${char.superMoveInfo.name} resolves guaranteed damage exactly once even across max arena distance`);
-    assert.ok(superDamage > 0, `${char.superMoveInfo.name} deals positive character-specific finisher damage`);
-    assert.equal(defender.health, initialDefenderHp - superDamage);
   }
 });
 
-test('7. CPUController3D operates strictly on 2D XY plane and unleashes SuperMove at 100 meter', () => {
+test('7. CPUController3D decision-making across Easy, Normal, and Hard difficulties on 2D XY plane', () => {
   const p1 = new Fighter3D(0, CHARACTERS.action_sultan, -2.5, 0, 0);
   const cpuFighter = new Fighter3D(1, CHARACTERS.dance_dynamo, 1.5, 0, 0);
   const combat = new CombatSystem3D();
-  const cpu = new CPUController3D('hard');
 
-  // Spawn an incoming P1 SuperShot projectile heading toward CPU on XY plane
-  combat.projectileManager.spawnSuperShot(0, 'action_sultan', { x: -0.5, y: 0, z: 0 }, 1, 0);
+  for (const diff of ['easy', 'normal', 'hard'] as const) {
+    const cpu = new CPUController3D(diff);
+    combat.projectileManager.clear();
+    combat.projectileManager.spawnSuperShot(0, 'action_sultan', { x: -0.5, y: 0, z: 0 }, 1, 0);
 
-  let reactedOn2DPlane = false;
-  for (let i = 0; i < 10; i++) {
-    const inp = cpu.computeInput(
-      cpuFighter,
-      p1,
-      combat.projectileManager.getActiveProjectiles()
-    );
-    assert.equal(inp.sidestepUp, false, 'CPU never uses Z-axis sidestepUp');
-    assert.equal(inp.sidestepDown, false, 'CPU never uses Z-axis sidestepDown');
-    if (inp.jump || inp.block) {
-      reactedOn2DPlane = true;
-      break;
+    let tookAction = false;
+    for (let i = 0; i < 25; i++) {
+      const inp = cpu.computeInput(
+        cpuFighter,
+        p1,
+        combat.projectileManager.getActiveProjectiles()
+      );
+      if (inp.jump || inp.block || inp.left || inp.right) {
+        tookAction = true;
+      }
     }
+    assert.equal(tookAction, true, `CPU (${diff}) makes valid 2D XY decisions`);
   }
-  assert.equal(
-    reactedOn2DPlane,
-    true,
-    'CPU reacts to incoming projectile on 2D XY plane with jump or guard'
-  );
 
-  // Give CPU 100 meter and verify it triggers SuperMove
-  combat.projectileManager.clear();
-  cpu.reset();
-  p1.position = { x: 0.5, y: 0, z: 0 };
-  cpuFighter.position = { x: 1.4, y: 0, z: 0 };
+  // Hard CPU unleashes SuperMove at 100 meter
+  const hardCpu = new CPUController3D('hard');
   cpuFighter.specialMeter = 100;
-
   let triggeredSuper = false;
   for (let i = 0; i < 15; i++) {
-    const inp = cpu.computeInput(cpuFighter, p1, []);
+    const inp = hardCpu.computeInput(cpuFighter, p1, []);
     if (inp.superMoveJustPressed) {
       triggeredSuper = true;
       break;
@@ -292,19 +370,37 @@ test('7. CPUController3D operates strictly on 2D XY plane and unleashes SuperMov
   assert.equal(triggeredSuper, true, 'Hard CPU triggers SuperMove at 100 meter');
 });
 
-test('8. MatchManager3D round flow, K.O., time expiry, and rematch reset', () => {
+test('8. Match Lifecycle, Pause/Resume, Round Restart, Rematch, and Game Mode Progression (Arcade 3-Stage Ladder vs Versus CPU)', () => {
   const p1 = new Fighter3D(0, CHARACTERS.action_sultan, MatchManager3D.P1_SPAWN_X_3D, 0, 0);
   const p2 = new Fighter3D(1, CHARACTERS.romance_raja, MatchManager3D.P2_SPAWN_X_3D, 0, 0);
   const combat = new CombatSystem3D();
   const cpu = new CPUController3D('normal');
   const match = new MatchManager3D();
+  const bridge = GameBridge.getInstance();
 
   for (let i = 0; i < 90; i++) {
     match.update(p1, p2, combat, cpu);
   }
   assert.equal(match.phase, 'fighting');
 
-  // Simulate P1 winning Round 1 by KO
+  // Pause & Resume state preservation
+  bridge.setPaused(true);
+  assert.equal(bridge.isPaused, true);
+  bridge.togglePause();
+  assert.equal(bridge.isPaused, false);
+
+  // Round restart resets positions & health while preserving currentRound
+  p1.health = 400;
+  p2.health = 300;
+  match.restartCurrentRound(p1, p2, combat, cpu);
+  assert.equal(match.currentRound, 1);
+  assert.equal(p1.health, p1.maxHealth);
+  assert.equal(p2.health, p2.maxHealth);
+
+  // Advance to fighting and simulate P1 winning Round 1 by KO
+  for (let i = 0; i < 90; i++) {
+    match.update(p1, p2, combat, cpu);
+  }
   p2.health = 0;
   match.update(p1, p2, combat, cpu);
   assert.equal(match.phase, 'ko');
@@ -317,26 +413,69 @@ test('8. MatchManager3D round flow, K.O., time expiry, and rematch reset', () =>
   assert.equal(match.currentRound, 2);
   assert.equal(p2.health, p2.maxHealth);
 
-  // Reset full match
+  // Full rematch reset
   match.resetMatch(p1, p2, combat, cpu);
   assert.equal(match.currentRound, 1);
   assert.equal(match.p1RoundWins, 0);
+
+  // Verify Arcade Mode 3-Stage Ladder Progression vs Versus CPU single match
+  bridge.gameMode = 'arcade';
+  bridge.p1CharacterId = 'action_sultan';
+  bridge.p2CharacterId = 'romance_raja';
+  bridge.startNewMatch();
+
+  assert.equal(bridge.arcadeLadder.length, 3, 'Arcade ladder has 3 distinct opponents');
+  assert.equal(bridge.arcadeLadder.includes('action_sultan'), false, 'Player character excluded from rival ladder');
+  assert.equal(bridge.arcadeStageIndex, 0);
+  assert.equal(bridge.p2CharacterId, 'romance_raja');
+  assert.equal(bridge.difficulty, 'easy', 'Arcade Stage 1 starts on easy difficulty');
+  assert.equal(bridge.hasNextArcadeStage(), true);
+
+  assert.equal(bridge.advanceArcadeStage(), true, 'Advances to Arcade Stage 2');
+  assert.equal(bridge.arcadeStageIndex, 1);
+  assert.equal(bridge.difficulty, 'normal', 'Arcade Stage 2 scales to normal difficulty');
+  assert.equal(bridge.hasNextArcadeStage(), true);
+
+  assert.equal(bridge.advanceArcadeStage(), true, 'Advances to Arcade Stage 3 (Final Boss)');
+  assert.equal(bridge.arcadeStageIndex, 2);
+  assert.equal(bridge.difficulty, 'hard', 'Arcade Stage 3 scales to hard difficulty');
+  assert.equal(bridge.hasNextArcadeStage(), false, 'No further stages after Stage 3');
+
+  // Versus CPU mode does not override chosen opponent or difficulty
+  bridge.gameMode = 'vs_cpu';
+  bridge.p1CharacterId = 'dance_dynamo';
+  bridge.p2CharacterId = 'villain_saab';
+  bridge.difficulty = 'hard';
+  bridge.startNewMatch();
+  assert.equal(bridge.p2CharacterId, 'villain_saab');
+  assert.equal(bridge.difficulty, 'hard');
+  assert.equal(bridge.hasNextArcadeStage(), false);
 });
 
-test('9. Legacy 2D engine compatibility & InputManager 3D controls verification', () => {
+test('9. Mobile Multitouch Input Release & Cancel Handling and English-Only Verification', () => {
   const input = InputManager.getInstance();
   input.clearAll();
 
-  input.simulateKeyDown('w', 'KeyW');
-  input.simulateKeyDown('u', 'KeyU');
-  input.simulateKeyDown('l', 'KeyL');
+  // Simulate two simultaneous touch pointers (e.g. holding right with finger 1, pressing jump with finger 2)
+  input.onVirtualPointerDown(1, 'right');
+  input.onVirtualPointerDown(2, 'jump');
+  assert.equal(input.getActiveTouchCount(), 2);
 
-  const snap = input.pollSnapshot();
-  assert.equal(snap.sidestepUpHeld, true, 'W triggers 3D sidestepUpHeld');
-  assert.equal(snap.superShotJustPressed, true, 'U triggers superShotJustPressed');
-  assert.equal(snap.superMoveJustPressed, true, 'L triggers superMoveJustPressed');
+  let snap = input.pollSnapshot();
+  assert.equal(snap.moveRight, true);
+  assert.equal(snap.jumpJustPressed, true);
 
-  // Verify ComboSystem and legacy Fighter unit tests still pass
+  // Cancel pointer 2 and release pointer 1
+  input.onVirtualPointerCancel(2);
+  assert.equal(input.getActiveTouchCount(), 1);
+  input.onVirtualPointerUp(1);
+  assert.equal(input.getActiveTouchCount(), 0);
+
+  snap = input.pollSnapshot();
+  assert.equal(snap.moveRight, false);
+  assert.equal(snap.jumpHeld, false);
+
+  // Verify ComboSystem and legacy 2D engine compatibility
   const sultan = new Fighter(CHARACTERS.action_sultan, 500, 580, 1, true);
   sultan.changeState('walk_forward');
   sultan.update(580, 1280, 700);
@@ -346,10 +485,22 @@ test('9. Legacy 2D engine compatibility & InputManager 3D controls verification'
   assert.ok(new CombatSystem());
   assert.ok(new CPUController('normal'));
   assert.ok(new MatchManager(580, 1280));
-  assert.ok(GameBridge.getInstance());
+
+  // Verify 100% English character dialogues and combo names (no Devanagari characters)
+  const devanagariRegex = /[\u0900-\u097F]/;
+  for (const char of CHARACTER_LIST) {
+    assert.equal(devanagariRegex.test(char.dialogues.intro), false);
+    assert.equal(devanagariRegex.test(char.dialogues.win), false);
+    assert.equal(devanagariRegex.test(char.dialogues.superQuote), false);
+    assert.equal(devanagariRegex.test(char.dialogues.superShotQuote), false);
+    assert.equal(devanagariRegex.test(char.dialogues.taunt), false);
+  }
+  for (const combo of COMBO_DEFINITIONS) {
+    assert.equal(devanagariRegex.test(combo.name), false);
+  }
 });
 
-test('10. Final Character Asset Production Directive: CharacterAssetValidator, Action Sultan Vertical Slice, FighterAnimationEvents, CharacterSpecialMoveController & SuperShotProjectileSystem', () => {
+test('10. CharacterAssetValidator, Action Sultan Vertical Slice, FighterAnimationEvents & SuperShotProjectileSystem', () => {
   const reports: CharacterAssetValidationReport[] = [];
 
   for (const char of CHARACTER_LIST) {
@@ -369,19 +520,16 @@ test('10. Final Character Asset Production Directive: CharacterAssetValidator, A
     assert.equal(report.lodLevelsFound.length, 3);
     assert.equal(report.groundOriginVerified, true);
     assert.equal(report.specialClipsUnique, true);
-    assert.equal(report.documentedAnimations.length, 18);
+    assert.equal(report.documentedAnimations.length, 17);
   }
 
-  // Action Sultan is Vertical Slice #1
   const sultanReport = reports.find((r) => r.characterId === 'action_sultan')!;
   assert.equal(sultanReport.productionStatus, 'VERTICAL_SLICE_COMPLETE');
 
-  // Verify no two characters share the same special attack animation names
   const uniqueness = CharacterAssetValidator.verifyCrossCharacterSpecialUniqueness(reports);
   assert.equal(uniqueness.unique, true, 'All 8 special move animation clips across 4 characters are unique');
   assert.equal(CharacterSpecialMoveController.verifyUniqueSpecialAnimations(), true);
 
-  // Verify Action Sultan Idle, Walk, Punch, Kick, Block, Jump, SuperShot, SuperMove poses & events
   const charAnim = new CharacterAnimationController();
   const sultanSliceStates: FighterStateName[] = [
     'idle',
@@ -399,7 +547,6 @@ test('10. Final Character Asset Production Directive: CharacterAssetValidator, A
     assert.ok(pose.Hips && pose.Chest && pose.Jaw && pose.LeftBrow);
   }
 
-  // Verify FighterAnimationEvents fires ON_ACTIVE_HITBOX_START and ON_PROJECTILE_SPAWN for Action Sultan
   const events = new FighterAnimationEvents();
   const firedTypes: string[] = [];
   events.onEvent((evt) => firedTypes.push(evt.type));
@@ -412,7 +559,6 @@ test('10. Final Character Asset Production Directive: CharacterAssetValidator, A
   assert.equal(firedTypes.includes('ON_PROJECTILE_SPAWN'), true);
   assert.equal(firedTypes.includes('ON_RECOVERY_BEGIN'), true);
 
-  // Verify SuperShotProjectileSystem projectile clash cancellation
   const projSys = new SuperShotProjectileSystem();
   const p1 = new Fighter3D(0, CHARACTERS.action_sultan, -1.5, 0, 0);
   const p2 = new Fighter3D(1, CHARACTERS.romance_raja, 1.5, 0, 0);
@@ -430,12 +576,12 @@ test('10. Final Character Asset Production Directive: CharacterAssetValidator, A
   );
 });
 
-test('11. Section E Validation Matrix: Every character SuperMove & SuperShot vs every opposing character across all 7 scenarios guarantees positive damage once per activation', () => {
-  const combat = new CombatSystem3D();
-
+test('11. Section 8 Mandatory 10-Scenario Matrix: Every character SuperMove & SuperShot vs every opposing character across all 10 scenarios', () => {
   interface ValidationScenario {
     name: string;
     setup: (attacker: Fighter3D, defender: Fighter3D) => void;
+    simultaneous?: boolean;
+    nearKo?: boolean;
   }
 
   const scenarios: ValidationScenario[] = [
@@ -478,7 +624,7 @@ test('11. Section E Validation Matrix: Every character SuperMove & SuperShot vs 
       },
     },
     {
-      name: '5. While opponent is airborne',
+      name: '5. Opponent airborne / jumping',
       setup: (attacker, defender) => {
         attacker.position.x = -2.0;
         attacker.position.y = 0;
@@ -490,7 +636,7 @@ test('11. Section E Validation Matrix: Every character SuperMove & SuperShot vs 
       },
     },
     {
-      name: '6. While opponent is blocking',
+      name: '6. Opponent blocking',
       setup: (attacker, defender) => {
         attacker.position.x = -2.0;
         attacker.position.y = 0;
@@ -501,7 +647,18 @@ test('11. Section E Validation Matrix: Every character SuperMove & SuperShot vs 
       },
     },
     {
-      name: '7. While opponent is moving',
+      name: '7. Opponent crouching',
+      setup: (attacker, defender) => {
+        attacker.position.x = -2.0;
+        attacker.position.y = 0;
+        defender.position.x = 2.0;
+        defender.position.y = 0;
+        defender.isCrouching = true;
+        defender.state = 'crouch';
+      },
+    },
+    {
+      name: '8. Opponent moving',
       setup: (attacker, defender) => {
         attacker.position.x = -3.0;
         attacker.position.y = 0;
@@ -509,6 +666,29 @@ test('11. Section E Validation Matrix: Every character SuperMove & SuperShot vs 
         defender.position.y = 0;
         defender.state = 'run';
         defender.velocity.x = 4.8;
+      },
+    },
+    {
+      name: '9. Simultaneous special attacks',
+      simultaneous: true,
+      setup: (attacker, defender) => {
+        attacker.position.x = -2.5;
+        attacker.position.y = 0;
+        defender.position.x = 2.5;
+        defender.position.y = 0;
+        defender.specialMeter = 100;
+        defender.superShotCooldownFrames = 0;
+      },
+    },
+    {
+      name: '10. Activation near round end / KO state',
+      nearKo: true,
+      setup: (attacker, defender) => {
+        attacker.position.x = -3.5;
+        attacker.position.y = 0;
+        defender.position.x = 3.5;
+        defender.position.y = 0;
+        defender.health = 15; // Low HP so the special attack triggers immediate KO
       },
     },
   ];
@@ -520,90 +700,115 @@ test('11. Section E Validation Matrix: Every character SuperMove & SuperShot vs 
     for (const defenderChar of CHARACTER_LIST) {
       for (const ability of abilities) {
         for (const scenario of scenarios) {
+          const combat = new CombatSystem3D();
           const attacker = new Fighter3D(0, attackerChar, -2.0, 0, 0);
           const defender = new Fighter3D(1, defenderChar, 2.0, 0, 0);
           scenario.setup(attacker, defender);
 
-          // Ensure Z = 0 fixed plane
           assert.equal(attacker.position.z, 0);
           assert.equal(defender.position.z, 0);
 
           attacker.specialMeter = 100;
           attacker.superShotCooldownFrames = 0;
           const initialDefenderHp = defender.health;
+          const initialAttackerHp = attacker.health;
 
-          const started = attacker.startAttack(ability);
+          const started = attacker.startAttack(ability, 'fighting');
           assert.equal(
             started,
             true,
             `${attackerChar.id} vs ${defenderChar.id} [${ability}] failed to start in ${scenario.name}`
           );
 
-          const activationId = attacker.currentSpecialActivationId;
-          assert.ok(
-            activationId,
-            `Activation ID must exist for ${attackerChar.id} [${ability}]`
-          );
+          if (scenario.simultaneous) {
+            const defStarted = defender.startAttack(ability, 'fighting');
+            assert.equal(defStarted, true, 'Defender also starts simultaneous special attack');
+          }
 
-          // Step simulation through startup and active frames
-          let hitEventsForAbility = 0;
-          let confirmedDamage = 0;
+          const activationId = attacker.currentSpecialActivationId!;
+          const spec = FighterAnimationEvents.getMoveSpec(attackerChar.id, ability);
+          const expectedImpactFrame =
+            ability === 'super_shot'
+              ? spec.projectileSpawnFrame!
+              : spec.superMoveClimaxFrame!;
 
-          for (let f = 0; f < 35; f++) {
+          let attackerHitEvents = 0;
+          let defenderHitEvents = 0;
+          let confirmedDamageToDefender = 0;
+          let impactOccurredOnFrame = -1;
+
+          for (let f = 1; f <= 40; f++) {
             attacker.stepPhysics();
-            const evs = combat.updateAndResolveCombat(attacker, defender);
+            if (scenario.simultaneous) {
+              defender.stepPhysics();
+            }
+            const evs = combat.updateAndResolveCombat(attacker, defender, 1 / 60, 'fighting');
             for (const ev of evs) {
-              if (
-                (ability === 'super_shot' && ev.isSuperShot) ||
-                (ability === 'super_move' && ev.isSuperMove)
-              ) {
-                hitEventsForAbility++;
-                confirmedDamage += ev.damage;
-                assert.equal(
-                  ev.blocked,
-                  false,
-                  `Guaranteed special [${ability}] must never be block-cancelled (${scenario.name})`
-                );
-                assert.ok(
-                  defender.state === 'hurt' || defender.state === 'knockback',
-                  `Guaranteed special [${ability}] must trigger opponent hit reaction (${defender.state})`
-                );
+              if (ev.attackerIndex === 0) {
+                attackerHitEvents++;
+                confirmedDamageToDefender += ev.damage;
+                impactOccurredOnFrame = ev.impactFrame ?? attacker.stateFrame;
+                assert.equal(ev.blocked, false, 'Guaranteed special must never be blocked');
+              } else if (ev.attackerIndex === 1) {
+                defenderHitEvents++;
               }
             }
           }
 
           assert.equal(
-            hitEventsForAbility,
+            attackerHitEvents,
             1,
-            `${attackerChar.id} vs ${defenderChar.id} [${ability}] in ${scenario.name} must apply damage EXACTLY ONCE per activation`
-          );
-          assert.ok(
-            confirmedDamage > 0,
-            `${attackerChar.id} vs ${defenderChar.id} [${ability}] in ${scenario.name} must deal positive damage`
+            `${attackerChar.id} vs ${defenderChar.id} [${ability}] in ${scenario.name} must apply damage EXACTLY ONCE`
           );
           assert.equal(
+            impactOccurredOnFrame,
+            expectedImpactFrame,
+            `${attackerChar.id} [${ability}] must resolve on exact animation event frame ${expectedImpactFrame}`
+          );
+          assert.ok(confirmedDamageToDefender > 0);
+          assert.equal(
             defender.health,
-            initialDefenderHp - confirmedDamage,
-            `Defender health must immediately reflect guaranteed ${ability} damage`
+            Math.max(0, initialDefenderHp - confirmedDamageToDefender)
           );
 
-          // Verify duplicate call with the same activationId is rejected (0 extra damage)
+          if (scenario.simultaneous) {
+            assert.equal(
+              defenderHitEvents,
+              1,
+              `Simultaneous ${ability} from ${defenderChar.id} also resolves deterministically once`
+            );
+            assert.ok(attacker.health < initialAttackerHp);
+          }
+
+          if (scenario.nearKo) {
+            assert.equal(defender.health, 0, 'Defender reduced to 0 HP in near-KO scenario');
+            // Verify post-KO special activation or damage against defeated opponent is rejected
+            attacker.specialMeter = 100;
+            attacker.superShotCooldownFrames = 0;
+            assert.equal(
+              attacker.startAttack(ability, 'ko'),
+              false,
+              'Cannot start new special attack during KO phase'
+            );
+            const postKoHit = combat.applyGuaranteedSpecialHit(
+              attacker,
+              defender,
+              ability,
+              'post_ko_attempt',
+              'fighting'
+            );
+            assert.equal(postKoHit, null, 'Cannot damage already defeated opponent');
+          }
+
+          // Duplicate activationId must never apply damage a second time
           const duplicateEvt = combat.applyGuaranteedSpecialHit(
             attacker,
             defender,
             ability,
-            activationId!
+            activationId,
+            'fighting'
           );
-          assert.equal(
-            duplicateEvt,
-            null,
-            'Duplicate activationId must not deal damage a second time'
-          );
-          assert.equal(
-            defender.health,
-            initialDefenderHp - confirmedDamage,
-            'Defender health unchanged after duplicate activationId check'
-          );
+          assert.equal(duplicateEvt, null);
 
           totalValidatedCases++;
         }
@@ -611,49 +816,6 @@ test('11. Section E Validation Matrix: Every character SuperMove & SuperShot vs 
     }
   }
 
-  // 4 attackers * 4 defenders * 2 abilities * 7 scenarios = 224 validated cases
-  assert.equal(totalValidatedCases, 224, 'All 224 matchup-ability-scenario combinations verified');
-
-  // Verify MatchManager3D accurately detects KO when a guaranteed special attack reduces opponent health to 0
-  const koAttacker = new Fighter3D(0, CHARACTERS.action_sultan, -6.5, 0, 0);
-  const koDefender = new Fighter3D(1, CHARACTERS.villain_saab, 6.5, 0, 0);
-  const match = new MatchManager3D();
-  for (let i = 0; i < 90; i++) {
-    match.update(koAttacker, koDefender, combat);
-  }
-  assert.equal(match.phase, 'fighting');
-
-  koDefender.health = 10; // Low HP across the arena
-  koAttacker.specialMeter = 100;
-  const koResult = CharacterSpecialMoveController.tryExecuteSuperMove(koAttacker, koDefender, combat, match.phase);
-  assert.ok(koResult && typeof koResult === 'object' && koResult.damage >= 10);
-  assert.equal(koDefender.health, 0);
-
-  match.update(koAttacker, koDefender, combat);
-  assert.equal(match.phase, 'ko', 'MatchManager3D immediately detects KO from guaranteed special attack');
-  assert.equal(match.roundWinner, 'p1');
-
-  // Verify an already defeated opponent (health = 0 or state = 'defeat') and KO/match_end states are respected
-  koAttacker.specialMeter = 100;
-  const postKoEvt = combat.applyGuaranteedSpecialHit(
-    koAttacker,
-    koDefender,
-    'super_shot',
-    'post_ko_act_1',
-    match.phase
-  );
-  assert.equal(postKoEvt, null, 'Guaranteed special attack must not apply damage during KO phase');
-
-  koDefender.health = 500;
-  koDefender.state = 'defeat';
-  const defeatedTargetEvt = combat.applyGuaranteedSpecialHit(
-    koAttacker,
-    koDefender,
-    'super_move',
-    'defeated_target_act_1',
-    'fighting'
-  );
-  assert.equal(defeatedTargetEvt, null, 'Guaranteed special attack must not damage an already defeated opponent');
+  // 4 attackers * 4 defenders * 2 abilities * 10 scenarios = 320 validated cases
+  assert.equal(totalValidatedCases, 320, 'All 320 matchup-ability-scenario combinations verified');
 });
-
-

@@ -45,6 +45,7 @@ export class BabylonFightEngine {
 
   private p1Rig: CharacterRig3D | null = null;
   private p2Rig: CharacterRig3D | null = null;
+  private rigLoadToken = 0;
 
   public readonly p1: Fighter3D;
   public readonly p2: Fighter3D;
@@ -135,19 +136,22 @@ export class BabylonFightEngine {
   }
 
   private async loadFighterRigs(): Promise<void> {
+    const loadToken = ++this.rigLoadToken;
     const bridge = GameBridge.getInstance();
     const p1Def = CHARACTERS[bridge.p1CharacterId] || CHARACTERS.action_sultan;
     const p2Def = CHARACTERS[bridge.p2CharacterId] || CHARACTERS.romance_raja;
 
     this.p1Rig?.dispose();
     this.p2Rig?.dispose();
+    this.p1Rig = null;
+    this.p2Rig = null;
 
     const [rig1, rig2] = await Promise.all([
       loadCharacterRig3D(this.scene, p1Def, 'p1', this.arenaHandle.shadowGenerator),
       loadCharacterRig3D(this.scene, p2Def, 'p2', this.arenaHandle.shadowGenerator),
     ]);
 
-    if (this.isDisposed) {
+    if (this.isDisposed || loadToken !== this.rigLoadToken) {
       rig1.dispose();
       rig2.dispose();
       return;
@@ -177,19 +181,20 @@ export class BabylonFightEngine {
     const p1Def = CHARACTERS[bridge.p1CharacterId] || CHARACTERS.action_sultan;
     const p2Def = CHARACTERS[bridge.p2CharacterId] || CHARACTERS.romance_raja;
 
-    if (this.p1.id !== p1Def.id || this.p2.id !== p2Def.id) {
-      this.p1.setCharacterDef(p1Def);
-      this.p2.setCharacterDef(p2Def);
-      this.loadFighterRigs();
-    }
-
-    if (this.arenaHandle.arenaId !== bridge.arenaId) {
+    const arenaChanged = this.arenaHandle.arenaId !== bridge.arenaId;
+    if (arenaChanged) {
       this.arenaHandle.dispose();
       this.arenaHandle = ArenaBuilder3D.buildArena(
         this.scene,
         bridge.arenaId,
         this.isSoftwareGL
       );
+    }
+
+    if (this.p1.id !== p1Def.id || this.p2.id !== p2Def.id || arenaChanged || !this.p1Rig || !this.p2Rig) {
+      this.p1.setCharacterDef(p1Def);
+      this.p2.setCharacterDef(p2Def);
+      this.loadFighterRigs();
     }
 
     this.cpu.setDifficulty(bridge.difficulty);
@@ -199,7 +204,10 @@ export class BabylonFightEngine {
     this.frameCount = 0;
     this.hitstopTimer = 0;
     this.blackoutTimer = 0;
-    this.announcement = 'ROUND 1';
+    this.announcement =
+      bridge.gameMode === 'arcade'
+        ? `STAGE ${bridge.arcadeStageIndex + 1} - ROUND 1`
+        : 'ROUND 1';
     this.announcementTimerFrames = 90;
     this.specialCallout = '';
     this.specialCalloutFrames = 0;
@@ -256,6 +264,9 @@ export class BabylonFightEngine {
       p1SuperMoveName: this.p1.def.superMoveInfo.name,
       p1SuperShotName: this.p1.def.superShotInfo.name,
       activeSpecialCallout: this.specialCallout,
+      gameMode: bridge.gameMode,
+      arcadeStageNumber: bridge.arcadeStageIndex + 1,
+      arcadeTotalStages: bridge.arcadeLadder.length,
     };
 
     bridge.notifyHUD(hudState);
@@ -336,7 +347,7 @@ export class BabylonFightEngine {
     if (this.match.phase === 'fighting') {
       const p1InputFrame = input.snapshotToInputFrame(snap);
       const prevP1State = this.p1.state;
-      this.p1.processInput(p1InputFrame, this.p2);
+      this.p1.processInput(p1InputFrame, this.p2, this.match.phase);
       this.triggerMovePresentationEffects(this.p1, prevP1State, 0);
 
       const cpuInputFrame = this.cpu.computeInput(
@@ -345,15 +356,15 @@ export class BabylonFightEngine {
         this.combat.projectileManager.getActiveProjectiles()
       );
       const prevP2State = this.p2.state;
-      this.p2.processInput(cpuInputFrame, this.p1);
+      this.p2.processInput(cpuInputFrame, this.p1, this.match.phase);
       this.triggerMovePresentationEffects(this.p2, prevP2State, 1);
     }
 
-    // 2. Step 3D Fighter Physics & Arena Clamping
+    // 2. Step 3D Fighter Physics & Arena Clamping (also evaluates FighterAnimationEvents)
     this.p1.stepPhysics(arenaDef.bounds3D, 1 / 60);
     this.p2.stepPhysics(arenaDef.bounds3D, 1 / 60);
 
-    // 3. Resolve 3D Pushboxes, Projectiles & Bone-Attached Melee Hitboxes
+    // 3. Resolve 3D Pushboxes, Projectiles & Animation-Event-Synchronized Special / Melee Combat
     this.combat.resolvePushboxes3D(this.p1, this.p2, arenaDef.bounds3D);
 
     if (this.match.phase === 'fighting') {
@@ -535,6 +546,7 @@ export class BabylonFightEngine {
   public dispose(): void {
     if (this.isDisposed) return;
     this.isDisposed = true;
+    this.rigLoadToken++;
     this.unsubscribeCommand();
     this.unsubscribePause();
     this.unsubscribeMute();

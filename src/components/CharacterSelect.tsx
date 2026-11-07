@@ -80,9 +80,16 @@ export const CharacterSelect: React.FC<CharacterSelectProps> = ({ onBack, onProc
           <span>RETURN TO TITLE</span>
         </button>
 
-        <h1 className="font-['Bungee'] text-lg sm:text-2xl text-transparent bg-clip-text bg-gradient-to-r from-[#FEF08A] to-[#D6A447] tracking-wider text-center">
-          CHOOSE YOUR 3D FIGHTER
-        </h1>
+        <div className="text-center">
+          <h1 className="font-['Bungee'] text-lg sm:text-2xl text-transparent bg-clip-text bg-gradient-to-r from-[#FEF08A] to-[#D6A447] tracking-wider">
+            CHOOSE YOUR 3D FIGHTER
+          </h1>
+          <span className="text-[10px] font-['Cinzel'] font-bold text-[#FEF08A] uppercase tracking-widest">
+            {bridge.gameMode === 'arcade'
+              ? 'MODE: 3-STAGE ARCADE LADDER'
+              : 'MODE: VERSUS CPU SINGLE MATCH'}
+          </span>
+        </div>
 
         {/* DIFFICULTY SELECTOR */}
         <div className="flex items-center gap-1 bg-black/50 p-1 rounded border border-[#D6A447]/40">

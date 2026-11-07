@@ -8,12 +8,12 @@ export interface HitLocationResult3D {
 }
 
 /**
- * 3D Hitbox & Hurtbox collision system for Filmi Dangal 2.0.
+ * 3D Hitbox & Hurtbox collision system for Filmi Dangal 2.0 on the fixed Z = 0 plane.
  * Uses 3D bone-attached attack spheres and 3D capsule / multi-sphere hurtboxes.
  */
 export class HitboxSystem3D {
   public static getSphereCenter(s: Sphere3D): Vector3D {
-    return s.center ?? { x: s.x, y: s.y, z: s.z };
+    return s.center ?? { x: s.x, y: s.y, z: 0 };
   }
 
   public static createSphere(x: number, y: number, z: number, radius: number): Sphere3D {
@@ -29,8 +29,7 @@ export class HitboxSystem3D {
   public static distanceSquared3D(a: Vector3D, b: Vector3D): number {
     const dx = a.x - b.x;
     const dy = a.y - b.y;
-    const dz = a.z - b.z;
-    return dx * dx + dy * dy + dz * dz;
+    return dx * dx + dy * dy;
   }
 
   public static distance3D(a: Vector3D, b: Vector3D): number {
@@ -44,19 +43,17 @@ export class HitboxSystem3D {
   ): Vector3D {
     const abx = segB.x - segA.x;
     const aby = segB.y - segA.y;
-    const abz = segB.z - segA.z;
-    const abLenSq = abx * abx + aby * aby + abz * abz;
+    const abLenSq = abx * abx + aby * aby;
     if (abLenSq < 1e-8) {
-      return { ...segA };
+      return { x: segA.x, y: segA.y, z: 0 };
     }
     const apx = point.x - segA.x;
     const apy = point.y - segA.y;
-    const apz = point.z - segA.z;
-    const t = Math.max(0, Math.min(1, (apx * abx + apy * aby + apz * abz) / abLenSq));
+    const t = Math.max(0, Math.min(1, (apx * abx + apy * aby) / abLenSq));
     return {
       x: segA.x + abx * t,
       y: segA.y + aby * t,
-      z: segA.z + abz * t,
+      z: 0,
     };
   }
 
@@ -69,8 +66,8 @@ export class HitboxSystem3D {
   }
 
   /**
-   * Checks whether a 3D attack sphere (attached to a hand/foot/chest bone or projectile)
-   * intersects a defender's 3D capsule hurtbox and identifies upper/lower body region.
+   * Checks whether a 3D attack sphere (attached to a hand/foot/chest bone)
+   * intersects a defender's 3D capsule hurtbox on the 2D XY plane and identifies hit region.
    */
   public static checkAttackHit3D(
     attackSphere: Sphere3D,
@@ -97,7 +94,7 @@ export class HitboxSystem3D {
     const contactPoint: Vector3D = {
       x: (center.x + closest.x) * 0.5,
       y: (center.y + closest.y) * 0.5,
-      z: (center.z + closest.z) * 0.5,
+      z: 0,
     };
 
     const heightSpan = Math.max(0.1, defenderHurtbox.top.y - defenderHurtbox.bottom.y);
@@ -119,31 +116,29 @@ export class HitboxSystem3D {
   }
 
   /**
-   * Computes horizontal (X, Z) pushbox overlap between two fighters so they cannot clip through each other.
+   * Computes strictly horizontal X-axis pushbox overlap between two fighters on the 2D XY plane.
    */
   public static computeHorizontalPushSeparation3D(
     posA: Vector3D,
     radiusA: number,
     posB: Vector3D,
     radiusB: number
-  ): { overlap: number; dirX: number; dirZ: number } {
+  ): { overlap: number; dirX: number } {
     const dx = posB.x - posA.x;
-    const dz = posB.z - posA.z;
-    const dist = Math.sqrt(dx * dx + dz * dz);
+    const dist = Math.abs(dx);
     const minDist = radiusA + radiusB;
 
     if (dist >= minDist) {
-      return { overlap: 0, dirX: 0, dirZ: 0 };
+      return { overlap: 0, dirX: 0 };
     }
 
     if (dist < 1e-5) {
-      return { overlap: minDist, dirX: 1, dirZ: 0 };
+      return { overlap: minDist, dirX: 1 };
     }
 
     return {
       overlap: minDist - dist,
-      dirX: dx / dist,
-      dirZ: dz / dist,
+      dirX: dx >= 0 ? 1 : -1,
     };
   }
 }

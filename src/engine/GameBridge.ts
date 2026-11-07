@@ -1,24 +1,8 @@
-import { ArenaId, CombatHitEvent, Difficulty, FighterId, GameMode } from '../types/fighter';
-import { InputManager } from './InputManager';
+import { ArenaId, CombatHitEvent, Difficulty, FighterId, GameMode, ScreenName } from '../types/fighter';
 import { MatchPhase, MatchStats } from './MatchManager';
+import { CHARACTER_LIST } from '../data/characters';
 
-export type GameScreen =
-  | 'title'
-  | 'character_select'
-  | 'arena_select'
-  | 'difficulty_select'
-  | 'fighting'
-  | 'results'
-  | 'controls'
-  | 'settings'
-  | 'credits'
-  | 'disclaimer';
-
-export type MatchLifecycleCommand =
-  | 'start_match'
-  | 'restart_round'
-  | 'reset_match'
-  | 'rematch';
+export type GameScreen = ScreenName;
 
 export interface GameHUDState {
   p1Health: number;
@@ -39,40 +23,55 @@ export interface GameHUDState {
   announcementText: string;
   isPaused: boolean;
   isMuted: boolean;
-  debugHitboxes?: boolean;
+  debugHitboxes: boolean;
   p1SuperShotCooldown?: number;
   p2SuperShotCooldown?: number;
   p1SuperMoveName?: string;
   p1SuperShotName?: string;
   activeSpecialCallout?: string;
+  gameMode?: GameMode;
+  arcadeStageNumber?: number;
+  arcadeTotalStages?: number;
 }
 
-export type StateListener = (state: GameHUDState) => void;
-export type ScreenListener = (screen: GameScreen) => void;
-export type PauseListener = (isPaused: boolean) => void;
-export type HitEventListener = (event: CombatHitEvent) => void;
-export type CommandListener = (cmd: MatchLifecycleCommand) => void;
+export type MatchLifecycleCommand = 'start_match' | 'reset_match' | 'restart_round' | 'rematch';
+
+type ScreenListener = (screen: ScreenName) => void;
+type HUDListener = (state: GameHUDState) => void;
+type HitListener = (event: CombatHitEvent) => void;
+type PauseListener = (isPaused: boolean) => void;
+type CommandListener = (command: MatchLifecycleCommand) => void;
 
 export class GameBridge {
   private static instance: GameBridge;
 
-  public screen: GameScreen = 'title';
   public gameMode: GameMode = 'arcade';
-  public difficulty: Difficulty = 'normal';
   public p1CharacterId: FighterId = 'action_sultan';
   public p2CharacterId: FighterId = 'romance_raja';
   public arenaId: ArenaId = 'award_night';
+  public difficulty: Difficulty = 'normal';
+  public screen: ScreenName = 'title';
   public isPaused: boolean = false;
   public debugHitboxes: boolean = false;
 
-  public lastMatchStats: MatchStats | null = null;
-  public matchWinner: 'p1' | 'p2' | null = null;
-  public matchSessionId: number = 0;
+  // Arcade Mode multi-stage ladder state (3 sequential opponents)
+  public arcadeLadder: FighterId[] = ['romance_raja', 'dance_dynamo', 'villain_saab'];
+  public arcadeStageIndex = 0;
 
-  private stateListeners: Set<StateListener> = new Set();
+  public lastMatchStats: MatchStats = {
+    p1DamageDealt: 0,
+    p2DamageDealt: 0,
+    p1MaxCombo: 0,
+    p2MaxCombo: 0,
+    roundResults: [],
+    totalFightTimeSeconds: 0,
+  };
+  public matchWinner: 'p1' | 'p2' | null = null;
+
   private screenListeners: Set<ScreenListener> = new Set();
+  private hudListeners: Set<HUDListener> = new Set();
+  private hitListeners: Set<HitListener> = new Set();
   private pauseListeners: Set<PauseListener> = new Set();
-  private hitListeners: Set<HitEventListener> = new Set();
   private commandListeners: Set<CommandListener> = new Set();
 
   public static getInstance(): GameBridge {
@@ -82,132 +81,165 @@ export class GameBridge {
     return GameBridge.instance;
   }
 
-  public setScreen(screen: GameScreen): void {
-    this.screen = screen;
-    if (screen !== 'fighting') {
-      this.setPaused(false);
+  public setScreen(screen: ScreenName): void {
+    const normalized: ScreenName = screen === 'fight' ? 'fighting' : screen;
+    this.screen = normalized;
+    if (normalized !== 'fighting') {
+      this.isPaused = false;
     }
-    if (typeof document !== 'undefined') {
-      document.body.dataset.state =
-        screen === 'fighting'
-          ? this.isPaused
-            ? 'paused'
-            : 'playing'
-          : screen === 'results'
-          ? 'gameover'
-          : screen;
-    }
-    this.screenListeners.forEach((l) => l(screen));
+    this.screenListeners.forEach((l) => l(normalized));
   }
 
-  public setPaused(paused: boolean): void {
-    const nextPaused = this.screen === 'fighting' ? paused : false;
-    if (this.isPaused === nextPaused) return;
-    this.isPaused = nextPaused;
-
-    // Safely release active touch/held inputs when entering pause
-    if (this.isPaused) {
-      InputManager.getInstance().clearAll();
-    }
-
-    if (typeof document !== 'undefined' && this.screen === 'fighting') {
-      document.body.dataset.state = this.isPaused ? 'paused' : 'playing';
-    }
-
-    this.pauseListeners.forEach((l) => l(this.isPaused));
+  /**
+   * Initializes the 3-stage Arcade Mode progression ladder for Player 1.
+   * Stage 1 starts with the selected initial opponent, followed by the remaining two fighters.
+   */
+  public initializeArcadeLadder(p1Id: FighterId = this.p1CharacterId): void {
+    this.p1CharacterId = p1Id;
+    const allRivals = CHARACTER_LIST.map((c) => c.id).filter((id) => id !== p1Id);
+    const firstOpponent =
+      this.p2CharacterId !== p1Id && allRivals.includes(this.p2CharacterId)
+        ? this.p2CharacterId
+        : allRivals[0];
+    const remaining = allRivals.filter((id) => id !== firstOpponent);
+    this.arcadeLadder = [firstOpponent, ...remaining];
+    this.arcadeStageIndex = 0;
+    this.applyArcadeStageConfig();
   }
 
-  public togglePause(): boolean {
-    if (this.screen !== 'fighting') return false;
-    this.setPaused(!this.isPaused);
-    return this.isPaused;
+  public applyArcadeStageConfig(): void {
+    if (this.gameMode !== 'arcade') return;
+    const clampedIdx = Math.max(
+      0,
+      Math.min(this.arcadeStageIndex, this.arcadeLadder.length - 1)
+    );
+    this.arcadeStageIndex = clampedIdx;
+    this.p2CharacterId = this.arcadeLadder[clampedIdx] || 'romance_raja';
+
+    // Progressive Arcade difficulty and arena rotation across the 3 ladder stages
+    if (clampedIdx === 0) {
+      this.difficulty = 'easy';
+    } else if (clampedIdx === 1) {
+      this.difficulty = 'normal';
+      this.arenaId = this.arenaId === 'award_night' ? 'film_city' : 'award_night';
+    } else {
+      this.difficulty = 'hard';
+      this.arenaId = 'award_night';
+    }
   }
 
-  // --- EXPLICIT MATCH LIFECYCLE METHODS ---
+  public hasNextArcadeStage(): boolean {
+    return (
+      this.gameMode === 'arcade' &&
+      this.arcadeStageIndex < this.arcadeLadder.length - 1
+    );
+  }
 
-  public startMatch(): void {
-    this.matchSessionId++;
-    this.lastMatchStats = null;
-    this.matchWinner = null;
+  public advanceArcadeStage(): boolean {
+    if (!this.hasNextArcadeStage()) {
+      return false;
+    }
+    this.arcadeStageIndex += 1;
+    this.applyArcadeStageConfig();
     this.isPaused = false;
-    InputManager.getInstance().clearAll();
+    this.matchWinner = null;
+    this.setScreen('fighting');
+    this.emitCommand('start_match');
+    return true;
+  }
+
+  public startNewMatch(): void {
+    this.isPaused = false;
+    this.matchWinner = null;
+    if (this.gameMode === 'arcade') {
+      this.initializeArcadeLadder(this.p1CharacterId);
+    }
+    this.lastMatchStats = {
+      p1DamageDealt: 0,
+      p2DamageDealt: 0,
+      p1MaxCombo: 0,
+      p2MaxCombo: 0,
+      roundResults: [],
+      totalFightTimeSeconds: 0,
+    };
     this.setScreen('fighting');
     this.emitCommand('start_match');
   }
 
-  public restartRound(): void {
-    this.setPaused(false);
-    InputManager.getInstance().clearAll();
-    if (this.screen !== 'fighting') {
-      this.setScreen('fighting');
-    }
-    this.emitCommand('restart_round');
+  public startMatch(): void {
+    this.startNewMatch();
   }
 
-  public resetMatch(): void {
-    this.matchSessionId++;
-    this.lastMatchStats = null;
+  public requestRematch(): void {
+    this.isPaused = false;
     this.matchWinner = null;
-    this.setPaused(false);
-    InputManager.getInstance().clearAll();
-    if (this.screen !== 'fighting') {
-      this.setScreen('fighting');
-    }
-    this.emitCommand('reset_match');
-  }
-
-  public rematch(): void {
-    this.matchSessionId++;
-    this.lastMatchStats = null;
-    this.matchWinner = null;
-    this.setPaused(false);
-    InputManager.getInstance().clearAll();
     this.setScreen('fighting');
     this.emitCommand('rematch');
   }
 
+  public rematch(): void {
+    this.requestRematch();
+  }
+
+  public requestRestartRound(): void {
+    this.isPaused = false;
+    this.emitCommand('restart_round');
+  }
+
+  public restartRound(): void {
+    this.requestRestartRound();
+  }
+
   public returnToMenu(): void {
-    this.setPaused(false);
-    InputManager.getInstance().clearAll();
+    this.isPaused = false;
     this.setScreen('title');
   }
 
-  // --- SUBSCRIPTIONS ---
+  public emitCommand(command: MatchLifecycleCommand): void {
+    this.commandListeners.forEach((l) => l(command));
+  }
+
+  public subscribeCommand(listener: CommandListener): () => void {
+    this.commandListeners.add(listener);
+    return () => this.commandListeners.delete(listener);
+  }
 
   public subscribeScreen(listener: ScreenListener): () => void {
     this.screenListeners.add(listener);
     return () => this.screenListeners.delete(listener);
   }
 
-  public subscribePause(listener: PauseListener): () => void {
-    this.pauseListeners.add(listener);
-    return () => this.pauseListeners.delete(listener);
-  }
-
   public notifyHUD(state: GameHUDState): void {
-    this.stateListeners.forEach((l) => l(state));
+    this.hudListeners.forEach((l) => l(state));
   }
 
-  public subscribeHUD(listener: StateListener): () => void {
-    this.stateListeners.add(listener);
-    return () => this.stateListeners.delete(listener);
+  public subscribeHUD(listener: HUDListener): () => void {
+    this.hudListeners.add(listener);
+    return () => this.hudListeners.delete(listener);
   }
 
   public emitHit(event: CombatHitEvent): void {
     this.hitListeners.forEach((l) => l(event));
   }
 
-  public subscribeHit(listener: HitEventListener): () => void {
+  public subscribeHit(listener: HitListener): () => void {
     this.hitListeners.add(listener);
     return () => this.hitListeners.delete(listener);
   }
 
-  private emitCommand(cmd: MatchLifecycleCommand): void {
-    this.commandListeners.forEach((l) => l(cmd));
+  public setPaused(paused: boolean): void {
+    if (this.isPaused === paused) return;
+    this.isPaused = paused;
+    this.pauseListeners.forEach((l) => l(paused));
   }
 
-  public subscribeCommand(listener: CommandListener): () => void {
-    this.commandListeners.add(listener);
-    return () => this.commandListeners.delete(listener);
+  public togglePause(): boolean {
+    this.setPaused(!this.isPaused);
+    return this.isPaused;
+  }
+
+  public subscribePause(listener: PauseListener): () => void {
+    this.pauseListeners.add(listener);
+    return () => this.pauseListeners.delete(listener);
   }
 }

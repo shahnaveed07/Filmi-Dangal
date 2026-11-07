@@ -221,7 +221,6 @@ function buildGLBForCharacter(spec: CharacterAssetSpec): {
     'Idle',
     'Walk',
     'Run',
-    'Sidestep',
     'Jump',
     'Crouch',
     'Block',

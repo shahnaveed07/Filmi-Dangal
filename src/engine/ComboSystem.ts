@@ -3,221 +3,136 @@ import { AttackType } from '../types/fighter';
 export type ComboInputCommand =
   | 'punch'
   | 'kick'
-  | 'sweep'
   | 'down_kick'
+  | 'sweep'
   | 'forward_punch'
   | 'forward_kick'
   | 'grab'
+  | 'super_shot'
+  | 'super_move'
   | 'super';
 
 export interface BufferedInput {
   command: ComboInputCommand;
   frame: number;
-  consumed?: boolean;
 }
 
 export interface ComboDefinition {
   id: string;
   name: string;
-  sequence: ComboInputCommand[];
-  finalAttack: AttackType;
+  sequence: AttackType[];
+  bonusMultiplier: number;
   description: string;
 }
 
 export const COMBO_DEFINITIONS: ComboDefinition[] = [
   {
-    id: 'triple_punch',
-    name: 'Triple Dishoom (J-J-J)',
-    sequence: ['punch', 'punch', 'punch'],
-    finalAttack: 'punch',
-    description: 'Rapid 3-hit jab string ending in a stagger jab',
-  },
-  {
-    id: 'punch_punch_kick',
-    name: 'Bollywood High-Kick (J-J-K)',
+    id: 'one_two_kick',
+    name: 'Box Office Blitz (J-J-K)',
     sequence: ['punch', 'punch', 'kick'],
-    finalAttack: 'forward_kick',
-    description: 'Double jab into a cinematic high roundhouse',
+    bonusMultiplier: 1.15,
+    description: 'Two rapid jabs followed by a heavy roundhouse kick.',
   },
   {
-    id: 'punch_kick_kick',
-    name: 'Dhamaka Stomp (J-K-K)',
+    id: 'sweep_launcher',
+    name: 'Red Carpet Sweep (J-K-Sweep)',
+    sequence: ['punch', 'kick', 'sweep'],
+    bonusMultiplier: 1.2,
+    description: 'High-low mixup ending in a knockdown sweep.',
+  },
+  {
+    id: 'triple_strike',
+    name: 'Triple Strike (J-J-J)',
+    sequence: ['punch', 'punch', 'punch'],
+    bonusMultiplier: 1.12,
+    description: 'Classic three-punch cinema rush combo.',
+  },
+  {
+    id: 'command_crusher',
+    name: 'Heroic Finisher (J-Fwd+J-Fwd+K)',
+    sequence: ['punch', 'forward_punch', 'forward_kick'],
+    bonusMultiplier: 1.25,
+    description: 'Jab into overhead lunge punch and flying chest kick.',
+  },
+  {
+    id: 'knockout_stomp',
+    name: 'Knockout Stomp (J-K-K)',
     sequence: ['punch', 'kick', 'kick'],
-    finalAttack: 'forward_punch',
-    description: 'Jab into knee into heavy finishing haymaker',
-  },
-  {
-    id: 'down_sweep',
-    name: 'Floor Sweep (Down + K)',
-    sequence: ['sweep'],
-    finalAttack: 'sweep',
-    description: 'Low sweeping trip that knocks down the opponent',
-  },
-  {
-    id: 'forward_punch',
-    name: 'Heavy Haymaker (Forward + J)',
-    sequence: ['forward_punch'],
-    finalAttack: 'forward_punch',
-    description: 'Crushing heavy strike that staggers and knocks back',
-  },
-  {
-    id: 'forward_kick',
-    name: 'Flying Roundhouse (Forward + K)',
-    sequence: ['forward_kick'],
-    finalAttack: 'forward_kick',
-    description: 'Lunging cinematic kick with long reach',
+    bonusMultiplier: 1.18,
+    description: 'Quick punch into double high kick.',
   },
 ];
 
 export class ComboSystem {
-  public static DEFAULT_BUFFER_WINDOW_FRAMES = 28; // ~0.46s input buffer window
-  public static CANCEL_QUEUE_WINDOW_FRAMES = 14; // ~0.23s pre-cancel input queue window
-  public static MAX_CHAIN_LENGTH = 3; // Maximum hits in a normal target-combo chain
+  public static readonly MAX_CHAIN_LENGTH = 3;
+  public static readonly CANCEL_QUEUE_WINDOW_FRAMES = 18;
+  private static readonly SCALING_TABLE = [1.0, 0.9, 0.8, 0.7, 0.6, 0.5, 0.45];
 
-  /**
-   * Normalize directional input command aliases so 'down_kick' and 'sweep' match seamlessly
-   */
-  public static normalizeCommand(cmd: ComboInputCommand | string): ComboInputCommand {
-    if (cmd === 'down_kick') return 'sweep';
-    return cmd as ComboInputCommand;
+  public static getComboDamageMultiplier(comboHitIndex: number): number {
+    if (comboHitIndex <= 1) return 1.0;
+    const idx = Math.min(comboHitIndex - 1, this.SCALING_TABLE.length - 1);
+    return this.SCALING_TABLE[idx];
   }
 
-  /**
-   * Calculate combo scaling multiplier based on combo hit count
-   * Prevents runaway damage and infinite combo exploits
-   */
-  public static getComboDamageMultiplier(comboCount: number): number {
-    if (comboCount <= 1) return 1.0;
-    if (comboCount === 2) return 0.85;
-    if (comboCount === 3) return 0.70;
-    if (comboCount === 4) return 0.55;
-    return Math.max(0.40, 0.55 - (comboCount - 4) * 0.05);
+  public static normalizeCommand(cmd: AttackType | ComboInputCommand): ComboInputCommand {
+    return cmd;
   }
 
-  /**
-   * Determine if an attack input connects with previous inputs to form a recognized combo
-   */
-  public static detectCombo(
-    inputHistory: BufferedInput[],
-    currentFrame: number,
-    bufferWindowFrames: number = ComboSystem.DEFAULT_BUFFER_WINDOW_FRAMES
-  ): ComboDefinition | null {
-    // Filter to inputs within recent buffer window
-    const recentInputs = inputHistory.filter(
-      (inp) => currentFrame - inp.frame <= bufferWindowFrames
-    );
-
-    if (recentInputs.length === 0) return null;
-
-    // Sort multi-hit combos ahead of single-input command moves so 3-hit chains take precedence
-    const orderedDefs = [...COMBO_DEFINITIONS].sort(
-      (a, b) => b.sequence.length - a.sequence.length
-    );
-
-    for (const combo of orderedDefs) {
-      if (recentInputs.length < combo.sequence.length) continue;
-
-      const slice = recentInputs.slice(-combo.sequence.length);
-      let matches = true;
-      for (let i = 0; i < combo.sequence.length; i++) {
-        if (this.normalizeCommand(slice[i].command) !== this.normalizeCommand(combo.sequence[i])) {
-          matches = false;
-          break;
-        }
-        // Ensure consecutive steps in a multi-hit sequence aren't too far apart
-        if (i > 0 && slice[i].frame - slice[i - 1].frame > bufferWindowFrames) {
-          matches = false;
-          break;
-        }
-      }
-
-      if (matches) {
-        return combo;
-      }
-    }
-
-    return null;
-  }
-
-  /**
-   * Check if a fighter in active or recovery frames can cancel into the next attack
-   */
-  public static canCancelIntoCombo(
-    currentAttack: AttackType,
-    nextAttack: AttackType,
-    hitConfirmed: boolean,
-    currentFrameInState: number,
-    startupFrames: number,
-    chainLength: number = 1
-  ): boolean {
-    // Attacks can only cancel if the previous hit connected (hit-confirm requirement)
-    if (!hitConfirmed) return false;
-
-    // Must be in active or recovery frames (past startup frames)
-    if (currentFrameInState < startupFrames) return false;
-
-    // Cannot cancel out of a super or grab
-    if (currentAttack === 'super' || currentAttack === 'grab') return false;
-
-    // Super cancels are always allowed on hit-confirm from any normal/command attack
-    if (nextAttack === 'super') return true;
-
-    // Prevent infinite chaining: normal chains are capped at MAX_CHAIN_LENGTH (3 hits)
-    if (chainLength >= ComboSystem.MAX_CHAIN_LENGTH) {
-      return false;
-    }
-
-    // Step 1 -> Step 2: Punch can cancel into Punch or Kick
-    if (chainLength === 1) {
-      if (currentAttack === 'punch' && (nextAttack === 'punch' || nextAttack === 'kick')) {
-        return true;
-      }
-      return false;
-    }
-
-    // Step 2 -> Step 3:
-    // J-J -> J (punch) or K (kick / forward_kick)
-    // J-K -> K (kick / forward_punch)
-    if (chainLength === 2) {
-      if (
-        currentAttack === 'punch' &&
-        (nextAttack === 'punch' || nextAttack === 'kick' || nextAttack === 'forward_kick')
-      ) {
-        return true;
-      }
-      if (
-        currentAttack === 'kick' &&
-        (nextAttack === 'kick' || nextAttack === 'forward_punch' || nextAttack === 'sweep')
-      ) {
-        return true;
-      }
-    }
-
-    return false;
-  }
-
-  /**
-   * Resolve the actual AttackType to execute when cancelling or buffering a combo sequence
-   */
   public static resolveComboAttack(
     requestedAttack: AttackType,
     inputHistory: BufferedInput[],
-    currentFrame: number,
-    chainLength: number,
-    bufferWindowFrames: number = ComboSystem.DEFAULT_BUFFER_WINDOW_FRAMES
+    _currentFrame: number,
+    _chainIndex: number
   ): { attackType: AttackType; matchedCombo: ComboDefinition | null } {
-    const matched = this.detectCombo(inputHistory, currentFrame, bufferWindowFrames);
+    const recentCommands = inputHistory.slice(-3).map((b) => b.command as AttackType);
+    const matched = this.matchComboChain(recentCommands);
+    return {
+      attackType: requestedAttack,
+      matchedCombo: matched,
+    };
+  }
 
-    // If we are on the 3rd step of a 3-hit chain (J-J-J, J-J-K, J-K-K), promote to the combo's finalAttack
-    if (matched && matched.sequence.length === 3 && chainLength >= 2) {
-      return { attackType: matched.finalAttack, matchedCombo: matched };
+  public static canCancelIntoCombo(
+    currentAttack: AttackType,
+    nextAttack: AttackType,
+    hasHitConnected: boolean,
+    frameInState: number,
+    startupFrames: number,
+    chainLength: number
+  ): boolean {
+    if (!hasHitConnected || frameInState < startupFrames) {
+      return false;
     }
-
-    // If it's a single-command directional move (sweep, forward_punch, forward_kick)
-    if (matched && matched.sequence.length === 1) {
-      return { attackType: matched.finalAttack, matchedCombo: matched };
+    if (
+      nextAttack === 'super' ||
+      nextAttack === 'super_move' ||
+      nextAttack === 'super_shot'
+    ) {
+      return (
+        currentAttack !== 'super' &&
+        currentAttack !== 'super_move' &&
+        currentAttack !== 'super_shot'
+      );
     }
+    if (chainLength >= this.MAX_CHAIN_LENGTH) {
+      return false;
+    }
+    return true;
+  }
 
-    return { attackType: requestedAttack, matchedCombo: null };
+  public static matchComboChain(recentMoves: AttackType[]): ComboDefinition | null {
+    if (recentMoves.length < 3) return null;
+    const lastThree = recentMoves.slice(-3);
+
+    for (const def of COMBO_DEFINITIONS) {
+      if (
+        def.sequence[0] === lastThree[0] &&
+        def.sequence[1] === lastThree[1] &&
+        def.sequence[2] === lastThree[2]
+      ) {
+        return def;
+      }
+    }
+    return null;
   }
 }

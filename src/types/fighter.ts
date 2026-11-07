@@ -1,35 +1,36 @@
 export type FighterId = 'action_sultan' | 'romance_raja' | 'dance_dynamo' | 'villain_saab';
 export type CharacterId = FighterId;
 
+export type ArenaId = 'award_night' | 'film_city';
+export type Difficulty = 'easy' | 'normal' | 'hard';
+export type DifficultyLevel = Difficulty;
+
 export type FighterStateName =
   | 'idle'
   | 'walk'
   | 'walk_forward'
   | 'walk_backward'
   | 'run'
-  | 'sidestep'
   | 'jump'
   | 'crouch'
+  | 'block'
+  | 'crouch_block'
   | 'punch'
   | 'kick'
   | 'sweep'
   | 'forward_punch'
   | 'forward_kick'
   | 'grab'
-  | 'block'
-  | 'crouch_block'
-  | 'hurt'
-  | 'knockback'
-  | 'knockdown'
-  | 'recovery'
   | 'super_shot'
   | 'super_move'
   | 'super'
   | 'special'
+  | 'hurt'
+  | 'knockback'
+  | 'knockdown'
+  | 'recovery'
   | 'victory'
   | 'defeat';
-
-export type FighterStateType = FighterStateName;
 
 export type AttackType =
   | 'punch'
@@ -42,24 +43,24 @@ export type AttackType =
   | 'super_move'
   | 'super';
 
-export type MoveType = AttackType;
-
 export type BoneAttachmentName =
+  | 'Head'
+  | 'Chest'
   | 'RightHand'
   | 'LeftHand'
   | 'RightFoot'
   | 'LeftFoot'
-  | 'Chest'
-  | 'Head'
   | 'Hips'
   | 'Projectile';
 
-export interface Box {
+export interface Rect {
   x: number;
   y: number;
   w: number;
   h: number;
 }
+
+export type Box = Rect;
 
 export interface Vector3D {
   x: number;
@@ -88,45 +89,43 @@ export interface CapsuleHurtbox3D {
 }
 
 export interface AttackFrameData {
+  type: AttackType;
+  damage: number;
   startupFrames: number;
   activeFrames: number;
   recoveryFrames: number;
-  damage: number;
   hitStunFrames: number;
   blockStunFrames: number;
   knockbackX: number;
   knockbackY: number;
-  knockbackZ?: number;
-  causesKnockdown?: boolean;
-  isLow?: boolean;
-  isHigh?: boolean;
-  isProjectile?: boolean;
-  projectileSpeed?: number;
-  projectileRadius?: number;
-  cooldownFrames?: number;
-  maxHits?: number;
-  attachedBone?: BoneAttachmentName;
-  hitRadius3D?: number;
   meterGainOnHit: number;
   meterGainOnBlock: number;
   meterCost?: number;
+  cooldownFrames?: number;
+  maxHits?: number;
+  isHigh?: boolean;
+  isLow?: boolean;
+  isOverhead?: boolean;
+  isUnblockable?: boolean;
+  isProjectile?: boolean;
+  causesKnockdown?: boolean;
   hitboxOffset: { x: number; y: number; w: number; h: number };
+  attachedBone?: BoneAttachmentName;
+  hitRadius3D: number;
+  localOffset3D?: Vector3D;
 }
 
 export interface SignatureAbilityInfo {
   name: string;
-  hindiName: string;
   description: string;
-  vfxTheme: string;
   meterCost: number;
-  cooldownSeconds: number;
+  cooldownSeconds?: number;
 }
 
 export interface FighterStats {
   maxHealth: number;
   walkSpeed: number;
   runSpeed: number;
-  sidestepSpeed: number;
   jumpVelocity: number;
   powerMultiplier: number;
   defenseMultiplier: number;
@@ -135,61 +134,77 @@ export interface FighterStats {
 
 export interface FighterDialogue {
   intro: string;
-  introHindi: string;
   win: string;
-  winHindi: string;
   superQuote: string;
-  superQuoteHindi: string;
   superShotQuote: string;
   taunt: string;
 }
 
-export interface FighterProportions3D {
+export interface CharacterProportions3D {
   heightScale: number;
   shoulderWidth: number;
+  chestDepth: number;
   torsoBulk: number;
+  waistWidth: number;
+  limbLength: number;
   limbThickness: number;
+  armThickness: number;
+  legThickness: number;
   jawWidth: number;
-  cheekboneProminence: number;
-  browDepth: number;
-  hairStyle: 'cropped_machismo' | 'swept_romantic_waves' | 'sculpted_bronze_waves' | 'slicked_villain_mane';
-  facialHair: 'royal_mustache' | 'clean_dimpled' | 'designer_stubble' | 'heavy_boss_goatee';
-  accessoryType: 'aviator_and_kada' | 'silk_scarf_and_collar' | 'neon_visor_and_gauntlets' | 'gold_chain_and_bandhgala';
+  hairStyle:
+    | 'cropped_machismo'
+    | 'swept_romantic_waves'
+    | 'sculpted_bronze_waves'
+    | 'slicked_villain_mane';
+  facialHair: 'royal_mustache' | 'clean_shaven' | 'designer_stubble' | 'heavy_boss_goatee';
+  accessoryType:
+    | 'aviator_and_kada'
+    | 'silk_scarf_and_collar'
+    | 'neon_visor_and_gauntlets'
+    | 'gold_chain_and_bandhgala';
 }
 
-export interface FighterVisualTheme {
+export interface CharacterVisualSpec {
   primaryColor: string;
   secondaryColor: string;
   accentColor: string;
-  auraColor: string;
+  skinColor: string;
   skinTone: string;
   hairColor: string;
-  attireDescription: string;
-  actorInspiration: string;
+  outfitTrimColor: string;
+  auraColor: string;
   glbModelPath: string;
-  proportions: FighterProportions3D;
+  actorInspiration: string;
+  attireDescription: string;
+  hairStyle: 'sultan_swept' | 'raja_pompadour' | 'dynamo_wavy' | 'saab_slick_mane';
+  accessoryType: 'aviators_bracelet' | 'open_jacket_collar' | 'neon_visor_vest' | 'villain_trench_rings';
+  proportions: CharacterProportions3D;
 }
 
 export interface CharacterDef {
   id: FighterId;
-  slug: string;
   name: string;
   title: string;
-  archetype: string;
   style: string;
+  archetype: string;
   bio: string;
   specialMoveName: string;
-  specialMoveHindi: string;
   specialDescription: string;
   superMoveInfo: SignatureAbilityInfo;
   superShotInfo: SignatureAbilityInfo;
   stats: FighterStats;
   moves: Record<AttackType, AttackFrameData>;
   dialogues: FighterDialogue;
-  visuals: FighterVisualTheme;
+  visuals: CharacterVisualSpec;
 }
 
-export type ArenaId = 'award_night' | 'film_city';
+export interface ArenaBounds3D {
+  minX: number;
+  maxX: number;
+  minZ: number;
+  maxZ: number;
+  floorY: number;
+}
 
 export interface ArenaDef {
   id: ArenaId;
@@ -199,28 +214,15 @@ export interface ArenaDef {
   ambientColor: string;
   groundY: number;
   stageWidth: number;
-  bounds3D: {
-    minX: number;
-    maxX: number;
-    minZ: number;
-    maxZ: number;
-    floorY: number;
-  };
+  bounds3D: ArenaBounds3D;
   themeFeatures: string[];
 }
-
-export type Difficulty = 'easy' | 'normal' | 'hard';
-export type DifficultyLevel = Difficulty;
-
-export type GameMode = 'arcade' | 'vs_cpu' | 'training';
 
 export interface InputFrame {
   left: boolean;
   right: boolean;
   up: boolean;
   down: boolean;
-  sidestepUp: boolean;
-  sidestepDown: boolean;
   jump: boolean;
   crouch: boolean;
   block: boolean;
@@ -271,17 +273,19 @@ export interface FighterSnapshot {
 export interface CombatHitEvent {
   attackerId: FighterId;
   defenderId: FighterId;
+  attackType: AttackType;
   damage: number;
   isBlocked: boolean;
   isCounter: boolean;
   isCritical: boolean;
-  isGrab: boolean;
+  isGrab?: boolean;
   isProjectile?: boolean;
+  comboName?: string;
   hitX: number;
   hitY: number;
   hitZ?: number;
-  attackType: AttackType;
   comboCount: number;
-  comboName?: string;
 }
 
+export type ScreenName = 'title' | 'character_select' | 'arena_select' | 'fighting' | 'fight' | 'results';
+export type GameMode = 'arcade' | 'vs_cpu';
