@@ -632,6 +632,44 @@ export class CharacterAnimationController {
     const targetYaw = facing === 1 ? Math.PI * 0.5 : -Math.PI * 0.5;
     rig.facingNode.rotation.y = targetYaw;
 
+    // If a production GLB with embedded AnimationGroups is active, drive the AnimationGroup clip
+    if (!rig.isPlaceholderAsset && rig.glbAnimationController) {
+      const stdClip =
+        state === 'idle'
+          ? 'idle'
+          : state === 'walk' || state === 'walk_forward' || state === 'walk_backward'
+          ? 'walk'
+          : state === 'run'
+          ? 'run'
+          : state === 'jump'
+          ? 'jump'
+          : state === 'recovery'
+          ? 'landing'
+          : state === 'crouch'
+          ? 'crouch'
+          : state === 'block' || state === 'crouch_block'
+          ? 'block'
+          : state === 'punch' || state === 'forward_punch' || state === 'grab'
+          ? 'punch'
+          : state === 'kick' || state === 'forward_kick' || state === 'sweep'
+          ? 'kick'
+          : state === 'hurt' || state === 'knockback'
+          ? 'hit_react'
+          : state === 'knockdown'
+          ? 'knockout'
+          : state === 'victory'
+          ? 'victory'
+          : state === 'defeat'
+          ? 'defeat'
+          : state === 'super_shot'
+          ? 'super_shot'
+          : 'super_move';
+
+      if (rig.glbAnimationController.playClip(stdClip)) {
+        return eventPayload;
+      }
+    }
+
     const heightScale = rig.rootNode.metadata?.heightScale || 1.0;
     const targetPose = this.computeTargetPose(
       characterId,

@@ -1,6 +1,15 @@
-import { ArenaId, CombatHitEvent, Difficulty, FighterId, GameMode, ScreenName } from '../types/fighter';
+import {
+  ArenaId,
+  CombatHitEvent,
+  Difficulty,
+  FighterId,
+  GameMode,
+  ScreenName,
+  TrainingDummyBehavior,
+} from '../types/fighter';
 import { MatchPhase, MatchStats } from './MatchManager';
 import { CHARACTER_LIST } from '../data/characters';
+import { SettingsManager } from './SettingsManager';
 
 export type GameScreen = ScreenName;
 
@@ -32,9 +41,15 @@ export interface GameHUDState {
   gameMode?: GameMode;
   arcadeStageNumber?: number;
   arcadeTotalStages?: number;
+  trainingDummyBehavior?: TrainingDummyBehavior;
 }
 
-export type MatchLifecycleCommand = 'start_match' | 'reset_match' | 'restart_round' | 'rematch';
+export type MatchLifecycleCommand =
+  | 'start_match'
+  | 'reset_match'
+  | 'restart_round'
+  | 'rematch'
+  | 'reset_training';
 
 type ScreenListener = (screen: ScreenName) => void;
 type HUDListener = (state: GameHUDState) => void;
@@ -50,6 +65,7 @@ export class GameBridge {
   public p2CharacterId: FighterId = 'romance_raja';
   public arenaId: ArenaId = 'award_night';
   public difficulty: Difficulty = 'normal';
+  public trainingDummyBehavior: TrainingDummyBehavior = 'stand';
   public screen: ScreenName = 'title';
   public isPaused: boolean = false;
   public debugHitboxes: boolean = false;
@@ -79,6 +95,11 @@ export class GameBridge {
       GameBridge.instance = new GameBridge();
     }
     return GameBridge.instance;
+  }
+
+  private constructor() {
+    const savedDiff = SettingsManager.getInstance().getSettings().cpuDifficulty;
+    this.difficulty = savedDiff;
   }
 
   public setScreen(screen: ScreenName): void {
@@ -188,6 +209,22 @@ export class GameBridge {
 
   public restartRound(): void {
     this.requestRestartRound();
+  }
+
+  public resetTrainingState(): void {
+    this.isPaused = false;
+    this.emitCommand('reset_training');
+  }
+
+  public setTrainingDummyBehavior(behavior: TrainingDummyBehavior): void {
+    this.trainingDummyBehavior = behavior;
+  }
+
+  public cycleTrainingDummyBehavior(): TrainingDummyBehavior {
+    const order: TrainingDummyBehavior[] = ['stand', 'crouch', 'block', 'jump', 'cpu_spar'];
+    const idx = order.indexOf(this.trainingDummyBehavior);
+    this.trainingDummyBehavior = order[(idx + 1) % order.length];
+    return this.trainingDummyBehavior;
   }
 
   public returnToMenu(): void {

@@ -2,7 +2,9 @@ import { Engine, Scene } from '@babylonjs/core';
 import { ARENAS } from '../../data/arenas';
 import { CHARACTERS } from '../../data/characters';
 import { GameBridge, GameHUDState, MatchLifecycleCommand } from '../../engine/GameBridge';
-import { BoneAttachmentName } from '../../types/fighter';
+import { EMPTY_INPUT_FRAME } from '../../engine/InputManager';
+import { GameSettings, SettingsManager } from '../../engine/SettingsManager';
+import { BoneAttachmentName, InputFrame } from '../../types/fighter';
 import { AnimationController3D } from '../animation/AnimationController3D';
 import { ArenaBuilder3D, ArenaSceneHandle3D } from '../arenas/ArenaBuilder3D';
 import { CharacterRig3D, loadCharacterRig3D } from '../assets/AssetLoader3D';
@@ -63,10 +65,14 @@ export class BabylonFightEngine {
   private matchEndTimerFrames = 0;
   private isDisposed = false;
   private isSoftwareGL = false;
+  private screenShakeEnabled = true;
 
   private unsubscribeCommand: () => void;
   private unsubscribePause: () => void;
   private unsubscribeMute: () => void;
+  private unsubscribeSettings: () => void;
+  private unsubscribeP1AnimEvents: () => void;
+  private unsubscribeP2AnimEvents: () => void;
   private boundResize: () => void;
 
   constructor(canvas: HTMLCanvasElement) {
@@ -78,24 +84,20 @@ export class BabylonFightEngine {
       powerPreference: 'high-performance',
     });
 
-    if (this.isSoftwareGL) {
-      this.engine.setHardwareScalingLevel(1);
-    } else {
-      const dpr = typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, 1.5) : 1;
-      this.engine.setHardwareScalingLevel(1 / dpr);
-    }
-
     this.scene = new Scene(this.engine);
     this.cameraController = new DynamicFightCamera3D(this.scene);
 
     const bridge = GameBridge.getInstance();
+    const settingsMgr = SettingsManager.getInstance();
+    const settings = settingsMgr.getSettings();
+
     const p1Def = CHARACTERS[bridge.p1CharacterId] || CHARACTERS.action_sultan;
     const p2Def = CHARACTERS[bridge.p2CharacterId] || CHARACTERS.romance_raja;
 
     this.arenaHandle = ArenaBuilder3D.buildArena(
       this.scene,
       bridge.arenaId || 'award_night',
-      this.isSoftwareGL
+      this.isSoftwareGL || settings.graphicsQuality === 'low'
     );
     this.vfxManager = new VFXManager3D(this.scene);
 
@@ -103,6 +105,19 @@ export class BabylonFightEngine {
     this.p2 = new Fighter3D(1, p2Def, MatchManager3D.P2_SPAWN_X_3D, 0, 0);
     this.cpu = new CPUController3D(bridge.difficulty);
 
+    // Connect animation events to character-specific SuperShot release SFX
+    this.unsubscribeP1AnimEvents = this.p1.animEvents.onEvent((evt) => {
+      if (evt.type === 'ON_PROJECTILE_RELEASE') {
+        AudioManager3D.playSuperShotRelease(this.p1.id);
+      }
+    });
+    this.unsubscribeP2AnimEvents = this.p2.animEvents.onEvent((evt) => {
+      if (evt.type === 'ON_PROJECTILE_RELEASE') {
+        AudioManager3D.playSuperShotRelease(this.p2.id);
+      }
+    });
+
+    this.applySettingsToEngine(settings);
     this.loadFighterRigs();
     this.initializeFullMatch();
 
@@ -110,7 +125,7 @@ export class BabylonFightEngine {
       if (this.isDisposed) return;
       if (cmd === 'start_match' || cmd === 'reset_match' || cmd === 'rematch') {
         this.initializeFullMatch();
-      } else if (cmd === 'restart_round') {
+      } else if (cmd === 'restart_round' || cmd === 'reset_training') {
         this.handleRestartRound();
       }
     });
@@ -123,6 +138,12 @@ export class BabylonFightEngine {
       if (!this.isDisposed) this.pushHUDUpdate();
     });
 
+    this.unsubscribeSettings = settingsMgr.subscribe((newSettings) => {
+      if (!this.isDisposed) {
+        this.applySettingsToEngine(newSettings);
+      }
+    });
+
     this.boundResize = () => {
       if (!this.isDisposed) {
         this.engine.resize();
@@ -133,6 +154,38 @@ export class BabylonFightEngine {
     }
 
     this.startLoop();
+  }
+
+  private applySettingsToEngine(settings: GameSettings): void {
+    this.screenShakeEnabled = settings.screenShake;
+
+    if (this.isSoftwareGL) {
+      this.engine.setHardwareScalingLevel(1);
+    } else if (!settings.resolutionScaling || settings.graphicsQuality === 'low') {
+      this.engine.setHardwareScalingLevel(1.25);
+    } else if (settings.graphicsQuality === 'medium') {
+      this.engine.setHardwareScalingLevel(1.0);
+    } else {
+      const dpr = typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, 1.5) : 1;
+      this.engine.setHardwareScalingLevel(1 / dpr);
+    }
+
+    const targetLod: 0 | 1 | 2 =
+      settings.graphicsQuality === 'low' ? 2 : settings.graphicsQuality === 'medium' ? 1 : 0;
+    this.p1Rig?.setLODLevel(targetLod);
+    this.p2Rig?.setLODLevel(targetLod);
+
+    this.p1.applyGameplaySettings(settings.startingHealthPercent, settings.controlSensitivity);
+    this.p2.applyGameplaySettings(settings.startingHealthPercent, settings.controlSensitivity);
+
+    const bridge = GameBridge.getInstance();
+    this.match.setConfiguration(settings.roundDurationSeconds, bridge.gameMode);
+  }
+
+  private addCameraTrauma(amount: number): void {
+    if (this.screenShakeEnabled) {
+      this.cameraController.addTrauma(amount);
+    }
   }
 
   private async loadFighterRigs(): Promise<void> {
@@ -157,6 +210,12 @@ export class BabylonFightEngine {
       return;
     }
 
+    const settings = SettingsManager.getInstance().getSettings();
+    const targetLod: 0 | 1 | 2 =
+      settings.graphicsQuality === 'low' ? 2 : settings.graphicsQuality === 'medium' ? 1 : 0;
+    rig1.setLODLevel(targetLod);
+    rig2.setLODLevel(targetLod);
+
     this.p1Rig = rig1;
     this.p2Rig = rig2;
 
@@ -177,6 +236,7 @@ export class BabylonFightEngine {
     const bridge = GameBridge.getInstance();
     const audio = AudioManager.getInstance();
     const input = InputManager3D.getInstance();
+    const settings = SettingsManager.getInstance().getSettings();
 
     const p1Def = CHARACTERS[bridge.p1CharacterId] || CHARACTERS.action_sultan;
     const p2Def = CHARACTERS[bridge.p2CharacterId] || CHARACTERS.romance_raja;
@@ -187,17 +247,27 @@ export class BabylonFightEngine {
       this.arenaHandle = ArenaBuilder3D.buildArena(
         this.scene,
         bridge.arenaId,
-        this.isSoftwareGL
+        this.isSoftwareGL || settings.graphicsQuality === 'low'
       );
     }
 
-    if (this.p1.id !== p1Def.id || this.p2.id !== p2Def.id || arenaChanged || !this.p1Rig || !this.p2Rig) {
+    if (
+      this.p1.id !== p1Def.id ||
+      this.p2.id !== p2Def.id ||
+      arenaChanged ||
+      !this.p1Rig ||
+      !this.p2Rig
+    ) {
       this.p1.setCharacterDef(p1Def);
       this.p2.setCharacterDef(p2Def);
       this.loadFighterRigs();
     }
 
+    this.p1.applyGameplaySettings(settings.startingHealthPercent, settings.controlSensitivity);
+    this.p2.applyGameplaySettings(settings.startingHealthPercent, settings.controlSensitivity);
+
     this.cpu.setDifficulty(bridge.difficulty);
+    this.match.setConfiguration(settings.roundDurationSeconds, bridge.gameMode);
     this.match.resetMatch(this.p1, this.p2, this.combat, this.cpu);
     input.clearAll();
 
@@ -205,10 +275,12 @@ export class BabylonFightEngine {
     this.hitstopTimer = 0;
     this.blackoutTimer = 0;
     this.announcement =
-      bridge.gameMode === 'arcade'
+      bridge.gameMode === 'training'
+        ? 'TRAINING MODE'
+        : bridge.gameMode === 'arcade'
         ? `STAGE ${bridge.arcadeStageIndex + 1} - ROUND 1`
         : 'ROUND 1';
-    this.announcementTimerFrames = 90;
+    this.announcementTimerFrames = bridge.gameMode === 'training' ? 40 : 90;
     this.specialCallout = '';
     this.specialCalloutFrames = 0;
     this.matchEndTimerFrames = 0;
@@ -218,21 +290,56 @@ export class BabylonFightEngine {
   }
 
   public handleRestartRound(): void {
+    const bridge = GameBridge.getInstance();
     const audio = AudioManager.getInstance();
     const input = InputManager3D.getInstance();
+    const settings = SettingsManager.getInstance().getSettings();
 
+    this.p1.applyGameplaySettings(settings.startingHealthPercent, settings.controlSensitivity);
+    this.p2.applyGameplaySettings(settings.startingHealthPercent, settings.controlSensitivity);
+    this.match.setConfiguration(settings.roundDurationSeconds, bridge.gameMode);
     this.match.restartCurrentRound(this.p1, this.p2, this.combat, this.cpu);
     input.clearAll();
     this.hitstopTimer = 0;
     this.blackoutTimer = 0;
-    this.announcement = `ROUND ${this.match.currentRound}`;
-    this.announcementTimerFrames = 90;
+    this.announcement =
+      bridge.gameMode === 'training' ? 'POSITIONS RESET' : `ROUND ${this.match.currentRound}`;
+    this.announcementTimerFrames = bridge.gameMode === 'training' ? 35 : 90;
     this.specialCallout = '';
     this.specialCalloutFrames = 0;
     this.matchEndTimerFrames = 0;
 
     audio.playSound('round');
     this.pushHUDUpdate();
+  }
+
+  private computeTrainingDummyInput(): InputFrame {
+    const bridge = GameBridge.getInstance();
+    const behavior = bridge.trainingDummyBehavior;
+    if (behavior === 'cpu_spar') {
+      return this.cpu.computeInput(
+        this.p2,
+        this.p1,
+        this.combat.projectileManager.getActiveProjectiles()
+      );
+    }
+    if (behavior === 'crouch') {
+      return { ...EMPTY_INPUT_FRAME, crouch: true, down: true };
+    }
+    if (behavior === 'block') {
+      return { ...EMPTY_INPUT_FRAME, block: true };
+    }
+    if (behavior === 'jump') {
+      const shouldJump = this.p2.isGrounded && this.frameCount % 50 === 0;
+      return {
+        ...EMPTY_INPUT_FRAME,
+        jump: shouldJump,
+        up: shouldJump,
+        jumpJustPressed: shouldJump,
+        upJustPressed: shouldJump,
+      };
+    }
+    return { ...EMPTY_INPUT_FRAME };
   }
 
   private pushHUDUpdate(): void {
@@ -267,6 +374,7 @@ export class BabylonFightEngine {
       gameMode: bridge.gameMode,
       arcadeStageNumber: bridge.arcadeStageIndex + 1,
       arcadeTotalStages: bridge.arcadeLadder.length,
+      trainingDummyBehavior: bridge.trainingDummyBehavior,
     };
 
     bridge.notifyHUD(hudState);
@@ -343,20 +451,23 @@ export class BabylonFightEngine {
       return;
     }
 
-    // 1. Process Player 1 and CPU 3D inputs during fighting phase
+    // 1. Process Player 1 and CPU / Training Dummy inputs during fighting phase
     if (this.match.phase === 'fighting') {
       const p1InputFrame = input.snapshotToInputFrame(snap);
       const prevP1State = this.p1.state;
       this.p1.processInput(p1InputFrame, this.p2, this.match.phase);
       this.triggerMovePresentationEffects(this.p1, prevP1State, 0);
 
-      const cpuInputFrame = this.cpu.computeInput(
-        this.p2,
-        this.p1,
-        this.combat.projectileManager.getActiveProjectiles()
-      );
+      const p2InputFrame =
+        bridge.gameMode === 'training'
+          ? this.computeTrainingDummyInput()
+          : this.cpu.computeInput(
+              this.p2,
+              this.p1,
+              this.combat.projectileManager.getActiveProjectiles()
+            );
       const prevP2State = this.p2.state;
-      this.p2.processInput(cpuInputFrame, this.p1, this.match.phase);
+      this.p2.processInput(p2InputFrame, this.p1, this.match.phase);
       this.triggerMovePresentationEffects(this.p2, prevP2State, 1);
     }
 
@@ -389,23 +500,32 @@ export class BabylonFightEngine {
 
         if (ev.blocked) {
           audio.playSound('block');
-          this.cameraController.addTrauma(0.14);
+          this.addCameraTrauma(0.14);
           this.hitstopTimer = Math.max(this.hitstopTimer, 2);
         } else if (ev.isSuperMove) {
-          audio.playSound('dishoom');
-          this.cameraController.addTrauma(0.65);
+          AudioManager3D.playSuperMoveImpact(ev.attackerId);
+          AudioManager3D.playHitReact(ev.defenderId);
+          this.addCameraTrauma(0.65);
           this.hitstopTimer = Math.max(this.hitstopTimer, 7);
-        } else if (ev.isSuperShot || ev.causedKnockdown) {
+        } else if (ev.isSuperShot) {
+          AudioManager3D.playSuperShotImpact(ev.attackerId);
+          AudioManager3D.playHitReact(ev.defenderId);
+          this.addCameraTrauma(0.38);
+          this.hitstopTimer = Math.max(this.hitstopTimer, 5);
+        } else if (ev.causedKnockdown) {
           audio.playSound('dishoom');
-          this.cameraController.addTrauma(0.38);
+          AudioManager3D.playHitReact(ev.defenderId);
+          this.addCameraTrauma(0.38);
           this.hitstopTimer = Math.max(this.hitstopTimer, 5);
         } else if (ev.moveType === 'kick' || ev.moveType === 'sweep') {
           audio.playSound('kick');
-          this.cameraController.addTrauma(0.22);
+          AudioManager3D.playHitReact(ev.defenderId);
+          this.addCameraTrauma(0.22);
           this.hitstopTimer = Math.max(this.hitstopTimer, 3);
         } else {
           audio.playSound('punch');
-          this.cameraController.addTrauma(0.18);
+          AudioManager3D.playHitReact(ev.defenderId);
+          this.addCameraTrauma(0.18);
           this.hitstopTimer = Math.max(this.hitstopTimer, 3);
         }
       }
@@ -418,14 +538,14 @@ export class BabylonFightEngine {
     const matchUpdate = this.match.update(this.p1, this.p2, this.combat, this.cpu);
     if (matchUpdate.phaseChanged) {
       if (matchUpdate.newPhase === 'fighting') {
-        this.announcement = 'FIGHT!';
-        this.announcementTimerFrames = 55;
+        this.announcement = bridge.gameMode === 'training' ? 'PRACTICE!' : 'FIGHT!';
+        this.announcementTimerFrames = 45;
         audio.playSound('fight');
       } else if (matchUpdate.newPhase === 'ko') {
         this.announcement = 'K.O.!';
         this.announcementTimerFrames = 75;
         audio.playSound('ko');
-        this.cameraController.addTrauma(0.6);
+        this.addCameraTrauma(0.6);
       } else if (matchUpdate.newPhase === 'time_over') {
         this.announcement = "TIME'S UP!";
         this.announcementTimerFrames = 90;
@@ -435,10 +555,11 @@ export class BabylonFightEngine {
         this.announcementTimerFrames = 90;
         audio.playSound('round');
       } else if (matchUpdate.newPhase === 'match_end') {
-        this.announcement =
-          this.match.matchWinner === 'p1'
-            ? `${this.p1.def.name.toUpperCase()} WINS!`
-            : `${this.p2.def.name.toUpperCase()} WINS!`;
+        const winnerFighter = this.match.matchWinner === 'p1' ? this.p1 : this.p2;
+        const loserFighter = this.match.matchWinner === 'p1' ? this.p2 : this.p1;
+        AudioManager3D.playVictory(winnerFighter.id);
+        AudioManager3D.playDefeat(loserFighter.id);
+        this.announcement = `${winnerFighter.def.name.toUpperCase()} WINS!`;
         this.announcementTimerFrames = 110;
         this.matchEndTimerFrames = 105;
       }
@@ -459,7 +580,7 @@ export class BabylonFightEngine {
     const audio = AudioManager.getInstance();
 
     if (fighter.state === 'super_move' || fighter.state === 'super') {
-      AudioManager3D.playSuperMoveSound(fighter.id);
+      AudioManager3D.playSuperMoveCharge(fighter.id);
       this.cameraController.triggerSuperMoveZoom(fighterIndex, 1.15);
       this.vfxManager.spawnSuperMoveSignatureVFX(fighter.id, fighter.position);
       this.specialCallout = `${fighter.def.name.toUpperCase()}: ${fighter.def.superMoveInfo.name}!`;
@@ -469,11 +590,13 @@ export class BabylonFightEngine {
       }
       this.pushHUDUpdate();
     } else if (fighter.state === 'super_shot') {
-      AudioManager3D.playSuperShotSound(fighter.id);
+      AudioManager3D.playSuperShotCharge(fighter.id);
       this.specialCallout = `${fighter.def.superShotInfo.name}!`;
       this.specialCalloutFrames = 45;
       this.pushHUDUpdate();
-    } else if (fighter.isAttacking() || fighter.state === 'jump') {
+    } else if (fighter.isAttacking()) {
+      AudioManager3D.playNormalAttack(fighter.id);
+    } else if (fighter.state === 'jump') {
       audio.playSound('whoosh');
     }
   }
@@ -550,6 +673,9 @@ export class BabylonFightEngine {
     this.unsubscribeCommand();
     this.unsubscribePause();
     this.unsubscribeMute();
+    this.unsubscribeSettings();
+    this.unsubscribeP1AnimEvents();
+    this.unsubscribeP2AnimEvents();
     if (typeof window !== 'undefined') {
       window.removeEventListener('resize', this.boundResize);
     }

@@ -4,6 +4,8 @@ import {
   CharacterPreviewScene,
   PreviewTelemetrySnapshot,
 } from './CharacterPreviewScene';
+import { getCharacterAssetConfig } from '../../config/characterAssets';
+import { AudioManager } from '../../engine/AudioManager';
 
 interface CharacterPreview3DProps {
   characterId: FighterId;
@@ -25,7 +27,8 @@ const VERIFICATION_STATES: Array<{
 ];
 
 /**
- * Real-time interactive 3D Babylon.js character turntable & vertical slice verification deck.
+ * Real-time interactive 3D Babylon.js character turntable & animation preview deck.
+ * Clearly distinguishes temporary placeholder rigs from drop-in production GLB models.
  */
 export const CharacterPreview3D: React.FC<CharacterPreview3DProps> = ({
   characterId,
@@ -37,6 +40,9 @@ export const CharacterPreview3D: React.FC<CharacterPreview3DProps> = ({
   const [lodLevel, setLodLevel] = useState<0 | 1 | 2>(0);
   const [telemetry, setTelemetry] = useState<PreviewTelemetrySnapshot | null>(null);
   const lastTelemetryRef = useRef<number>(0);
+
+  const assetConfig = getCharacterAssetConfig(characterId);
+  const audio = AudioManager.getInstance();
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -65,6 +71,23 @@ export const CharacterPreview3D: React.FC<CharacterPreview3DProps> = ({
   const handleTriggerState = (state: FighterStateName) => {
     setSelectedState(state);
     sceneControllerRef.current?.triggerAnimationState(state);
+
+    // Play character-specific audio preview for special attacks & melee
+    if (state === 'super_shot') {
+      audio.playCharacterEvent(characterId, 'supershot-charge');
+      setTimeout(() => {
+        audio.playCharacterEvent(characterId, 'supershot-release');
+      }, 210);
+    } else if (state === 'super_move') {
+      audio.playCharacterEvent(characterId, 'supermove-charge');
+      setTimeout(() => {
+        audio.playCharacterEvent(characterId, 'supermove-impact');
+      }, 360);
+    } else if (state === 'punch' || state === 'kick') {
+      audio.playCharacterEvent(characterId, 'normal-attack');
+    } else {
+      audio.playSound('click');
+    }
   };
 
   const handleCycleLod = () => {
@@ -74,33 +97,39 @@ export const CharacterPreview3D: React.FC<CharacterPreview3DProps> = ({
   };
 
   return (
-    <div className="relative w-full h-56 sm:h-64 rounded-lg overflow-hidden border border-[#D6A447]/60 bg-[#0D0B18] shadow-inner">
+    <div className="relative w-full h-48 sm:h-60 rounded-lg overflow-hidden border border-[#D6A447]/60 bg-[#0D0B18] shadow-inner">
       <canvas
         ref={canvasRef}
         data-testid="character-preview-3d-canvas"
         width={460}
-        height={270}
+        height={260}
         className="w-full h-full object-cover block"
       />
 
-      {/* TOP LEFT: COMPACT GLB & ANIMATION EVENT STATUS */}
-      <div className="absolute top-1.5 left-1.5 flex items-center gap-1.5 pointer-events-none">
-        <div className="px-1.5 py-0.5 rounded border text-[8px] font-mono uppercase tracking-wider bg-[#14532D]/90 border-[#4ADE80] text-[#BBF7D0]">
-          3D STYLIZED · GLB v2.0
-        </div>
+      {/* TOP LEFT: ASSET PIPELINE STATUS & ANIMATION TELEMETRY */}
+      <div className="absolute top-1.5 left-1.5 flex flex-wrap items-center gap-1 pointer-events-none">
+        {assetConfig.isTemporaryPlaceholder ? (
+          <div
+            title={`Drop production GLB into public${assetConfig.modelPath}`}
+            className="px-1.5 py-0.5 rounded border text-[8px] font-mono uppercase tracking-wider bg-amber-950/90 border-amber-400/70 text-amber-200"
+          >
+            TEMP PLACEHOLDER RIG · GLB READY
+          </div>
+        ) : (
+          <div className="px-1.5 py-0.5 rounded border text-[8px] font-mono uppercase tracking-wider bg-[#14532D]/90 border-[#4ADE80] text-[#BBF7D0]">
+            PRODUCTION GLB ACTIVE
+          </div>
+        )}
         {telemetry && (
-          <div className="px-1.5 py-0.5 rounded bg-black/80 border border-white/15 text-[8px] font-mono text-[#E2E8F0] flex items-center gap-1.5">
+          <div className="px-1.5 py-0.5 rounded bg-black/80 border border-white/15 text-[8px] font-mono text-[#E2E8F0] flex items-center gap-1">
             <span>{telemetry.activeClipName}</span>
             <span className="text-[#F59E0B]">{telemetry.phase}</span>
-            {telemetry.activeBone && (
-              <span className="text-[#F87171]">[{telemetry.activeBone}]</span>
-            )}
           </div>
         )}
       </div>
 
       {/* TOP RIGHT: 3D LEVEL OF DETAIL TOGGLE */}
-      <div className="absolute top-2 right-2 flex items-center gap-1">
+      <div className="absolute top-1.5 right-1.5 flex items-center gap-1">
         <button
           type="button"
           onClick={handleCycleLod}
@@ -111,7 +140,7 @@ export const CharacterPreview3D: React.FC<CharacterPreview3DProps> = ({
         </button>
       </div>
 
-      {/* BOTTOM: 8-STATE VERTICAL SLICE ANIMATION VERIFICATION DECK */}
+      {/* BOTTOM: 8-STATE ANIMATION & SFX VERIFICATION DECK */}
       <div className="absolute bottom-1.5 inset-x-1.5 flex flex-wrap items-center justify-center gap-1">
         {VERIFICATION_STATES.map((item) => {
           const isActive =

@@ -1,22 +1,68 @@
+import { CharacterAudioEventId } from '../../config/audioAssets';
 import { AudioManager } from '../../engine/AudioManager';
-import { FighterId } from '../../types/fighter';
+import { CharacterId } from '../../types/fighter';
 
 /**
- * 3D Audio Manager wrapper adding character-specific SuperShot and SuperMove sound cues.
+ * AudioManager3D
+ *
+ * Bridges 3D character animation events (`ON_CHARGE_START`, `ON_PROJECTILE_RELEASE`,
+ * `ON_SPECIAL_IMPACT`, `ON_SUPERMOVE_CLIMAX`) and combat states to character-specific
+ * sound effects in `AudioManager`.
  */
 export class AudioManager3D {
-  public static playSuperShotSound(characterId: FighterId): void {
-    const audio = AudioManager.getInstance();
-    if (characterId === 'action_sultan' || characterId === 'villain_saab') {
-      audio.playSound('dishoom');
-    } else {
-      audio.playSound('whoosh');
-    }
+  public static getInstance(): AudioManager {
+    return AudioManager.getInstance();
   }
 
-  public static playSuperMoveSound(_characterId: FighterId): void {
-    const audio = AudioManager.getInstance();
-    audio.playSound('super');
+  public static playCharacterEvent(
+    characterId: CharacterId,
+    eventId: CharacterAudioEventId
+  ): void {
+    AudioManager.getInstance().playCharacterEvent(characterId, eventId);
+  }
+
+  public static playSuperShotCharge(characterId: CharacterId): void {
+    AudioManager.getInstance().playCharacterEvent(characterId, 'supershot-charge');
+  }
+
+  public static playSuperShotRelease(characterId: CharacterId): void {
+    AudioManager.getInstance().playCharacterEvent(characterId, 'supershot-release');
+  }
+
+  public static playSuperShotImpact(characterId: CharacterId): void {
+    AudioManager.getInstance().playCharacterEvent(characterId, 'supershot-impact');
+  }
+
+  public static playSuperMoveCharge(characterId: CharacterId): void {
+    AudioManager.getInstance().playCharacterEvent(characterId, 'supermove-charge');
+  }
+
+  public static playSuperMoveImpact(characterId: CharacterId): void {
+    AudioManager.getInstance().playCharacterEvent(characterId, 'supermove-impact');
+  }
+
+  public static playSuperShotSound(characterId: CharacterId): void {
+    AudioManager.getInstance().playCharacterEvent(characterId, 'supershot-charge');
+  }
+
+  public static playSuperMoveSound(characterId: CharacterId): void {
+    AudioManager.getInstance().playCharacterEvent(characterId, 'supermove-charge');
+  }
+
+  public static playNormalAttack(characterId: CharacterId): void {
+    AudioManager.getInstance().playCharacterEvent(characterId, 'normal-attack');
+  }
+
+  public static playHitReact(characterId: CharacterId): void {
+    AudioManager.getInstance().playCharacterEvent(characterId, 'hit-react');
+  }
+
+  public static playVictory(characterId: CharacterId): void {
+    AudioManager.getInstance().playCharacterEvent(characterId, 'victory');
+  }
+
+  public static playDefeat(characterId: CharacterId): void {
+    AudioManager.getInstance().playCharacterEvent(characterId, 'defeat');
   }
 }
 

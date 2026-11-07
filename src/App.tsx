@@ -31,6 +31,7 @@ export default function App() {
   const [showDisclaimer, setShowDisclaimer] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [isPortrait, setIsPortrait] = useState(false);
+  const [dismissedPortraitPrompt, setDismissedPortraitPrompt] = useState(false);
 
   // HUD state pushed from 60fps simulation
   const [hudState, setHudState] = useState<GameHUDState>(() => {
@@ -56,14 +57,21 @@ export default function App() {
       isPaused: bridge.isPaused,
       isMuted: audio.isMuted,
       debugHitboxes: bridge.debugHitboxes,
+      gameMode: bridge.gameMode,
+      trainingDummyBehavior: bridge.trainingDummyBehavior,
     };
   });
 
-  // Track screen orientation for mobile portrait warning
+  // Track screen orientation for mobile portrait warning during active fighting
   useEffect(() => {
     const checkOrientation = () => {
       if (typeof window !== 'undefined') {
-        setIsPortrait(window.innerHeight > window.innerWidth && window.innerWidth < 768);
+        const narrowPortrait =
+          window.innerHeight > window.innerWidth && window.innerWidth < 768;
+        setIsPortrait(narrowPortrait);
+        if (!narrowPortrait) {
+          setDismissedPortraitPrompt(false);
+        }
       }
     };
     checkOrientation();
@@ -74,6 +82,20 @@ export default function App() {
       window.removeEventListener('orientationchange', checkOrientation);
     };
   }, []);
+
+  // Support ?autostart=1 for fast automated browser testing
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('autostart') === '1' && bridge.screen === 'title') {
+        const modeParam = params.get('mode');
+        if (modeParam === 'training' || modeParam === 'vs_cpu' || modeParam === 'arcade') {
+          bridge.gameMode = modeParam;
+        }
+        bridge.startMatch();
+      }
+    }
+  }, [bridge]);
 
   // Subscribe to authoritative GameBridge state changes
   useEffect(() => {
@@ -135,7 +157,11 @@ export default function App() {
   }, [bridge, audio]);
 
   return (
-    <div className="relative w-screen h-screen bg-[#10111B] text-[#F1E7D0] overflow-hidden select-none font-sans">
+    <div
+      data-screen={currentScreen}
+      data-mode={bridge.gameMode}
+      className="relative w-screen h-screen bg-[#10111B] text-[#F1E7D0] overflow-hidden select-none font-sans"
+    >
       {/* SCREEN ROUTING */}
       {currentScreen === 'title' && (
         <TitleScreen
@@ -181,6 +207,7 @@ export default function App() {
               onResume={handleResumeFight}
               onRestart={handleRestartRound}
               onOpenControls={() => setShowControls(true)}
+              onOpenSettings={() => setShowSettings(true)}
               onMainMenu={handleReturnToTitle}
             />
           )}
@@ -200,18 +227,24 @@ export default function App() {
       {showDisclaimer && <DisclaimerModal onClose={() => setShowDisclaimer(false)} />}
       {showSettings && <SettingsModal onClose={() => setShowSettings(false)} />}
 
-      {/* MOBILE PORTRAIT ROTATE DEVICE OVERLAY */}
-      {isPortrait && (
+      {/* MOBILE PORTRAIT ROTATE DEVICE PROMPT (During active fighting, non-destructive & dismissible) */}
+      {isPortrait && currentScreen === 'fighting' && !dismissedPortraitPrompt && (
         <div className="fixed inset-0 bg-[#10111B]/95 z-50 flex flex-col items-center justify-center p-6 text-center">
           <div className="w-16 h-16 rounded-full bg-[#BE123C] border-2 border-[#D6A447] flex items-center justify-center mb-4 text-[#FEF08A]">
             <RotateCcw size={32} />
           </div>
           <h2 className="font-['Bungee'] text-2xl text-[#FEF08A] mb-2 tracking-wider">
-            ROTATE TO LANDSCAPE
+            ROTATE FOR WIDESCREEN ACTION
           </h2>
-          <p className="text-xs text-[#F1E7D0]/80 max-w-xs leading-relaxed font-['Rajdhani'] font-bold">
-            Filmi Dangal is designed for 16:9 widescreen arcade action. Please turn your mobile device sideways for full dual-stick combat controls!
+          <p className="text-xs text-[#F1E7D0]/80 max-w-xs leading-relaxed font-['Rajdhani'] font-bold mb-5">
+            Filmi Dangal is optimized for landscape widescreen combat, or you can continue playing in portrait mode below.
           </p>
+          <button
+            onClick={() => setDismissedPortraitPrompt(true)}
+            className="px-5 py-2.5 bg-[#1A1829] hover:bg-[#25203B] text-[#FEF08A] font-['Cinzel'] font-bold text-xs rounded border border-[#D6A447] cursor-pointer"
+          >
+            CONTINUE IN PORTRAIT
+          </button>
         </div>
       )}
     </div>

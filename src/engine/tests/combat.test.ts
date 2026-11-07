@@ -13,7 +13,21 @@ import { CPUController } from '../CPUController';
 import { MatchManager } from '../MatchManager';
 import { InputManager, EMPTY_INPUT_FRAME } from '../InputManager';
 import { GameBridge } from '../GameBridge';
+import { SettingsManager, DEFAULT_GAME_SETTINGS, sanitizeGameSettings } from '../SettingsManager';
+import { AudioManager } from '../AudioManager';
 
+import {
+  CHARACTER_ASSET_MANIFEST,
+  ALL_STANDARD_ANIMATION_CLIP_IDS,
+  validateCharacterAssetManifestConfig,
+  resolveCharacterAnimationClip,
+} from '../../config/characterAssets';
+import {
+  CHARACTER_AUDIO_MANIFEST,
+  ALL_CHARACTER_AUDIO_EVENTS,
+  getCharacterAudioEventConfig,
+} from '../../config/audioAssets';
+import { CharacterAssetLoader } from '../../game3d/assets/CharacterAssetLoader';
 import { validateGLBBuffer, REQUIRED_HUMANOID_BONES } from '../../game3d/assets/AssetLoader3D';
 import {
   CharacterAssetValidator,
@@ -225,7 +239,7 @@ test('4. Normal melee hitboxes/hurtboxes, Blocking, Guard-Breaking Grabs, and Kn
   assert.equal(p2.state, 'idle', 'Recovery returns fighter to idle');
 });
 
-test('5. Frame-Accurate SuperShot Timing: Spawns projectile & resolves guaranteed damage at ON_PROJECTILE_SPAWN frame (not frame 0/1)', () => {
+test('5. Frame-Accurate SuperShot Timing: Spawns projectile & resolves guaranteed damage at ON_PROJECTILE_RELEASE frame (not frame 0/1)', () => {
   for (const char of CHARACTER_LIST) {
     const attacker = new Fighter3D(0, char, -4.5, 0, 0);
     const defender = new Fighter3D(1, CHARACTERS.action_sultan, 4.5, 0, 0);
@@ -280,7 +294,7 @@ test('5. Frame-Accurate SuperShot Timing: Spawns projectile & resolves guarantee
   }
 });
 
-test('6. Frame-Accurate SuperMove Timing: Resolves guaranteed damage at CLIMAX_IMPACT frame (not frame 0/1)', () => {
+test('6. Frame-Accurate SuperMove Timing: Resolves guaranteed damage at ON_SUPERMOVE_CLIMAX frame (not frame 0/1)', () => {
   for (const char of CHARACTER_LIST) {
     const attacker = new Fighter3D(0, char, -6.0, 0, 0);
     const defender = new Fighter3D(1, CHARACTERS.villain_saab, 6.0, 0, 0);
@@ -551,13 +565,17 @@ test('10. CharacterAssetValidator, Action Sultan Vertical Slice, FighterAnimatio
   const firedTypes: string[] = [];
   events.onEvent((evt) => firedTypes.push(evt.type));
 
-  for (let f = 0; f <= 30; f++) {
+  for (let f = 0; f <= 36; f++) {
     events.evaluateFrame('action_sultan', 'super_shot', f);
   }
   assert.equal(firedTypes.includes('ON_STARTUP_BEGIN'), true);
+  assert.equal(firedTypes.includes('ON_CHARGE_START'), true);
   assert.equal(firedTypes.includes('ON_ACTIVE_HITBOX_START'), true);
   assert.equal(firedTypes.includes('ON_PROJECTILE_SPAWN'), true);
+  assert.equal(firedTypes.includes('ON_PROJECTILE_RELEASE'), true);
+  assert.equal(firedTypes.includes('ON_SPECIAL_IMPACT'), true);
   assert.equal(firedTypes.includes('ON_RECOVERY_BEGIN'), true);
+  assert.equal(firedTypes.includes('ON_ANIMATION_COMPLETE'), true);
 
   const projSys = new SuperShotProjectileSystem();
   const p1 = new Fighter3D(0, CHARACTERS.action_sultan, -1.5, 0, 0);
@@ -818,4 +836,161 @@ test('11. Section 8 Mandatory 10-Scenario Matrix: Every character SuperMove & Su
 
   // 4 attackers * 4 defenders * 2 abilities * 10 scenarios = 320 validated cases
   assert.equal(totalValidatedCases, 320, 'All 320 matchup-ability-scenario combinations verified');
+});
+
+test('12. CharacterAssetManifest & CharacterAssetLoader: 15 required animation mappings, bone aliases, and placeholder separation', () => {
+  const loaderValidation = CharacterAssetLoader.validateAllCharacterManifests();
+  assert.equal(
+    loaderValidation.allValid,
+    true,
+    `Manifest validation failed: ${loaderValidation.results.map((r) => r.errors.join(', ')).join('; ')}`
+  );
+  assert.equal(loaderValidation.results.length, 4);
+
+  for (const char of CHARACTER_LIST) {
+    const cfg = CHARACTER_ASSET_MANIFEST[char.id];
+    const singleReport = validateCharacterAssetManifestConfig(cfg);
+    assert.equal(singleReport.valid, true);
+    assert.equal(
+      cfg.isTemporaryPlaceholder,
+      true,
+      `${char.id} marked as temporary placeholder until real GLB replacement`
+    );
+    assert.ok(cfg.modelPath.startsWith('/assets/characters/'));
+    assert.equal(ALL_STANDARD_ANIMATION_CLIP_IDS.length, 15);
+
+    for (const animState of ALL_STANDARD_ANIMATION_CLIP_IDS) {
+      const resolved = resolveCharacterAnimationClip(char.id, animState);
+      assert.ok(resolved.resolvedClipName.length > 0);
+    }
+
+    // Verify missing clip fallback resolution logs structured warning and falls back safely
+    let capturedWarn = '';
+    const res = resolveCharacterAnimationClip(
+      char.id,
+      'super_move',
+      ['Idle', 'Walk'],
+      (msg) => {
+        capturedWarn = msg;
+      }
+    );
+    assert.equal(res.usedFallback, true);
+    assert.ok(capturedWarn.includes('Missing animation clip') || capturedWarn.includes('missing animation clip'));
+  }
+});
+
+test('13. Character-Specific Audio Manifest & AudioManager Volume / Event Routing', () => {
+  const audio = AudioManager.getInstance();
+  audio.setMasterVolume(80);
+  audio.setMusicVolume(60);
+  audio.setSfxVolume(90);
+  SettingsManager.getInstance().updateSettings({ muteAll: false });
+
+  assert.ok(Math.abs(audio.masterVolume - 0.8) < 0.01);
+  assert.ok(Math.abs(audio.musicVolume - 0.6) < 0.01);
+  assert.ok(Math.abs(audio.sfxVolume - 0.9) < 0.01);
+
+  for (const char of CHARACTER_LIST) {
+    const manifest = CHARACTER_AUDIO_MANIFEST[char.id];
+    assert.ok(manifest, `Audio manifest exists for ${char.id}`);
+
+    for (const evt of ALL_CHARACTER_AUDIO_EVENTS) {
+      const entry = getCharacterAudioEventConfig(char.id, evt);
+      assert.ok(
+        entry.filePath.startsWith('/assets/audio/characters/'),
+        `${char.id} ${evt} has drop-in audio path`
+      );
+      assert.ok(
+        entry.fallbackSynth.startFreqHz > 0,
+        `${char.id} ${evt} has procedural synth fallback`
+      );
+
+      // Should execute cleanly without throwing even in headless Node environment
+      audio.playCharacterEvent(char.id, evt);
+    }
+  }
+});
+
+test('14. SettingsManager Persistence, Key Rebinding, and Corrupted Storage Recovery', () => {
+  const settingsMgr = SettingsManager.getInstance();
+  settingsMgr.resetAllToDefaults();
+
+  const defaults = settingsMgr.getSettings();
+  assert.equal(defaults.masterVolume, DEFAULT_GAME_SETTINGS.masterVolume);
+  assert.equal(defaults.roundDurationSeconds, 60);
+  assert.equal(defaults.startingHealthPercent, 100);
+
+  // Update gameplay & control settings
+  settingsMgr.updateSettings({
+    cpuDifficulty: 'hard',
+    roundDurationSeconds: 90,
+    startingHealthPercent: 125,
+    mobileControlSize: 'large',
+    mobileControlOpacity: 95,
+  });
+  settingsMgr.updateKeyBinding('punch', 'F');
+
+  const updated = settingsMgr.getSettings();
+  assert.equal(updated.cpuDifficulty, 'hard');
+  assert.equal(updated.roundDurationSeconds, 90);
+  assert.equal(updated.startingHealthPercent, 125);
+  assert.equal(updated.keyBindings.punch, 'F');
+  assert.equal(updated.mobileControlSize, 'large');
+
+  // Verify corrupted or invalid raw object recovery returns clean validated defaults
+  const recovered = sanitizeGameSettings({
+    roundDurationSeconds: 999,
+    startingHealthPercent: -50,
+    keyBindings: { punch: '' },
+  });
+  assert.equal(recovered.roundDurationSeconds, 60);
+  assert.equal(recovered.startingHealthPercent, 100);
+  assert.equal(recovered.keyBindings.punch, 'J');
+
+  settingsMgr.resetAllToDefaults();
+});
+
+test('15. Training Mode: Infinite Timer, Non-Lethal HP Floor, Auto Health/Meter Regeneration, and Dummy Behaviors', () => {
+  const bridge = GameBridge.getInstance();
+  bridge.gameMode = 'training';
+  bridge.setTrainingDummyBehavior('block');
+
+  const p1 = new Fighter3D(0, CHARACTERS.action_sultan, MatchManager3D.P1_SPAWN_X_3D, 0, 0);
+  const p2 = new Fighter3D(1, CHARACTERS.romance_raja, MatchManager3D.P2_SPAWN_X_3D, 0, 0);
+  const combat = new CombatSystem3D();
+  const cpu = new CPUController3D('normal');
+  const match = new MatchManager3D(60, 'training');
+
+  match.resetMatch(p1, p2, combat, cpu);
+  // Advance past short 35-frame training intro
+  for (let i = 0; i < 40; i++) {
+    match.update(p1, p2, combat, cpu);
+  }
+  assert.equal(match.phase, 'fighting', 'Training mode transitions to fighting phase');
+  assert.equal(p1.specialMeter, 100, 'Training mode starts P1 with full 100% special meter');
+
+  // Deal massive damage to dummy: dummy HP must never trigger KO in Training Mode
+  p2.health = 10;
+  p1.specialMeter = 100;
+  p1.startAttack('super_move', 'fighting');
+  for (let f = 0; f < 30; f++) {
+    p1.stepPhysics();
+    p2.stepPhysics();
+    combat.updateAndResolveCombat(p1, p2, 1 / 60, 'fighting');
+    match.update(p1, p2, combat, cpu);
+  }
+  assert.equal(match.phase, 'fighting', 'Training mode never triggers KO');
+  assert.ok(p2.health >= 1, 'Training dummy health is clamped at >= 1 HP');
+
+  // Step 120 idle frames and verify health & meter auto-regenerate back to max
+  for (let f = 0; f < 120; f++) {
+    p1.stepPhysics();
+    p2.stepPhysics();
+    match.update(p1, p2, combat, cpu);
+  }
+  assert.ok(p2.health > 1, 'Training dummy auto-regenerates health after idle recovery');
+  assert.equal(p1.specialMeter, 100, 'Training mode auto-refills P1 special meter to 100%');
+
+  // Reset back to vs_cpu for clean state
+  bridge.gameMode = 'vs_cpu';
 });

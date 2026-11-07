@@ -15,9 +15,8 @@ import { CHARACTERS } from '../../data/characters';
 import { FighterId, FighterStateName } from '../../types/fighter';
 import { CharacterAnimationController } from '../animation/CharacterAnimationController';
 import { FighterAnimationEventPayload } from '../animation/FighterAnimationEvents';
-import { CharacterAssetLoader } from '../assets/CharacterAssetLoader';
 import { CharacterAssetValidationReport } from '../assets/CharacterAssetValidator';
-import { CharacterRig3D } from '../assets/AssetLoader3D';
+import { CharacterRig3D, loadCharacterRig3D } from '../assets/AssetLoader3D';
 import { detectSoftwareWebGL } from '../engine/BabylonFightEngine';
 
 /**
@@ -307,21 +306,16 @@ export class CharacterPreviewScene {
 
   public async loadCharacterAsset(characterId: FighterId): Promise<void> {
     this.characterId = characterId;
-    const bundle = await CharacterAssetLoader.loadCharacter(
-      this.scene,
-      characterId,
-      'preview',
-      null,
-      this.renderMode
-    );
+    const charDef = CHARACTERS[characterId] || CHARACTERS.action_sultan;
+    const rig = await loadCharacterRig3D(this.scene, charDef, 'preview', null);
     if (this.isDisposed) {
-      bundle.rig.dispose();
+      rig.dispose();
       return;
     }
     this.currentRig?.dispose();
-    this.currentRig = bundle.rig;
+    this.currentRig = rig;
+    this.currentRig.setRenderMode(this.renderMode);
     this.currentRig.setLODLevel(this.lodLevel);
-    this.validationReport = bundle.validationReport;
   }
 
   public triggerAnimationState(state: FighterStateName): void {

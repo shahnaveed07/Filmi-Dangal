@@ -2,6 +2,7 @@ import React from 'react';
 import { X, Keyboard, Smartphone, Swords, Shield, Zap } from 'lucide-react';
 import { AudioManager } from '../engine/AudioManager';
 import { COMBO_DEFINITIONS } from '../engine/ComboSystem';
+import { SettingsManager } from '../engine/SettingsManager';
 
 interface ControlsModalProps {
   onClose: () => void;
@@ -9,6 +10,7 @@ interface ControlsModalProps {
 
 export const ControlsModal: React.FC<ControlsModalProps> = ({ onClose }) => {
   const audio = AudioManager.getInstance();
+  const keyBindings = SettingsManager.getInstance().getSettings().keyBindings;
 
   return (
     <div className="absolute inset-0 bg-black/85 z-50 flex items-center justify-center p-4 select-none overflow-y-auto">
@@ -39,44 +41,56 @@ export const ControlsModal: React.FC<ControlsModalProps> = ({ onClose }) => {
           <div className="bg-black/40 border border-[#D6A447]/30 rounded-lg p-3.5">
             <div className="flex items-center gap-2 text-xs font-['Cinzel'] font-black text-[#D6A447] mb-2 uppercase">
               <Keyboard size={16} />
-              <span>DESKTOP 2D PLANE CONTROLS</span>
+              <span>ACTIVE KEYBOARD BINDINGS</span>
             </div>
             <div className="space-y-1.5 text-xs font-mono text-[#F1E7D0]">
               <div className="flex justify-between border-b border-white/10 pb-1">
                 <span>HORIZONTAL MOVE (X-AXIS)</span>
-                <span className="font-bold text-[#FDE047]">A / D or &larr; / &rarr;</span>
+                <span className="font-bold text-[#FDE047]">
+                  {keyBindings.moveLeft.toUpperCase()} / {keyBindings.moveRight.toUpperCase()} or &larr; / &rarr;
+                </span>
               </div>
               <div className="flex justify-between border-b border-white/10 pb-1">
                 <span>JUMP (Y-AXIS)</span>
-                <span className="font-bold text-[#FDE047]">SPACE / W / &uarr;</span>
+                <span className="font-bold text-[#FDE047]">
+                  {keyBindings.jump.toUpperCase()} / SPACE / &uarr;
+                </span>
               </div>
               <div className="flex justify-between border-b border-white/10 pb-1">
                 <span>CROUCH</span>
-                <span className="font-bold text-[#FDE047]">S / CTRL / C / &darr;</span>
+                <span className="font-bold text-[#FDE047]">
+                  {keyBindings.crouch.toUpperCase()} / CTRL / &darr;
+                </span>
               </div>
               <div className="flex justify-between border-b border-white/10 pb-1">
                 <span>BLOCK / GUARD</span>
-                <span className="font-bold text-[#FDE047]">SHIFT or B</span>
+                <span className="font-bold text-[#FDE047]">
+                  {keyBindings.block.toUpperCase()} or SHIFT
+                </span>
               </div>
               <div className="flex justify-between border-b border-white/10 pb-1">
                 <span>PUNCH</span>
-                <span className="font-bold text-[#FDE047]">J</span>
+                <span className="font-bold text-[#FDE047]">{keyBindings.punch.toUpperCase()}</span>
               </div>
               <div className="flex justify-between border-b border-white/10 pb-1">
                 <span>KICK</span>
-                <span className="font-bold text-[#FDE047]">K</span>
+                <span className="font-bold text-[#FDE047]">{keyBindings.kick.toUpperCase()}</span>
               </div>
               <div className="flex justify-between border-b border-white/10 pb-1">
                 <span>GRAB (BREAKS GUARD)</span>
-                <span className="font-bold text-[#FDE047]">I</span>
+                <span className="font-bold text-[#FDE047]">{keyBindings.grab.toUpperCase()}</span>
               </div>
               <div className="flex justify-between border-b border-white/10 pb-1">
                 <span>SUPERSHOT (GUARANTEED HIT)</span>
-                <span className="font-bold text-[#38BDF8]">U (25% Meter)</span>
+                <span className="font-bold text-[#38BDF8]">
+                  {keyBindings.superShot.toUpperCase()} (25% Meter)
+                </span>
               </div>
               <div className="flex justify-between border-b border-white/10 pb-1">
                 <span>SUPERMOVE (FINISHER)</span>
-                <span className="font-bold text-[#FDE047]">L (100% Meter)</span>
+                <span className="font-bold text-[#FDE047]">
+                  {keyBindings.superMove.toUpperCase()} (100% Meter)
+                </span>
               </div>
               <div className="flex justify-between">
                 <span>PAUSE / DEBUG HITBOXES</span>
@@ -103,7 +117,7 @@ export const ControlsModal: React.FC<ControlsModalProps> = ({ onClose }) => {
                 <span>GUARANTEED SIGNATURE SPECIALS</span>
               </div>
               <p className="text-[11px] text-white/80">
-                Hold SHIFT or GUARD to block normal attacks. Press U for your signature SuperShot (25% meter) or L at 100% meter for your blockbuster SuperMove—both guarantee confirmed damage across the entire arena!
+                Hold Guard to block normal attacks. Activate your signature SuperShot (25% meter) or blockbuster SuperMove (100% meter) to trigger character-specific audio and confirmed damage across the entire arena!
               </p>
             </div>
           </div>

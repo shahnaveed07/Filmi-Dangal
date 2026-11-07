@@ -1,4 +1,5 @@
 import { InputFrame } from '../types/fighter';
+import { SettingsManager } from './SettingsManager';
 
 export interface InputSnapshot {
   moveLeft: boolean;
@@ -45,6 +46,23 @@ export const EMPTY_INPUT_FRAME: InputFrame = {
   specialJustPressed: false,
   pauseJustPressed: false,
 };
+
+function expandKeyAlias(label: string): string[] {
+  const lower = label.trim().toLowerCase();
+  if (lower === 'space' || lower === ' ') {
+    return [' ', 'space'];
+  }
+  if (lower === 'shift' || lower === 'shiftleft' || lower === 'shiftright') {
+    return ['shift', 'shiftleft', 'shiftright'];
+  }
+  if (lower === 'ctrl' || lower === 'control' || lower === 'controlleft' || lower === 'controlright') {
+    return ['control', 'controlleft', 'controlright', 'ctrl'];
+  }
+  if (lower.length === 1 && lower >= 'a' && lower <= 'z') {
+    return [lower, `key${lower}`];
+  }
+  return [lower];
+}
 
 export class InputManager {
   private static instance: InputManager;
@@ -196,10 +214,14 @@ export class InputManager {
     return this.activeTouchPointers.size;
   }
 
+  public isVirtualControlActive(control: string): boolean {
+    return this.virtualHeld.has(control.toLowerCase());
+  }
+
   /**
-   * Produces a 60Hz input snapshot strictly for 2D XY plane controls
-   * (A/D or Left/Right horizontal movement, Space/W/Up jump, S/Ctrl/C/Down crouch,
-   * Shift/B block, J punch, K kick, I grab, U SuperShot, L SuperMove) and multitouch inputs.
+   * Produces a 60Hz input snapshot strictly for 2D XY plane controls,
+   * honoring user-configured custom key bindings from SettingsManager as well
+   * as standard arcade fallbacks and multitouch inputs.
    */
   public pollSnapshot(): InputSnapshot {
     const isHeld = (keys: string[]): boolean => {
@@ -210,10 +232,22 @@ export class InputManager {
       return keys.some((k) => this.justPressedKeys.has(k) || this.virtualJustPressed.has(k));
     };
 
-    const superMoveJust = isJust(['l', 'keyl', 'supermove', 'super_move', 'super']);
-    const superShotJust = isJust(['u', 'keyu', 'supershot', 'super_shot']);
-    const jumpKeys = [' ', 'space', 'jump', 'up', 'w', 'keyw', 'arrowup'];
+    const bindings = SettingsManager.getInstance().getSettings().keyBindings;
+
+    const leftKeys = [...expandKeyAlias(bindings.moveLeft), 'a', 'keya', 'arrowleft', 'left'];
+    const rightKeys = [...expandKeyAlias(bindings.moveRight), 'd', 'keyd', 'arrowright', 'right'];
+    const jumpKeys = [
+      ...expandKeyAlias(bindings.jump),
+      ' ',
+      'space',
+      'jump',
+      'up',
+      'w',
+      'keyw',
+      'arrowup',
+    ];
     const crouchKeys = [
+      ...expandKeyAlias(bindings.crouch),
       'control',
       'controlleft',
       'controlright',
@@ -226,19 +260,49 @@ export class InputManager {
       'arrowdown',
       'down',
     ];
+    const blockKeys = [
+      ...expandKeyAlias(bindings.block),
+      'shift',
+      'shiftleft',
+      'shiftright',
+      'b',
+      'keyb',
+      'block',
+    ];
+    const punchKeys = [...expandKeyAlias(bindings.punch), 'j', 'keyj', 'punch'];
+    const kickKeys = [...expandKeyAlias(bindings.kick), 'k', 'keyk', 'kick'];
+    const grabKeys = [...expandKeyAlias(bindings.grab), 'i', 'keyi', 'grab'];
+    const superShotKeys = [
+      ...expandKeyAlias(bindings.superShot),
+      'u',
+      'keyu',
+      'supershot',
+      'super_shot',
+    ];
+    const superMoveKeys = [
+      ...expandKeyAlias(bindings.superMove),
+      'l',
+      'keyl',
+      'supermove',
+      'super_move',
+      'super',
+    ];
+
+    const superMoveJust = isJust(superMoveKeys);
+    const superShotJust = isJust(superShotKeys);
 
     const snapshot: InputSnapshot = {
-      moveLeft: isHeld(['a', 'keya', 'arrowleft', 'left']),
-      moveRight: isHeld(['d', 'keyd', 'arrowright', 'right']),
+      moveLeft: isHeld(leftKeys),
+      moveRight: isHeld(rightKeys),
       upHeld: isHeld(jumpKeys),
       downHeld: isHeld(crouchKeys),
       jumpJustPressed: isJust(jumpKeys),
       jumpHeld: isHeld(jumpKeys),
       crouchHeld: isHeld(crouchKeys),
-      blockHeld: isHeld(['shift', 'shiftleft', 'shiftright', 'b', 'keyb', 'block']),
-      punchJustPressed: isJust(['j', 'keyj', 'punch']),
-      kickJustPressed: isJust(['k', 'keyk', 'kick']),
-      grabJustPressed: isJust(['i', 'keyi', 'grab']),
+      blockHeld: isHeld(blockKeys),
+      punchJustPressed: isJust(punchKeys),
+      kickJustPressed: isJust(kickKeys),
+      grabJustPressed: isJust(grabKeys),
       superShotJustPressed: superShotJust,
       superMoveJustPressed: superMoveJust,
       superJustPressed: superMoveJust,

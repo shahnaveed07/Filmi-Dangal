@@ -1,11 +1,12 @@
 import React, { useState } from 'react';
 import { CHARACTER_LIST, CHARACTERS } from '../data/characters';
-import { Difficulty, FighterId } from '../types/fighter';
+import { Difficulty, FighterId, TrainingDummyBehavior } from '../types/fighter';
 import { GameBridge } from '../engine/GameBridge';
 import { AudioManager } from '../engine/AudioManager';
 import { CharacterPreview3D } from '../game3d/scenes/CharacterPreview3D';
 import { getCharacterMonogram } from '../game3d/characters/CharacterRoster3D';
-import { ArrowLeft, Swords, Sparkles, Crosshair, Flame } from 'lucide-react';
+import { getCharacterAssetConfig } from '../config/characterAssets';
+import { ArrowLeft, Swords, Sparkles, Crosshair, Flame, Dumbbell } from 'lucide-react';
 
 interface CharacterSelectProps {
   onBack: () => void;
@@ -26,9 +27,12 @@ export const CharacterSelect: React.FC<CharacterSelectProps> = ({ onBack, onProc
     return bridge.p2CharacterId;
   });
   const [difficulty, setDifficulty] = useState<Difficulty>(bridge.difficulty);
+  const [dummyBehavior, setDummyBehavior] = useState<TrainingDummyBehavior>(bridge.trainingDummyBehavior);
   const [selectingFor, setSelectingFor] = useState<'p1' | 'p2'>('p1');
 
   const selectedChar = CHARACTERS[selectingFor === 'p1' ? p1Id : p2Id];
+  const selectedAssetConfig = getCharacterAssetConfig(selectedChar.id);
+  const isTraining = bridge.gameMode === 'training';
 
   const handleSelectFighter = (id: FighterId) => {
     audio.playSound('click');
@@ -65,52 +69,89 @@ export const CharacterSelect: React.FC<CharacterSelectProps> = ({ onBack, onProc
     bridge.difficulty = diff;
   };
 
+  const handleDummyBehaviorChange = (behavior: TrainingDummyBehavior) => {
+    audio.playSound('click');
+    setDummyBehavior(behavior);
+    bridge.setTrainingDummyBehavior(behavior);
+  };
+
+  const getModeLabel = () => {
+    if (bridge.gameMode === 'arcade') return 'MODE: 3-STAGE ARCADE LADDER';
+    if (bridge.gameMode === 'training') return 'MODE: TRAINING & COMBO PRACTICE';
+    return 'MODE: VERSUS CPU SINGLE MATCH';
+  };
+
   return (
-    <div className="relative w-full h-full min-h-screen bg-[#10111B] flex flex-col justify-between p-3 sm:p-5 select-none overflow-y-auto">
+    <div className="relative w-full h-full min-h-screen bg-[#10111B] flex flex-col justify-between p-2.5 sm:p-5 select-none overflow-y-auto">
       {/* TOP HEADER */}
-      <div className="w-full max-w-6xl mx-auto flex items-center justify-between border-b border-[#D6A447]/30 pb-2.5">
+      <div className="w-full max-w-6xl mx-auto flex flex-wrap items-center justify-between gap-2 border-b border-[#D6A447]/30 pb-2.5">
         <button
           onClick={() => {
             audio.playSound('click');
             onBack();
           }}
-          className="flex items-center gap-1.5 text-xs sm:text-sm font-['Cinzel'] font-bold text-[#D6A447] hover:text-[#FEF08A] transition-colors py-1 px-3 bg-black/40 rounded border border-[#D6A447]/40 cursor-pointer"
+          className="flex items-center gap-1.5 text-xs sm:text-sm font-['Cinzel'] font-bold text-[#D6A447] hover:text-[#FEF08A] transition-colors py-1.5 px-3 bg-black/40 rounded border border-[#D6A447]/40 cursor-pointer"
         >
           <ArrowLeft size={16} />
           <span>RETURN TO TITLE</span>
         </button>
 
-        <div className="text-center">
-          <h1 className="font-['Bungee'] text-lg sm:text-2xl text-transparent bg-clip-text bg-gradient-to-r from-[#FEF08A] to-[#D6A447] tracking-wider">
+        <div className="text-center flex-1 min-w-[180px]">
+          <h1 className="font-['Bungee'] text-base sm:text-2xl text-transparent bg-clip-text bg-gradient-to-r from-[#FEF08A] to-[#D6A447] tracking-wider">
             CHOOSE YOUR 3D FIGHTER
           </h1>
-          <span className="text-[10px] font-['Cinzel'] font-bold text-[#FEF08A] uppercase tracking-widest">
-            {bridge.gameMode === 'arcade'
-              ? 'MODE: 3-STAGE ARCADE LADDER'
-              : 'MODE: VERSUS CPU SINGLE MATCH'}
+          <span className="text-[10px] font-['Cinzel'] font-bold text-[#FEF08A] uppercase tracking-widest block">
+            {getModeLabel()}
           </span>
         </div>
 
-        {/* DIFFICULTY SELECTOR */}
-        <div className="flex items-center gap-1 bg-black/50 p-1 rounded border border-[#D6A447]/40">
-          {(['easy', 'normal', 'hard'] as Difficulty[]).map((d) => (
-            <button
-              key={d}
-              onClick={() => handleDifficultyChange(d)}
-              className={`px-2 py-0.5 text-[10px] sm:text-xs font-['Rajdhani'] font-black uppercase rounded transition-colors cursor-pointer ${
-                difficulty === d ? 'bg-[#BE123C] text-[#FEF08A]' : 'text-[#D6A447] hover:text-white'
-              }`}
-            >
-              {d}
-            </button>
-          ))}
-        </div>
+        {/* DIFFICULTY OR TRAINING DUMMY SELECTOR */}
+        {isTraining ? (
+          <div className="flex items-center gap-1 bg-black/50 p-1 rounded border border-emerald-500/40">
+            <Dumbbell size={12} className="text-emerald-400 ml-1" />
+            {(
+              [
+                { id: 'stand', label: 'Stand' },
+                { id: 'block', label: 'Block' },
+                { id: 'crouch', label: 'Crouch' },
+                { id: 'jump', label: 'Jump' },
+                { id: 'cpu_spar', label: 'Spar' },
+              ] as Array<{ id: TrainingDummyBehavior; label: string }>
+            ).map((b) => (
+              <button
+                key={b.id}
+                onClick={() => handleDummyBehaviorChange(b.id)}
+                className={`px-2 py-0.5 text-[10px] sm:text-xs font-['Rajdhani'] font-black uppercase rounded transition-colors cursor-pointer ${
+                  dummyBehavior === b.id
+                    ? 'bg-emerald-700 text-[#FEF08A]'
+                    : 'text-emerald-300 hover:text-white'
+                }`}
+              >
+                {b.label}
+              </button>
+            ))}
+          </div>
+        ) : (
+          <div className="flex items-center gap-1 bg-black/50 p-1 rounded border border-[#D6A447]/40">
+            {(['easy', 'normal', 'hard'] as Difficulty[]).map((d) => (
+              <button
+                key={d}
+                onClick={() => handleDifficultyChange(d)}
+                className={`px-2 py-0.5 text-[10px] sm:text-xs font-['Rajdhani'] font-black uppercase rounded transition-colors cursor-pointer ${
+                  difficulty === d ? 'bg-[#BE123C] text-[#FEF08A]' : 'text-[#D6A447] hover:text-white'
+                }`}
+              >
+                {d}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* MAIN SELECTION ARENA CONTAINER */}
-      <div className="w-full max-w-6xl mx-auto my-auto grid grid-cols-1 lg:grid-cols-12 gap-4 py-3">
+      <div className="w-full max-w-6xl mx-auto my-auto grid grid-cols-1 lg:grid-cols-12 gap-3 sm:gap-4 py-2.5">
         {/* LEFT / CENTER: ROSTER GRID & TOGGLES */}
-        <div className="lg:col-span-6 flex flex-col gap-3">
+        <div className="lg:col-span-6 flex flex-col gap-2.5">
           {/* PLAYER 1 vs OPPONENT SELECTOR TOGGLE */}
           <div className="flex gap-2">
             <button
@@ -132,12 +173,12 @@ export const CharacterSelect: React.FC<CharacterSelectProps> = ({ onBack, onProc
                   : 'bg-[#1A1829] border-[#D6A447]/40 text-[#D6A447] opacity-75'
               }`}
             >
-              CPU OPPONENT: {CHARACTERS[p2Id].name}
+              {isTraining ? 'DUMMY' : 'CPU'}: {CHARACTERS[p2Id].name}
             </button>
           </div>
 
           {/* 4 FIGHTER ROSTER CARDS */}
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-2 gap-2.5 sm:gap-3">
             {CHARACTER_LIST.map((char) => {
               const isP1 = char.id === p1Id;
               const isP2 = char.id === p2Id;
@@ -147,7 +188,7 @@ export const CharacterSelect: React.FC<CharacterSelectProps> = ({ onBack, onProc
                 <button
                   key={char.id}
                   onClick={() => handleSelectFighter(char.id)}
-                  className={`relative p-3 rounded-lg border-2 text-left transition-all cursor-pointer overflow-hidden group ${
+                  className={`relative p-2.5 sm:p-3 rounded-lg border-2 text-left transition-all cursor-pointer overflow-hidden group ${
                     isCurrent
                       ? 'border-[#FEF08A] bg-gradient-to-br from-[#2D1B36] to-[#161424] shadow-[0_0_16px_rgba(214,164,71,0.5)] scale-[1.01]'
                       : 'border-[#D6A447]/40 bg-[#161424]/90 hover:border-[#D6A447] hover:bg-[#1E1B32]'
@@ -162,31 +203,31 @@ export const CharacterSelect: React.FC<CharacterSelectProps> = ({ onBack, onProc
                     )}
                     {isP2 && (
                       <span className="px-1.5 py-0.5 bg-[#0284C7] text-white text-[9px] font-black rounded border border-[#38BDF8]">
-                        CPU
+                        {isTraining ? 'DUMMY' : 'CPU'}
                       </span>
                     )}
                   </div>
 
-                  <div className="flex items-center gap-2.5">
+                  <div className="flex items-center gap-2">
                     <div
-                      className="w-11 h-11 rounded-md flex items-center justify-center font-['Bungee'] text-sm text-[#FEF08A] border border-[#D6A447]/60 shrink-0 shadow-md"
+                      className="w-10 h-10 sm:w-11 sm:h-11 rounded-md flex items-center justify-center font-['Bungee'] text-sm text-[#FEF08A] border border-[#D6A447]/60 shrink-0 shadow-md"
                       style={{
                         background: `linear-gradient(135deg, ${char.visuals.primaryColor}, ${char.visuals.secondaryColor})`,
                       }}
                     >
                       {getCharacterMonogram(char.id)}
                     </div>
-                    <div>
-                      <h3 className="font-['Bungee'] text-sm sm:text-base text-[#F1E7D0] group-hover:text-[#FEF08A] transition-colors leading-tight">
+                    <div className="min-w-0 pr-10">
+                      <h3 className="font-['Bungee'] text-xs sm:text-base text-[#F1E7D0] group-hover:text-[#FEF08A] transition-colors leading-tight truncate">
                         {char.name}
                       </h3>
-                      <p className="text-[11px] text-[#D6A447] font-['Rajdhani'] font-bold uppercase tracking-wider">
+                      <p className="text-[10px] sm:text-[11px] text-[#D6A447] font-['Rajdhani'] font-bold uppercase tracking-wider truncate">
                         {char.style}
                       </p>
                     </div>
                   </div>
 
-                  <p className="mt-2 text-[10px] text-white/75 line-clamp-2 leading-snug">
+                  <p className="mt-1.5 text-[10px] text-white/75 line-clamp-2 leading-snug">
                     {char.bio}
                   </p>
                 </button>
@@ -194,32 +235,32 @@ export const CharacterSelect: React.FC<CharacterSelectProps> = ({ onBack, onProc
             })}
           </div>
 
-          {/* 3D COMBAT SYSTEM SPECS PREVIEW */}
+          {/* 3D ASSET MANIFEST & COSTUME PROFILE */}
           <div className="p-2.5 bg-black/40 rounded border border-[#D6A447]/30 text-xs text-[#F1E7D0]/80">
-            <div className="flex items-center justify-between text-[#D6A447] font-bold font-['Rajdhani'] mb-1">
-              <div className="flex items-center gap-1.5">
+            <div className="flex items-center justify-between text-[#D6A447] font-bold font-['Rajdhani'] mb-1 gap-2">
+              <div className="flex items-center gap-1.5 shrink-0">
                 <Sparkles size={14} />
-                <span className="uppercase">3D Costume &amp; Likeness Profile:</span>
+                <span className="uppercase">3D Asset Manifest &amp; Costume Profile:</span>
               </div>
-              <span className="text-[10px] font-mono text-amber-300">
-                {selectedChar.visuals.actorInspiration}
+              <span className="text-[10px] font-mono text-amber-300 truncate">
+                {selectedAssetConfig.modelPath}
               </span>
             </div>
-            <p className="font-mono text-[11px] leading-relaxed text-white/80">
+            <p className="font-mono text-[10px] sm:text-[11px] leading-relaxed text-white/80">
               {selectedChar.visuals.attireDescription}
             </p>
           </div>
         </div>
 
         {/* RIGHT: REAL-TIME 3D PREVIEW + SIGNATURE ABILITIES DOSSIER */}
-        <div className="lg:col-span-6 bg-[#161424] border-2 border-[#D6A447] rounded-xl p-3.5 sm:p-4 flex flex-col justify-between shadow-2xl relative overflow-hidden">
+        <div className="lg:col-span-6 bg-[#161424] border-2 border-[#D6A447] rounded-xl p-3 sm:p-4 flex flex-col justify-between shadow-2xl relative overflow-hidden">
           <div>
-            <div className="flex items-center justify-between border-b border-[#D6A447]/40 pb-2 mb-2.5">
+            <div className="flex items-center justify-between border-b border-[#D6A447]/40 pb-2 mb-2">
               <div>
                 <span className="text-[10px] font-['Cinzel'] font-bold text-[#D6A447] uppercase tracking-widest">
                   3D FIGHTER DOSSIER ({selectedChar.stats.maxHealth} HP)
                 </span>
-                <h2 className="font-['Bungee'] text-xl sm:text-2xl text-[#FEF08A] leading-tight">
+                <h2 className="font-['Bungee'] text-lg sm:text-2xl text-[#FEF08A] leading-tight">
                   {selectedChar.name}
                 </h2>
                 <p className="text-xs font-['Rajdhani'] font-bold tracking-wide text-amber-200">
@@ -227,7 +268,7 @@ export const CharacterSelect: React.FC<CharacterSelectProps> = ({ onBack, onProc
                 </p>
               </div>
               <div
-                className="w-12 h-12 rounded-lg flex items-center justify-center font-['Bungee'] text-lg text-[#FEF08A] border-2 border-[#FEF08A]/70 shadow-lg"
+                className="w-11 h-11 sm:w-12 sm:h-12 rounded-lg flex items-center justify-center font-['Bungee'] text-base sm:text-lg text-[#FEF08A] border-2 border-[#FEF08A]/70 shadow-lg"
                 style={{
                   background: `linear-gradient(135deg, ${selectedChar.visuals.primaryColor}, ${selectedChar.visuals.secondaryColor})`,
                 }}
@@ -240,8 +281,8 @@ export const CharacterSelect: React.FC<CharacterSelectProps> = ({ onBack, onProc
             <CharacterPreview3D characterId={selectedChar.id} />
 
             {/* STATS BARS */}
-            <div className="mt-2.5 grid grid-cols-3 gap-2">
-              <div className="bg-black/40 p-2 rounded border border-[#D6A447]/30">
+            <div className="mt-2 grid grid-cols-3 gap-2">
+              <div className="bg-black/40 p-1.5 sm:p-2 rounded border border-[#D6A447]/30">
                 <div className="flex justify-between text-[10px] font-['Rajdhani'] font-bold text-[#D6A447]">
                   <span>POWER</span>
                   <span className="font-mono text-white">
@@ -256,7 +297,7 @@ export const CharacterSelect: React.FC<CharacterSelectProps> = ({ onBack, onProc
                 </div>
               </div>
 
-              <div className="bg-black/40 p-2 rounded border border-[#D6A447]/30">
+              <div className="bg-black/40 p-1.5 sm:p-2 rounded border border-[#D6A447]/30">
                 <div className="flex justify-between text-[10px] font-['Rajdhani'] font-bold text-[#D6A447]">
                   <span>SPEED</span>
                   <span className="font-mono text-white">
@@ -271,7 +312,7 @@ export const CharacterSelect: React.FC<CharacterSelectProps> = ({ onBack, onProc
                 </div>
               </div>
 
-              <div className="bg-black/40 p-2 rounded border border-[#D6A447]/30">
+              <div className="bg-black/40 p-1.5 sm:p-2 rounded border border-[#D6A447]/30">
                 <div className="flex justify-between text-[10px] font-['Rajdhani'] font-bold text-[#D6A447]">
                   <span>DEFENSE</span>
                   <span className="font-mono text-white">
@@ -288,27 +329,27 @@ export const CharacterSelect: React.FC<CharacterSelectProps> = ({ onBack, onProc
             </div>
 
             {/* DUAL SIGNATURE ABILITIES: SUPERSHOT [U] & SUPERMOVE [L] */}
-            <div className="mt-2.5 grid grid-cols-1 sm:grid-cols-2 gap-2">
-              <div className="p-2.5 bg-[#0284C7]/20 border border-[#38BDF8]/60 rounded">
+            <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <div className="p-2 bg-[#0284C7]/20 border border-[#38BDF8]/60 rounded">
                 <div className="flex items-center justify-between">
                   <span className="flex items-center gap-1 text-[10px] font-['Cinzel'] font-black text-[#38BDF8] uppercase">
                     <Crosshair size={12} />
                     <span>SUPERSHOT [U]: {selectedChar.superShotInfo.name}</span>
                   </span>
                 </div>
-                <p className="mt-1 text-[10px] text-white/80 leading-snug">
+                <p className="mt-0.5 text-[10px] text-white/80 leading-snug">
                   {selectedChar.superShotInfo.description}
                 </p>
               </div>
 
-              <div className="p-2.5 bg-[#BE123C]/25 border border-[#BE123C] rounded">
+              <div className="p-2 bg-[#BE123C]/25 border border-[#BE123C] rounded">
                 <div className="flex items-center justify-between">
                   <span className="flex items-center gap-1 text-[10px] font-['Cinzel'] font-black text-[#FEF08A] uppercase">
                     <Flame size={12} />
                     <span>SUPERMOVE [L]: {selectedChar.superMoveInfo.name}</span>
                   </span>
                 </div>
-                <p className="mt-1 text-[10px] text-white/80 leading-snug">
+                <p className="mt-0.5 text-[10px] text-white/80 leading-snug">
                   {selectedChar.superMoveInfo.description}
                 </p>
               </div>

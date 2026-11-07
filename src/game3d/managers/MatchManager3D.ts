@@ -1,4 +1,4 @@
-import { CombatHitEvent } from '../../types/fighter';
+import { CombatHitEvent, GameMode } from '../../types/fighter';
 import { MatchPhase, MatchStats } from '../../engine/MatchManager';
 import { CombatSystem3D } from '../combat/CombatSystem3D';
 import { Fighter3D } from '../combat/Fighter3D';
@@ -11,6 +11,9 @@ export class MatchManager3D {
   public static readonly MAX_ROUNDS = 5;
   public static readonly P1_SPAWN_X_3D = -2.4;
   public static readonly P2_SPAWN_X_3D = 2.4;
+
+  public configuredRoundDuration: number = MatchManager3D.ROUND_TIME_SECONDS;
+  public gameMode: GameMode = 'arcade';
 
   public phase: MatchPhase = 'round_intro';
   public phaseTimer = 90;
@@ -33,8 +36,15 @@ export class MatchManager3D {
     totalFightTimeSeconds: 0,
   };
 
-  constructor() {
+  constructor(roundDurationSeconds = MatchManager3D.ROUND_TIME_SECONDS, gameMode: GameMode = 'arcade') {
+    this.configuredRoundDuration = roundDurationSeconds;
+    this.gameMode = gameMode;
     this.startRound(1);
+  }
+
+  public setConfiguration(roundDurationSeconds: number, gameMode: GameMode): void {
+    this.configuredRoundDuration = roundDurationSeconds;
+    this.gameMode = gameMode;
   }
 
   public resetMatch(
@@ -58,8 +68,18 @@ export class MatchManager3D {
     };
     this.startRound(1);
 
-    if (p1) p1.resetForRound(MatchManager3D.P1_SPAWN_X_3D, 0, 0, true);
-    if (p2) p2.resetForRound(MatchManager3D.P2_SPAWN_X_3D, 0, 0, true);
+    if (p1) {
+      p1.resetForRound(MatchManager3D.P1_SPAWN_X_3D, 0, 0, true);
+      if (this.gameMode === 'training') {
+        p1.specialMeter = 100;
+      }
+    }
+    if (p2) {
+      p2.resetForRound(MatchManager3D.P2_SPAWN_X_3D, 0, 0, true);
+      if (this.gameMode === 'training') {
+        p2.specialMeter = 100;
+      }
+    }
     if (combat) {
       combat.projectileManager.clear();
       combat.clearResolvedActivations();
@@ -76,6 +96,10 @@ export class MatchManager3D {
     this.startRound(this.currentRound);
     p1.resetForRound(MatchManager3D.P1_SPAWN_X_3D, 0, 0, false);
     p2.resetForRound(MatchManager3D.P2_SPAWN_X_3D, 0, 0, false);
+    if (this.gameMode === 'training') {
+      p1.specialMeter = 100;
+      p2.specialMeter = 100;
+    }
     if (combat) {
       combat.projectileManager.clear();
       combat.clearResolvedActivations();
@@ -86,8 +110,9 @@ export class MatchManager3D {
   public startRound(roundNumber: number): void {
     this.currentRound = roundNumber;
     this.phase = 'round_intro';
-    this.phaseTimer = 90;
-    this.roundTimeRemaining = MatchManager3D.ROUND_TIME_SECONDS;
+    this.phaseTimer = this.gameMode === 'training' ? 35 : 90;
+    this.roundTimeRemaining =
+      this.gameMode === 'training' ? 99 : this.configuredRoundDuration;
     this.roundFrameCounter = 0;
     this.roundWinner = null;
   }
@@ -125,6 +150,46 @@ export class MatchManager3D {
       case 'fighting':
         this.roundFrameCounter++;
         this.stats.totalFightTimeSeconds += 1 / 60;
+
+        if (this.gameMode === 'training') {
+          // Infinite timer, non-lethal practice health clamping, and auto-regenerating health + meter
+          this.roundTimeRemaining = 99;
+          if (p1.health <= 0) p1.health = 1;
+          if (p2.health <= 0) p2.health = 1;
+          if (p1.state === 'defeat') {
+            p1.state = 'knockdown';
+            p1.stateFrame = 0;
+          }
+          if (p2.state === 'defeat') {
+            p2.state = 'knockdown';
+            p2.stateFrame = 0;
+          }
+
+          if (!p1.isAttacking()) {
+            p1.specialMeter = Math.min(100, p1.specialMeter + 1.5);
+          }
+          if (p1.superShotCooldownFrames > 0) {
+            p1.superShotCooldownFrames = Math.max(0, p1.superShotCooldownFrames - 2);
+          }
+
+          if (
+            p2.state === 'idle' &&
+            p2.hitstunFrames <= 0 &&
+            p1.comboTimerFrames <= 0 &&
+            p2.health < p2.maxHealth
+          ) {
+            p2.health = Math.min(p2.maxHealth, p2.health + 12);
+          }
+          if (
+            p1.state === 'idle' &&
+            p1.hitstunFrames <= 0 &&
+            p2.comboTimerFrames <= 0 &&
+            p1.health < p1.maxHealth
+          ) {
+            p1.health = Math.min(p1.maxHealth, p1.health + 12);
+          }
+          break;
+        }
 
         if (this.roundFrameCounter % MatchManager3D.FRAMES_PER_SECOND === 0) {
           if (this.roundTimeRemaining > 0) {

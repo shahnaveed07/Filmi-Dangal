@@ -1,207 +1,260 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { InputManager } from '../engine/InputManager';
-import {
-  ChevronUp,
-  ChevronDown,
-  ChevronLeft,
-  ChevronRight,
-  Shield,
-  Zap,
-  Crosshair,
-} from 'lucide-react';
+import { SettingsManager } from '../engine/SettingsManager';
 
+/**
+ * MobileControls
+ *
+ * Responsive multi-touch arcade overlay for mobile and tablet devices (Section 6.5).
+ * Features:
+ * - Left, Right, Jump, Crouch, Block, Grab, Punch, Kick, SuperShot, and SuperMove buttons
+ * - High-contrast active visual feedback when pressed
+ * - Configurable button size (`compact`, `standard`, `large`) and opacity (`40%–100%`)
+ * - Multi-touch pointer tracking without duplicate mouse-compatibility events
+ * - Safe-area inset support and automatic release on pointercancel / blur / visibilitychange
+ */
 export const MobileControls: React.FC = () => {
   const input = InputManager.getInstance();
+  const settingsMgr = SettingsManager.getInstance();
+
+  const [activeControls, setActiveControls] = useState<Record<string, boolean>>({});
+  const [controlSize, setControlSize] = useState(settingsMgr.getSettings().mobileControlSize);
+  const [opacity, setOpacity] = useState(settingsMgr.getSettings().mobileControlOpacity);
 
   useEffect(() => {
+    const unsub = settingsMgr.subscribe((s) => {
+      setControlSize(s.mobileControlSize);
+      setOpacity(s.mobileControlOpacity);
+    });
     return () => {
+      unsub();
       input.clearTouchInputs();
     };
-  }, [input]);
+  }, [input, settingsMgr]);
 
-  const handlePointerDown = (control: string) => (e: React.PointerEvent<HTMLButtonElement>) => {
-    e.preventDefault();
-    e.stopPropagation();
-    try {
-      e.currentTarget.setPointerCapture(e.pointerId);
-    } catch {
-      // Ignore if pointer capture is unsupported in synthetic test events
+  const syncActiveState = () => {
+    const controls = [
+      'left',
+      'right',
+      'jump',
+      'crouch',
+      'block',
+      'grab',
+      'punch',
+      'kick',
+      'supershot',
+      'supermove',
+    ];
+    const next: Record<string, boolean> = {};
+    for (const c of controls) {
+      next[c] = input.isVirtualControlActive(c);
     }
-    input.onVirtualPointerDown(e.pointerId, control);
+    setActiveControls(next);
   };
 
-  const handlePointerUp = (_control: string) => (e: React.PointerEvent<HTMLButtonElement>) => {
-    e.preventDefault();
-    e.stopPropagation();
-    try {
-      if (e.currentTarget.hasPointerCapture?.(e.pointerId)) {
-        e.currentTarget.releasePointerCapture(e.pointerId);
+  const bindPointer = (controlName: string) => ({
+    onPointerDown: (e: React.PointerEvent<HTMLButtonElement>) => {
+      e.preventDefault();
+      e.stopPropagation();
+      try {
+        e.currentTarget.setPointerCapture(e.pointerId);
+      } catch {
+        // Ignore if synthetic event lacks pointer capture support
       }
-    } catch {
-      // Ignore release errors
-    }
-    input.onVirtualPointerUp(e.pointerId);
-  };
+      input.onVirtualPointerDown(e.pointerId, controlName);
+      syncActiveState();
+    },
+    onPointerUp: (e: React.PointerEvent<HTMLButtonElement>) => {
+      e.preventDefault();
+      e.stopPropagation();
+      input.onVirtualPointerUp(e.pointerId);
+      syncActiveState();
+    },
+    onPointerCancel: (e: React.PointerEvent<HTMLButtonElement>) => {
+      e.preventDefault();
+      e.stopPropagation();
+      input.onVirtualPointerCancel(e.pointerId);
+      syncActiveState();
+    },
+    onLostPointerCapture: (e: React.PointerEvent<HTMLButtonElement>) => {
+      input.onVirtualPointerCancel(e.pointerId);
+      syncActiveState();
+    },
+    onContextMenu: (e: React.MouseEvent<HTMLButtonElement>) => {
+      e.preventDefault();
+    },
+  });
 
-  const handlePointerCancel = (_control: string) => (e: React.PointerEvent<HTMLButtonElement>) => {
-    e.preventDefault();
-    e.stopPropagation();
-    input.onVirtualPointerCancel(e.pointerId);
-  };
+  const dpadBtnSize =
+    controlSize === 'compact'
+      ? 'w-11 h-11 text-[10px]'
+      : controlSize === 'large'
+      ? 'w-16 h-16 text-xs'
+      : 'w-13 h-13 sm:w-14 sm:h-14 text-xs';
 
-  const handleLostPointerCapture = (_control: string) => (e: React.PointerEvent<HTMLButtonElement>) => {
-    input.onVirtualPointerUp(e.pointerId);
-  };
+  const actionBtnSize =
+    controlSize === 'compact'
+      ? 'w-11 h-11 text-[10px]'
+      : controlSize === 'large'
+      ? 'w-15 h-15 text-xs'
+      : 'w-13 h-13 sm:w-14 sm:h-14 text-xs';
+
+  const specialBtnSize =
+    controlSize === 'compact'
+      ? 'h-9 px-2.5 text-[10px]'
+      : controlSize === 'large'
+      ? 'h-12 px-4 text-xs'
+      : 'h-10 sm:h-11 px-3 text-[11px]';
 
   return (
-    <div className="absolute inset-0 pointer-events-none select-none flex items-end justify-between px-3 sm:px-6 pb-14 sm:pb-16 z-20">
-      {/* LEFT: 2D XY PLANE VIRTUAL DIRECTIONAL PAD (JUMP, CROUCH, LEFT, RIGHT) */}
-      <div className="pointer-events-auto flex items-end gap-2">
-        <div className="flex flex-col items-center">
-          {/* JUMP (UP / +Y) */}
-          <button
-            type="button"
-            onPointerDown={handlePointerDown('jump')}
-            onPointerUp={handlePointerUp('jump')}
-            onPointerCancel={handlePointerCancel('jump')}
-            onLostPointerCapture={handleLostPointerCapture('jump')}
-            className="w-11 h-11 bg-[#10111B]/85 active:bg-[#D6A447] active:text-[#10111B] border-2 border-[#D6A447] text-[#D6A447] rounded-md flex flex-col items-center justify-center shadow-lg active:scale-95 transition-transform touch-none"
-            aria-label="Jump"
-          >
-            <ChevronUp size={18} />
-            <span className="text-[7px] font-mono font-bold -mt-1">JUMP</span>
-          </button>
-
-          <div className="flex gap-3 my-1">
-            {/* LEFT (-X) */}
-            <button
-              type="button"
-              onPointerDown={handlePointerDown('left')}
-              onPointerUp={handlePointerUp('left')}
-              onPointerCancel={handlePointerCancel('left')}
-              onLostPointerCapture={handleLostPointerCapture('left')}
-              className="w-11 h-11 bg-[#10111B]/85 active:bg-[#D6A447] active:text-[#10111B] border-2 border-[#D6A447] text-[#D6A447] rounded-md flex items-center justify-center shadow-lg active:scale-95 transition-transform touch-none"
-              aria-label="Move Left"
-            >
-              <ChevronLeft size={22} />
-            </button>
-
-            {/* CROUCH (DOWN) */}
-            <button
-              type="button"
-              onPointerDown={handlePointerDown('crouch')}
-              onPointerUp={handlePointerUp('crouch')}
-              onPointerCancel={handlePointerCancel('crouch')}
-              onLostPointerCapture={handleLostPointerCapture('crouch')}
-              className="w-11 h-11 bg-[#10111B]/85 active:bg-[#D6A447] active:text-[#10111B] border-2 border-[#D6A447] text-[#D6A447] rounded-md flex flex-col items-center justify-center shadow-lg active:scale-95 transition-transform touch-none"
-              aria-label="Crouch"
-            >
-              <ChevronDown size={18} />
-              <span className="text-[7px] font-mono font-bold -mt-1">CROUCH</span>
-            </button>
-
-            {/* RIGHT (+X) */}
-            <button
-              type="button"
-              onPointerDown={handlePointerDown('right')}
-              onPointerUp={handlePointerUp('right')}
-              onPointerCancel={handlePointerCancel('right')}
-              onLostPointerCapture={handleLostPointerCapture('right')}
-              className="w-11 h-11 bg-[#10111B]/85 active:bg-[#D6A447] active:text-[#10111B] border-2 border-[#D6A447] text-[#D6A447] rounded-md flex items-center justify-center shadow-lg active:scale-95 transition-transform touch-none"
-              aria-label="Move Right"
-            >
-              <ChevronRight size={22} />
-            </button>
-          </div>
-        </div>
-      </div>
-
-      {/* RIGHT: ARCADE ACTION BUTTONS (GUARD, PUNCH, KICK, GRAB, SUPERSHOT, SUPERMOVE) */}
-      <div className="pointer-events-auto flex items-end gap-2">
-        {/* GUARD / BLOCK */}
+    <div
+      data-testid="mobile-controls-overlay"
+      style={{ opacity: opacity / 100 }}
+      className="fixed inset-x-0 bottom-0 z-30 pointer-events-none flex justify-between items-end px-2.5 pb-2.5 sm:px-5 sm:pb-4 lg:hidden select-none touch-none"
+    >
+      {/* LEFT CLUSTER: 2D XY DIRECTIONAL PAD (JUMP, LEFT, RIGHT, CROUCH) */}
+      <div className="pointer-events-auto grid grid-cols-3 gap-1.5 items-center">
+        <div />
         <button
           type="button"
-          onPointerDown={handlePointerDown('block')}
-          onPointerUp={handlePointerUp('block')}
-          onPointerCancel={handlePointerCancel('block')}
-          onLostPointerCapture={handleLostPointerCapture('block')}
-          className="w-11 h-11 bg-[#1E293B]/90 active:bg-[#38BDF8] active:text-[#0F172A] border-2 border-[#38BDF8] text-[#38BDF8] rounded-full flex flex-col items-center justify-center shadow-lg active:scale-95 transition-transform touch-none mb-8"
-          aria-label="Guard / Block"
+          aria-label="Jump"
+          {...bindPointer('jump')}
+          className={`${dpadBtnSize} rounded-xl border-2 font-['Bungee'] flex items-center justify-center shadow-lg transition-transform touch-none select-none ${
+            activeControls.jump
+              ? 'bg-[#F59E0B] text-black border-white scale-95 shadow-[0_0_16px_#F59E0B]'
+              : 'bg-[#10111B]/90 border-[#D6A447] text-[#FEF08A]'
+          }`}
         >
-          <Shield size={14} />
-          <span className="text-[8px] font-black">GUARD</span>
+          JUMP
+        </button>
+        <div />
+
+        <button
+          type="button"
+          aria-label="Move Left"
+          {...bindPointer('left')}
+          className={`${dpadBtnSize} rounded-xl border-2 font-['Bungee'] flex items-center justify-center shadow-lg transition-transform touch-none select-none ${
+            activeControls.left
+              ? 'bg-[#F59E0B] text-black border-white scale-95 shadow-[0_0_16px_#F59E0B]'
+              : 'bg-[#10111B]/90 border-[#D6A447] text-[#FEF08A]'
+          }`}
+        >
+          LEFT
         </button>
 
-        {/* 6-BUTTON ARCADE CLUSTER: PUNCH, KICK, GRAB, SHOT [U], SUPER [L] */}
-        <div className="grid grid-cols-3 gap-1.5">
-          {/* PUNCH (J) */}
-          <button
-            type="button"
-            onPointerDown={handlePointerDown('punch')}
-            onPointerUp={handlePointerUp('punch')}
-            onPointerCancel={handlePointerCancel('punch')}
-            onLostPointerCapture={handleLostPointerCapture('punch')}
-            className="w-12 h-12 bg-[#BE123C]/90 active:bg-[#F43F5E] text-white border-2 border-[#F43F5E] rounded-full flex flex-col items-center justify-center font-['Bungee'] shadow-lg active:scale-95 transition-transform touch-none"
-            aria-label="Punch"
-          >
-            <span className="text-xs">J</span>
-            <span className="text-[7px] font-mono -mt-0.5">PUNCH</span>
-          </button>
+        <button
+          type="button"
+          aria-label="Crouch"
+          {...bindPointer('crouch')}
+          className={`${dpadBtnSize} rounded-xl border-2 font-['Bungee'] flex items-center justify-center shadow-lg transition-transform touch-none select-none ${
+            activeControls.crouch
+              ? 'bg-[#F59E0B] text-black border-white scale-95 shadow-[0_0_16px_#F59E0B]'
+              : 'bg-[#10111B]/90 border-[#D6A447] text-[#FEF08A]'
+          }`}
+        >
+          DUCK
+        </button>
 
-          {/* KICK (K) */}
-          <button
-            type="button"
-            onPointerDown={handlePointerDown('kick')}
-            onPointerUp={handlePointerUp('kick')}
-            onPointerCancel={handlePointerCancel('kick')}
-            onLostPointerCapture={handleLostPointerCapture('kick')}
-            className="w-12 h-12 bg-[#D97706]/90 active:bg-[#F59E0B] text-white border-2 border-[#F59E0B] rounded-full flex flex-col items-center justify-center font-['Bungee'] shadow-lg active:scale-95 transition-transform touch-none"
-            aria-label="Kick"
-          >
-            <span className="text-xs">K</span>
-            <span className="text-[7px] font-mono -mt-0.5">KICK</span>
-          </button>
+        <button
+          type="button"
+          aria-label="Move Right"
+          {...bindPointer('right')}
+          className={`${dpadBtnSize} rounded-xl border-2 font-['Bungee'] flex items-center justify-center shadow-lg transition-transform touch-none select-none ${
+            activeControls.right
+              ? 'bg-[#F59E0B] text-black border-white scale-95 shadow-[0_0_16px_#F59E0B]'
+              : 'bg-[#10111B]/90 border-[#D6A447] text-[#FEF08A]'
+          }`}
+        >
+          RIGHT
+        </button>
+      </div>
 
-          {/* GRAB (I) */}
+      {/* RIGHT CLUSTER: SPECIALS (SUPERSHOT / SUPERMOVE) + MELEE (BLOCK, GRAB, PUNCH, KICK) */}
+      <div className="pointer-events-auto flex flex-col items-end gap-1.5">
+        {/* TOP ROW: SUPERSHOT [U] & SUPERMOVE [L] */}
+        <div className="flex gap-1.5">
           <button
             type="button"
-            onPointerDown={handlePointerDown('grab')}
-            onPointerUp={handlePointerUp('grab')}
-            onPointerCancel={handlePointerCancel('grab')}
-            onLostPointerCapture={handleLostPointerCapture('grab')}
-            className="w-12 h-12 bg-[#4C1D95]/90 active:bg-[#A855F7] text-white border-2 border-[#A855F7] rounded-full flex flex-col items-center justify-center font-['Bungee'] shadow-lg active:scale-95 transition-transform touch-none"
-            aria-label="Grab"
-          >
-            <span className="text-xs">I</span>
-            <span className="text-[7px] font-mono -mt-0.5">GRAB</span>
-          </button>
-
-          {/* SUPERSHOT (U) */}
-          <button
-            type="button"
-            onPointerDown={handlePointerDown('super_shot')}
-            onPointerUp={handlePointerUp('super_shot')}
-            onPointerCancel={handlePointerCancel('super_shot')}
-            onLostPointerCapture={handleLostPointerCapture('super_shot')}
-            className="w-12 h-12 bg-[#0284C7]/90 active:bg-[#38BDF8] text-white border-2 border-[#38BDF8] rounded-full flex flex-col items-center justify-center font-['Bungee'] shadow-lg active:scale-95 transition-transform touch-none"
             aria-label="SuperShot"
+            {...bindPointer('supershot')}
+            className={`${specialBtnSize} rounded-xl border-2 font-['Bungee'] flex items-center justify-center shadow-lg transition-transform touch-none select-none ${
+              activeControls.supershot
+                ? 'bg-[#38BDF8] text-black border-white scale-95 shadow-[0_0_18px_#38BDF8]'
+                : 'bg-[#0284C7]/95 border-[#38BDF8] text-white'
+            }`}
           >
-            <Crosshair size={13} />
-            <span className="text-[7px] font-mono">SHOT [U]</span>
+            SHOT
           </button>
 
-          {/* SUPERMOVE (L) */}
           <button
             type="button"
-            onPointerDown={handlePointerDown('super_move')}
-            onPointerUp={handlePointerUp('super_move')}
-            onPointerCancel={handlePointerCancel('super_move')}
-            onLostPointerCapture={handleLostPointerCapture('super_move')}
-            className="col-span-2 h-12 bg-gradient-to-tr from-[#DC2626] to-[#F59E0B] text-white border-2 border-[#FEF08A] rounded-full flex items-center justify-center gap-1 font-['Bungee'] shadow-[0_0_12px_rgba(245,158,11,0.7)] active:scale-95 transition-transform touch-none px-2"
             aria-label="SuperMove"
+            {...bindPointer('supermove')}
+            className={`${specialBtnSize} rounded-xl border-2 font-['Bungee'] flex items-center justify-center shadow-lg transition-transform touch-none select-none ${
+              activeControls.supermove
+                ? 'bg-[#FEF08A] text-black border-white scale-95 shadow-[0_0_20px_#FEF08A]'
+                : 'bg-gradient-to-r from-[#F59E0B] to-[#BE123C] border-[#FEF08A] text-white'
+            }`}
           >
-            <Zap size={14} />
-            <span className="text-[9px] font-black">SUPERMOVE [L]</span>
+            SUPER!
+          </button>
+        </div>
+
+        {/* MIDDLE ROW: GUARD & GRAB */}
+        <div className="flex gap-1.5">
+          <button
+            type="button"
+            aria-label="Block"
+            {...bindPointer('block')}
+            className={`${actionBtnSize} rounded-full border-2 font-['Bungee'] flex items-center justify-center shadow-lg transition-transform touch-none select-none ${
+              activeControls.block
+                ? 'bg-[#38BDF8] text-black border-white scale-95'
+                : 'bg-[#1E293B]/90 border-[#94A3B8] text-white'
+            }`}
+          >
+            GUARD
+          </button>
+
+          <button
+            type="button"
+            aria-label="Grab"
+            {...bindPointer('grab')}
+            className={`${actionBtnSize} rounded-full border-2 font-['Bungee'] flex items-center justify-center shadow-lg transition-transform touch-none select-none ${
+              activeControls.grab
+                ? 'bg-[#C084FC] text-black border-white scale-95'
+                : 'bg-[#7C3AED]/90 border-[#C084FC] text-white'
+            }`}
+          >
+            GRAB
+          </button>
+        </div>
+
+        {/* BOTTOM ROW: PUNCH & KICK */}
+        <div className="flex gap-1.5">
+          <button
+            type="button"
+            aria-label="Punch"
+            {...bindPointer('punch')}
+            className={`${actionBtnSize} rounded-full border-2 font-['Bungee'] flex items-center justify-center shadow-lg transition-transform touch-none select-none ${
+              activeControls.punch
+                ? 'bg-[#FEF08A] text-black border-white scale-95 shadow-[0_0_16px_#FEF08A]'
+                : 'bg-[#BE123C]/95 border-[#FEF08A] text-[#FEF08A]'
+            }`}
+          >
+            PUNCH
+          </button>
+
+          <button
+            type="button"
+            aria-label="Kick"
+            {...bindPointer('kick')}
+            className={`${actionBtnSize} rounded-full border-2 font-['Bungee'] flex items-center justify-center shadow-lg transition-transform touch-none select-none ${
+              activeControls.kick
+                ? 'bg-[#FEF08A] text-black border-white scale-95 shadow-[0_0_16px_#FEF08A]'
+                : 'bg-[#D97706]/95 border-[#FEF08A] text-white'
+            }`}
+          >
+            KICK
           </button>
         </div>
       </div>

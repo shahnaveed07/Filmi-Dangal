@@ -107,6 +107,9 @@ export class Fighter3D {
   // Optional callback set by the 3D scene to query exact bone world coordinates when rendering
   public boneWorldPositionProvider?: (bone: BoneAttachmentName) => Vector3D | null;
 
+  public healthMultiplier = 1.0;
+  public controlSensitivityMultiplier = 1.0;
+
   constructor(
     playerIndex: 0 | 1,
     def: CharacterDef,
@@ -120,7 +123,7 @@ export class Fighter3D {
     this._position = new PlaneVector2D(startX3D, floorY3D);
     this._velocity = new PlaneVector2D(0, 0);
     this.facing = playerIndex === 0 ? 1 : -1;
-    this.maxHealth = def.stats.maxHealth;
+    this.maxHealth = Math.round(def.stats.maxHealth * this.healthMultiplier);
     this.health = this.maxHealth;
     this.specialMeter = 25; // Start with 25 meter so SuperShot is ready
 
@@ -128,16 +131,26 @@ export class Fighter3D {
     this.animEvents.onEvent((evt) => {
       if (evt.characterId !== this.id) return;
       if (
-        evt.type === 'ON_PROJECTILE_SPAWN' &&
+        (evt.type === 'ON_PROJECTILE_RELEASE' || evt.type === 'ON_PROJECTILE_SPAWN') &&
         (this.state === 'super_shot' || this.currentMoveType === 'super_shot')
       ) {
         this.pendingProjectileSpawn = true;
+      }
+      if (
+        evt.type === 'ON_SPECIAL_IMPACT' &&
+        (this.state === 'super_shot' ||
+          this.state === 'super_move' ||
+          this.state === 'super' ||
+          this.currentMoveType === 'super_shot' ||
+          this.currentMoveType === 'super_move' ||
+          this.currentMoveType === 'super')
+      ) {
         if (this.currentSpecialActivationId && !this.specialDamageResolvedForActivation) {
           this.pendingSpecialImpact = true;
         }
       } else if (
-        evt.type === 'ON_SUPERMOVE_PHASE' &&
-        evt.superMovePhase === 'CLIMAX_IMPACT' &&
+        (evt.type === 'ON_SUPERMOVE_CLIMAX' ||
+          (evt.type === 'ON_SUPERMOVE_PHASE' && evt.superMovePhase === 'CLIMAX_IMPACT')) &&
         (this.state === 'super_move' ||
           this.state === 'super' ||
           this.currentMoveType === 'super_move' ||
@@ -179,7 +192,19 @@ export class Fighter3D {
   public setCharacterDef(def: CharacterDef): void {
     this.def = def;
     this.id = def.id;
-    this.maxHealth = def.stats.maxHealth;
+    this.maxHealth = Math.round(def.stats.maxHealth * this.healthMultiplier);
+  }
+
+  public applyGameplaySettings(
+    startingHealthPercent: 100 | 125 | 150 = 100,
+    controlSensitivity: 'low' | 'normal' | 'high' = 'normal'
+  ): void {
+    this.healthMultiplier = startingHealthPercent / 100;
+    this.controlSensitivityMultiplier =
+      controlSensitivity === 'low' ? 0.9 : controlSensitivity === 'high' ? 1.12 : 1.0;
+    const prevPct = this.maxHealth > 0 ? this.health / this.maxHealth : 1;
+    this.maxHealth = Math.round(this.def.stats.maxHealth * this.healthMultiplier);
+    this.health = Math.max(1, Math.round(this.maxHealth * prevPct));
   }
 
   // Compatibility 2D pixel getters/setters mapped cleanly to 2D XY meters (1m = 80px, center = 640px)
@@ -229,7 +254,7 @@ export class Fighter3D {
     this._velocity.x = 0;
     this._velocity.y = 0;
     this.facing = this.playerIndex === 0 ? 1 : -1;
-    this.maxHealth = this.def.stats.maxHealth;
+    this.maxHealth = Math.round(this.def.stats.maxHealth * this.healthMultiplier);
     this.health = this.maxHealth;
     this.specialMeter = fullMeterReset ? 25 : Math.max(25, Math.min(this.specialMeter, 60));
     this.state = 'idle';
@@ -452,7 +477,7 @@ export class Fighter3D {
     this.isCrouching = false;
 
     // 8. Strictly 2D Horizontal X-Axis Movement (No Z-axis movement or sidestepping)
-    const walkSpeed = this.def.stats.walkSpeed * 1.05;
+    const walkSpeed = this.def.stats.walkSpeed * 1.05 * this.controlSensitivityMultiplier;
     let movingX = false;
 
     if (input.left) {
@@ -578,12 +603,14 @@ export class Fighter3D {
       if (this.knockdownFrames <= 0 && this.health > 0) {
         this.state = 'recovery';
         this.stateFrame = 0;
+        this.hitstunFrames = 0;
         this.invulnerableFrames = 18;
       }
     } else if (this.state === 'recovery') {
       if (this.stateFrame >= 18) {
         this.state = 'idle';
         this.stateFrame = 0;
+        this.hitstunFrames = 0;
       }
     } else if (this.isAttacking() && this.currentMove) {
       const totalMoveFrames =
@@ -615,6 +642,7 @@ export class Fighter3D {
         if (this.state === 'knockback') {
           this.state = 'knockdown';
           this.stateFrame = 0;
+          this.hitstunFrames = 0;
           this.knockdownFrames = 26;
           this.invulnerableFrames = 28;
         } else if (this.state === 'jump' || this.isAttacking()) {

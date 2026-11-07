@@ -288,4 +288,6 @@ export interface CombatHitEvent {
 }
 
 export type ScreenName = 'title' | 'character_select' | 'arena_select' | 'fighting' | 'fight' | 'results';
-export type GameMode = 'arcade' | 'vs_cpu';
+export type GameMode = 'arcade' | 'vs_cpu' | 'training';
+export type TrainingDummyBehavior = 'stand' | 'crouch' | 'block' | 'jump' | 'cpu_spar';
+
