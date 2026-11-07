@@ -218,7 +218,7 @@ export function buildTemporaryPlaceholderHumanoidRig(
       ? '#1E293B'
       : charDef.id === 'romance_raja'
       ? '#27272A'
-      : charDef.id === 'dance_dynamo'
+      : charDef.id === 'duggu'
       ? '#0F172A'
       : '#2E1065',
     0.45,
@@ -287,7 +287,7 @@ export function buildTemporaryPlaceholderHumanoidRig(
   registerMesh(
     abdomen,
     bSpine,
-    charDef.id === 'action_sultan' || charDef.id === 'dance_dynamo' ? skinMat : primaryMat,
+    charDef.id === 'action_sultan' || charDef.id === 'duggu' ? skinMat : primaryMat,
     2
   );
 
@@ -368,7 +368,10 @@ export function buildTemporaryPlaceholderHumanoidRig(
     );
     neonTrimR.position.set(0.14, 0.11, 0);
     registerMesh(neonTrimR, bChest, accentMat, 1);
-  } else if (p.accessoryType === 'gold_chain_and_bandhgala') {
+  } else if (
+    p.accessoryType === 'gold_chain_and_bandhgala' ||
+    p.accessoryType === 'bandana_and_shades'
+  ) {
     const coatSkirt = MeshBuilder.CreateBox(
       `${instancePrefix}_coatSkirt`,
       { width: 0.38 * torsoScale, height: 0.26, depth: 0.26 * torsoScale },
@@ -384,7 +387,15 @@ export function buildTemporaryPlaceholderHumanoidRig(
     );
     goldChain.position.set(0, 0.22, 0.03);
     goldChain.rotation.x = 0.35;
-    registerMesh(goldChain, bChest, secondaryMat, 0);
+    registerMesh(goldChain, bChest, accentMat, 0);
+
+    const neckBandana = MeshBuilder.CreateTorus(
+      `${instancePrefix}_neckBandana`,
+      { diameter: 0.21, thickness: 0.045, tessellation: 16 },
+      scene
+    );
+    neckBandana.position.set(0, 0.02, 0.01);
+    registerMesh(neckBandana, bNeck, secondaryMat, 0);
   }
 
   const neckCyl = MeshBuilder.CreateCylinder(
@@ -519,7 +530,10 @@ export function buildTemporaryPlaceholderHumanoidRig(
       wave.rotation.z = i * 0.18;
       registerMesh(wave, bHead, hairMat);
     }
-  } else if (p.hairStyle === 'slicked_villain_mane') {
+  } else if (
+    p.hairStyle === 'slicked_villain_mane' ||
+    p.hairStyle === 'bhidu_swagger_mane'
+  ) {
     const slickTop = MeshBuilder.CreateBox(
       `${instancePrefix}_slickTop`,
       { width: 0.23 * jawScale, height: 0.09, depth: 0.26 },
@@ -535,12 +549,25 @@ export function buildTemporaryPlaceholderHumanoidRig(
     );
     napeMane.position.set(0, 0.11, -0.12);
     registerMesh(napeMane, bHead, hairMat);
+
+    // Bhidu signature forehead bandana
+    const headBandana = MeshBuilder.CreateCylinder(
+      `${instancePrefix}_headBandana`,
+      { height: 0.042, diameter: 0.255 * jawScale, tessellation: 16 },
+      scene
+    );
+    headBandana.position.set(0, 0.185, 0);
+    registerMesh(headBandana, bHead, secondaryMat);
   }
 
-  if (p.facialHair === 'royal_mustache') {
+  if (p.facialHair === 'royal_mustache' || p.facialHair === 'bhidu_mustache') {
     const mustache = MeshBuilder.CreateBox(
       `${instancePrefix}_mustache`,
-      { width: 0.105, height: 0.024, depth: 0.03 },
+      {
+        width: p.facialHair === 'bhidu_mustache' ? 0.125 : 0.105,
+        height: 0.026,
+        depth: 0.032,
+      },
       scene
     );
     mustache.position.set(0, 0.068, 0.122);
@@ -561,21 +588,9 @@ export function buildTemporaryPlaceholderHumanoidRig(
     );
     heavyBeard.position.set(0, 0.022, 0.035);
     registerMesh(heavyBeard, bHead, hairMat);
-
-    const tilak = MeshBuilder.CreateBox(
-      `${instancePrefix}_tilak`,
-      { width: 0.022, height: 0.042, depth: 0.015 },
-      scene
-    );
-    tilak.position.set(0, 0.185, 0.124);
-    registerMesh(
-      tilak,
-      bHead,
-      createPlaceholderPBR(scene, `${instancePrefix}_crimson`, '#DC2626', 0.3, 0.2, '#EF4444')
-    );
   }
 
-  if (charDef.id === 'action_sultan' || charDef.id === 'villain_saab') {
+  if (charDef.id === 'action_sultan' || charDef.id === 'bhidu') {
     const lensL = MeshBuilder.CreateBox(
       `${instancePrefix}_lensL`,
       { width: 0.072, height: 0.042, depth: 0.02 },
@@ -608,7 +623,7 @@ export function buildTemporaryPlaceholderHumanoidRig(
     lowerArm: TransformNode,
     hand: TransformNode
   ) => {
-    const sleeveSleeveless = charDef.id === 'action_sultan' || charDef.id === 'dance_dynamo';
+    const sleeveSleeveless = charDef.id === 'action_sultan' || charDef.id === 'duggu';
 
     const deltoid = MeshBuilder.CreateSphere(
       `${instancePrefix}_deltoid_${side}`,
@@ -641,12 +656,12 @@ export function buildTemporaryPlaceholderHumanoidRig(
       scene
     );
     forearm.position.y = -0.11;
-    registerMesh(forearm, lowerArm, charDef.id === 'villain_saab' ? primaryMat : skinMat);
+    registerMesh(forearm, lowerArm, charDef.id === 'bhidu' ? primaryMat : skinMat);
 
     if (
       (charDef.id === 'action_sultan' && side === 'R') ||
-      charDef.id === 'dance_dynamo' ||
-      charDef.id === 'villain_saab'
+      charDef.id === 'duggu' ||
+      charDef.id === 'bhidu'
     ) {
       const cuff = MeshBuilder.CreateTorus(
         `${instancePrefix}_cuff_${side}`,
@@ -668,6 +683,25 @@ export function buildTemporaryPlaceholderHumanoidRig(
     );
     fist.position.y = -0.04;
     registerMesh(fist, hand, skinMat);
+
+    // Stylized gold-trimmed parody sidearm attached to Action Sultan's right hand/holster
+    if (charDef.id === 'action_sultan' && side === 'R') {
+      const gunBarrel = MeshBuilder.CreateBox(
+        `${instancePrefix}_sultanSidearmBarrel`,
+        { width: 0.042, height: 0.24, depth: 0.065 },
+        scene
+      );
+      gunBarrel.position.set(0, -0.16, 0.06);
+      registerMesh(gunBarrel, hand, secondaryMat, 0);
+
+      const gunGrip = MeshBuilder.CreateBox(
+        `${instancePrefix}_sultanSidearmGrip`,
+        { width: 0.04, height: 0.1, depth: 0.08 },
+        scene
+      );
+      gunGrip.position.set(0, -0.06, 0.02);
+      registerMesh(gunGrip, hand, darkMat, 0);
+    }
   };
 
   buildArm('L', bLeftShoulder, bLeftUpperArm, bLeftLowerArm, bLeftHand);

@@ -302,8 +302,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ onClose }) => {
                     [
                       { id: 'action_sultan', label: 'Sultan' },
                       { id: 'romance_raja', label: 'Raja' },
-                      { id: 'dance_dynamo', label: 'Dynamo' },
-                      { id: 'villain_saab', label: 'Saab' },
+                      { id: 'duggu', label: 'Duggu' },
+                      { id: 'bhidu', label: 'Bhidu' },
                     ] as const
                   ).map((c) => (
                     <button

@@ -1,7 +1,7 @@
 import { BoneAttachmentName, FighterId, FighterStateName } from '../types/fighter';
 
 /**
- * Standardized Animation Clip Identifiers (Section 3.3).
+ * Standardized Animation Clip Identifiers.
  * External GLB models map their embedded AnimationGroup names to these 15 canonical clip IDs.
  */
 export type StandardAnimationClipId =
@@ -90,8 +90,11 @@ export interface CharacterAudioAssetPaths {
 
 export interface CharacterAssetConfig {
   id: FighterId;
-  slug: string;
+  slug: 'action-sultan' | 'romance-raja' | 'duggu' | 'bhidu';
   displayName: string;
+  realLifeInspiration: string;
+  superShotTitle: string;
+  superShotConcept: string;
   /**
    * Explicitly marks whether the current character uses the temporary placeholder rig
    * until a production skinned GLB model is dropped into `modelPath`.
@@ -118,6 +121,26 @@ export interface CharacterAssetConfig {
   specialAttackEvents: CharacterSpecialEventConfig;
   vfx: CharacterVFXAssetConfig;
   audio: CharacterAudioAssetPaths;
+}
+
+/**
+ * Normalizes any character identifier or slug (including hyphenated slugs) to the canonical FighterId.
+ */
+export function normalizeFighterId(rawId: string): FighterId {
+  switch (rawId) {
+    case 'action_sultan':
+    case 'action-sultan':
+      return 'action_sultan';
+    case 'romance_raja':
+    case 'romance-raja':
+      return 'romance_raja';
+    case 'duggu':
+      return 'duggu';
+    case 'bhidu':
+      return 'bhidu';
+    default:
+      return 'action_sultan';
+  }
 }
 
 /**
@@ -187,7 +210,8 @@ export const DEFAULT_HUMANOID_BONE_ALIASES: Record<string, string[]> = {
 function createCoreClipMappings(
   superShotClip: string,
   superMoveClip: string,
-  speedRatio = 1.0
+  speedRatio = 1.0,
+  extraSuperShotAliases: string[] = []
 ): Record<StandardAnimationClipId, AnimationClipMappingConfig> {
   return {
     idle: {
@@ -296,7 +320,13 @@ function createCoreClipMappings(
     },
     super_shot: {
       clipName: superShotClip,
-      aliases: [superShotClip, 'SuperShot', 'super_shot', 'Special_Projectile'],
+      aliases: [
+        superShotClip,
+        ...extraSuperShotAliases,
+        'SuperShot',
+        'super_shot',
+        'Special_Projectile',
+      ],
       loop: false,
       speedRatio,
       blendSeconds: 0.05,
@@ -314,18 +344,24 @@ function createCoreClipMappings(
 }
 
 /**
- * Centralized Character Asset Manifest for all four Filmi Dangal fighters.
- * Replacing a character model in the future only requires placing the production GLB,
- * portrait, thumbnail, and audio files at the configured paths (or updating this manifest).
+ * Centralized Character Asset Manifest for all four Filmi Dangal fighters:
+ * - action_sultan (Action Sultan — Salman Khan-inspired)
+ * - romance_raja  (Romance Raja — Shah Rukh Khan-inspired)
+ * - duggu         (Duggu — Hrithik Roshan-inspired)
+ * - bhidu         (Bhidu — Jackie Shroff-inspired)
  */
 export const CHARACTER_ASSET_MANIFEST: Record<FighterId, CharacterAssetConfig> = {
   action_sultan: {
     id: 'action_sultan',
     slug: 'action-sultan',
     displayName: 'Action Sultan',
+    realLifeInspiration: 'Salman Khan',
+    superShotTitle: 'BLACKBUCK GUNSHOT',
+    superShotConcept:
+      'Draws a stylized parody firearm, sights a brief non-graphic golden blackbuck silhouette hologram, and fires with muzzle flash, recoil, shell ejection, smoke, bullet trail, and explosive impact.',
     isTemporaryPlaceholder: true,
     modelPath: '/assets/characters/action-sultan/model.glb',
-    legacyModelPath: '/assets/models/action_sultan.glb',
+    legacyModelPath: '/assets/characters/action-sultan/model.glb',
     portraitPath: '/assets/characters/action-sultan/portrait.png',
     thumbnailPath: '/assets/characters/action-sultan/thumbnail.png',
     scale: 1.04,
@@ -342,15 +378,16 @@ export const CHARACTER_ASSET_MANIFEST: Record<FighterId, CharacterAssetConfig> =
     blendDurationSeconds: 0.1,
     boneAliases: { ...DEFAULT_HUMANOID_BONE_ALIASES },
     animations: createCoreClipMappings(
-      'Anim_AS_SuperShot_PowerlineBlast',
+      'Anim_AS_SuperShot_BlackbuckGunshot',
       'Anim_AS_SuperMove_SultanBreaker',
-      1.0
+      1.0,
+      ['action-sultan-supershot']
     ),
     specialAttackEvents: {
       superShot: {
         chargeStartFrame: 1,
         projectileReleaseFrame: 10,
-        specialImpactFrame: 10,
+        specialImpactFrame: 14,
         animationCompleteFrame: 36,
         projectileSpawnBone: 'RightHand',
       },
@@ -358,14 +395,14 @@ export const CHARACTER_ASSET_MANIFEST: Record<FighterId, CharacterAssetConfig> =
         chargeStartFrame: 1,
         rushFrame: 12,
         climaxImpactFrame: 20,
-        animationCompleteFrame: 48,
+        animationCompleteFrame: 42,
         impactBone: 'Chest',
       },
     },
     vfx: {
-      superShotChargeVfx: '/assets/vfx/action-sultan/bracelet-flare-charge.json',
-      superShotProjectileVfx: '/assets/vfx/action-sultan/turquoise-shock-disc.json',
-      superShotImpactVfx: '/assets/vfx/action-sultan/shockwave-impact.json',
+      superShotChargeVfx: '/assets/vfx/action-sultan/blackbuck-hologram-sight.json',
+      superShotProjectileVfx: '/assets/vfx/action-sultan/muzzle-flash-bullet-tracer.json',
+      superShotImpactVfx: '/assets/vfx/action-sultan/explosive-ricochet-burst.json',
       superMoveChargeVfx: '/assets/vfx/action-sultan/sultan-aura-burst.json',
       superMoveImpactVfx: '/assets/vfx/action-sultan/seismic-slam-pillars.json',
       primaryHex: '#1D4ED8',
@@ -389,9 +426,13 @@ export const CHARACTER_ASSET_MANIFEST: Record<FighterId, CharacterAssetConfig> =
     id: 'romance_raja',
     slug: 'romance-raja',
     displayName: 'Romance Raja',
+    realLifeInspiration: 'Shah Rukh Khan',
+    superShotTitle: 'ICONIC OPEN-ARMS POSE',
+    superShotConcept:
+      'Steps into a dramatic standing pose, slowly opens both arms wide with chest lifted and head tilted upward amidst golden wind/cloth motion and warm aura, then releases an expanding crimson-gold energy wave.',
     isTemporaryPlaceholder: true,
     modelPath: '/assets/characters/romance-raja/model.glb',
-    legacyModelPath: '/assets/models/romance_raja.glb',
+    legacyModelPath: '/assets/characters/romance-raja/model.glb',
     portraitPath: '/assets/characters/romance-raja/portrait.png',
     thumbnailPath: '/assets/characters/romance-raja/thumbnail.png',
     scale: 1.0,
@@ -408,30 +449,31 @@ export const CHARACTER_ASSET_MANIFEST: Record<FighterId, CharacterAssetConfig> =
     blendDurationSeconds: 0.1,
     boneAliases: { ...DEFAULT_HUMANOID_BONE_ALIASES },
     animations: createCoreClipMappings(
-      'Anim_RR_SuperShot_DilSePulse',
+      'Anim_RR_SuperShot_OpenArmsPose',
       'Anim_RR_SuperMove_BaadshahGrandGesture',
-      1.04
+      1.04,
+      ['romance-raja-supershot']
     ),
     specialAttackEvents: {
       superShot: {
         chargeStartFrame: 1,
-        projectileReleaseFrame: 9,
-        specialImpactFrame: 9,
-        animationCompleteFrame: 33,
+        projectileReleaseFrame: 11,
+        specialImpactFrame: 16,
+        animationCompleteFrame: 36,
         projectileSpawnBone: 'Chest',
       },
       superMove: {
         chargeStartFrame: 1,
         rushFrame: 11,
         climaxImpactFrame: 18,
-        animationCompleteFrame: 44,
+        animationCompleteFrame: 39,
         impactBone: 'Chest',
       },
     },
     vfx: {
-      superShotChargeVfx: '/assets/vfx/romance-raja/rose-gold-embrace.json',
-      superShotProjectileVfx: '/assets/vfx/romance-raja/mohabbat-heart-wave.json',
-      superShotImpactVfx: '/assets/vfx/romance-raja/crimson-petal-burst.json',
+      superShotChargeVfx: '/assets/vfx/romance-raja/open-arms-golden-wind-aura.json',
+      superShotProjectileVfx: '/assets/vfx/romance-raja/expanding-cinematic-wave.json',
+      superShotImpactVfx: '/assets/vfx/romance-raja/dramatic-spotlight-flash.json',
       superMoveChargeVfx: '/assets/vfx/romance-raja/spotlight-vortex.json',
       superMoveImpactVfx: '/assets/vfx/romance-raja/king-of-hearts-nova.json',
       primaryHex: '#BE123C',
@@ -451,15 +493,19 @@ export const CHARACTER_ASSET_MANIFEST: Record<FighterId, CharacterAssetConfig> =
     },
   },
 
-  dance_dynamo: {
-    id: 'dance_dynamo',
-    slug: 'dance-dynamo',
-    displayName: 'Dance Dynamo',
+  duggu: {
+    id: 'duggu',
+    slug: 'duggu',
+    displayName: 'Duggu',
+    realLifeInspiration: 'Hrithik Roshan',
+    superShotTitle: 'KAHO NAA DANCE WAVE',
+    superShotConcept:
+      'Enters a confident dancer stance, performs energetic Kaho Naa... Pyaar Hai-inspired footwork, expressive arm waves, and an original 360-degree acrobatic spin that releases a rhythmic sonic energy wave.',
     isTemporaryPlaceholder: true,
-    modelPath: '/assets/characters/dance-dynamo/model.glb',
-    legacyModelPath: '/assets/models/dance_dynamo.glb',
-    portraitPath: '/assets/characters/dance-dynamo/portrait.png',
-    thumbnailPath: '/assets/characters/dance-dynamo/thumbnail.png',
+    modelPath: '/assets/characters/duggu/model.glb',
+    legacyModelPath: '/assets/characters/duggu/model.glb',
+    portraitPath: '/assets/characters/duggu/portrait.png',
+    thumbnailPath: '/assets/characters/duggu/thumbnail.png',
     scale: 1.02,
     facingRotationY: {
       right: Math.PI * 0.5,
@@ -474,58 +520,63 @@ export const CHARACTER_ASSET_MANIFEST: Record<FighterId, CharacterAssetConfig> =
     blendDurationSeconds: 0.08,
     boneAliases: { ...DEFAULT_HUMANOID_BONE_ALIASES },
     animations: createCoreClipMappings(
-      'Anim_DD_SuperShot_BeatDrop',
-      'Anim_DD_SuperMove_RhythmOverdrive',
-      1.08
+      'Anim_DG_SuperShot_KahoNaaDanceWave',
+      'Anim_DG_SuperMove_RhythmOverdrive',
+      1.08,
+      ['duggu-supershot']
     ),
     specialAttackEvents: {
       superShot: {
         chargeStartFrame: 1,
-        projectileReleaseFrame: 8,
-        specialImpactFrame: 8,
-        animationCompleteFrame: 30,
+        projectileReleaseFrame: 12,
+        specialImpactFrame: 17,
+        animationCompleteFrame: 38,
         projectileSpawnBone: 'RightFoot',
       },
       superMove: {
         chargeStartFrame: 1,
         rushFrame: 10,
         climaxImpactFrame: 19,
-        animationCompleteFrame: 42,
+        animationCompleteFrame: 39,
         impactBone: 'RightFoot',
       },
     },
     vfx: {
-      superShotChargeVfx: '/assets/vfx/dance-dynamo/neon-equalizer-charge.json',
-      superShotProjectileVfx: '/assets/vfx/dance-dynamo/laser-disc-crescent.json',
-      superShotImpactVfx: '/assets/vfx/dance-dynamo/cyber-strobe-impact.json',
-      superMoveChargeVfx: '/assets/vfx/dance-dynamo/cyclone-floor-grid.json',
-      superMoveImpactVfx: '/assets/vfx/dance-dynamo/supersonic-vortex-drop.json',
+      superShotChargeVfx: '/assets/vfx/duggu/rhythmic-ground-beat-rings.json',
+      superShotProjectileVfx: '/assets/vfx/duggu/rotating-sonic-dance-arcs.json',
+      superShotImpactVfx: '/assets/vfx/duggu/sonic-beat-impact-wave.json',
+      superMoveChargeVfx: '/assets/vfx/duggu/cyclone-floor-grid.json',
+      superMoveImpactVfx: '/assets/vfx/duggu/supersonic-vortex-drop.json',
       primaryHex: '#0284C7',
       secondaryHex: '#22C55E',
       auraHex: '#06B6D4',
     },
     audio: {
-      superShotChargeSfx: '/assets/audio/characters/dance-dynamo/supershot-charge.ogg',
-      superShotReleaseSfx: '/assets/audio/characters/dance-dynamo/supershot-release.ogg',
-      superShotImpactSfx: '/assets/audio/characters/dance-dynamo/supershot-impact.ogg',
-      superMoveChargeSfx: '/assets/audio/characters/dance-dynamo/supermove-charge.ogg',
-      superMoveImpactSfx: '/assets/audio/characters/dance-dynamo/supermove-impact.ogg',
-      normalAttackSfx: '/assets/audio/characters/dance-dynamo/normal-attack.ogg',
-      hitReactSfx: '/assets/audio/characters/dance-dynamo/hit-react.ogg',
-      victorySfx: '/assets/audio/characters/dance-dynamo/victory.ogg',
-      defeatSfx: '/assets/audio/characters/dance-dynamo/defeat.ogg',
+      superShotChargeSfx: '/assets/audio/characters/duggu/supershot-charge.ogg',
+      superShotReleaseSfx: '/assets/audio/characters/duggu/supershot-release.ogg',
+      superShotImpactSfx: '/assets/audio/characters/duggu/supershot-impact.ogg',
+      superMoveChargeSfx: '/assets/audio/characters/duggu/supermove-charge.ogg',
+      superMoveImpactSfx: '/assets/audio/characters/duggu/supermove-impact.ogg',
+      normalAttackSfx: '/assets/audio/characters/duggu/normal-attack.ogg',
+      hitReactSfx: '/assets/audio/characters/duggu/hit-react.ogg',
+      victorySfx: '/assets/audio/characters/duggu/victory.ogg',
+      defeatSfx: '/assets/audio/characters/duggu/defeat.ogg',
     },
   },
 
-  villain_saab: {
-    id: 'villain_saab',
-    slug: 'villain-saab',
-    displayName: 'Villain Saab',
+  bhidu: {
+    id: 'bhidu',
+    slug: 'bhidu',
+    displayName: 'Bhidu',
+    realLifeInspiration: 'Jackie Shroff',
+    superShotTitle: 'BHIDU SWAGGER SHOCKWAVE',
+    superShotConcept:
+      'Starts from a relaxed confident stance, performs Jackie Shroff’s iconic slow deliberate swagger walk with shoulder roll and hand gesture, stops in an intimidating hero stance, and unleashes a heavy ground shockwave.',
     isTemporaryPlaceholder: true,
-    modelPath: '/assets/characters/villain-saab/model.glb',
-    legacyModelPath: '/assets/models/villain_saab.glb',
-    portraitPath: '/assets/characters/villain-saab/portrait.png',
-    thumbnailPath: '/assets/characters/villain-saab/thumbnail.png',
+    modelPath: '/assets/characters/bhidu/model.glb',
+    legacyModelPath: '/assets/characters/bhidu/model.glb',
+    portraitPath: '/assets/characters/bhidu/portrait.png',
+    thumbnailPath: '/assets/characters/bhidu/thumbnail.png',
     scale: 1.07,
     facingRotationY: {
       right: Math.PI * 0.5,
@@ -540,46 +591,47 @@ export const CHARACTER_ASSET_MANIFEST: Record<FighterId, CharacterAssetConfig> =
     blendDurationSeconds: 0.12,
     boneAliases: { ...DEFAULT_HUMANOID_BONE_ALIASES },
     animations: createCoreClipMappings(
-      'Anim_VS_SuperShot_UnderworldBarrage',
-      'Anim_VS_SuperMove_BlackoutVerdict',
-      0.96
+      'Anim_BH_SuperShot_BhiduSwaggerWalk',
+      'Anim_BH_SuperMove_BlackoutVerdict',
+      0.96,
+      ['bhidu-supershot']
     ),
     specialAttackEvents: {
       superShot: {
         chargeStartFrame: 1,
-        projectileReleaseFrame: 12,
-        specialImpactFrame: 12,
-        animationCompleteFrame: 39,
+        projectileReleaseFrame: 13,
+        specialImpactFrame: 18,
+        animationCompleteFrame: 40,
         projectileSpawnBone: 'RightFoot',
       },
       superMove: {
         chargeStartFrame: 1,
         rushFrame: 14,
         climaxImpactFrame: 21,
-        animationCompleteFrame: 52,
+        animationCompleteFrame: 45,
         impactBone: 'Chest',
       },
     },
     vfx: {
-      superShotChargeVfx: '/assets/vfx/villain-saab/magma-fissure-charge.json',
-      superShotProjectileVfx: '/assets/vfx/villain-saab/obsidian-shock-spike.json',
-      superShotImpactVfx: '/assets/vfx/villain-saab/hellfire-shatter.json',
-      superMoveChargeVfx: '/assets/vfx/villain-saab/blackout-thunder-roar.json',
-      superMoveImpactVfx: '/assets/vfx/villain-saab/underworld-judgment-crater.json',
+      superShotChargeVfx: '/assets/vfx/bhidu/swagger-step-ground-dust.json',
+      superShotProjectileVfx: '/assets/vfx/bhidu/low-freq-ground-shockwave.json',
+      superShotImpactVfx: '/assets/vfx/bhidu/heavy-swagger-impact-burst.json',
+      superMoveChargeVfx: '/assets/vfx/bhidu/blackout-thunder-roar.json',
+      superMoveImpactVfx: '/assets/vfx/bhidu/underworld-judgment-crater.json',
       primaryHex: '#581C87',
       secondaryHex: '#DC2626',
-      auraHex: '#EF4444',
+      auraHex: '#F59E0B',
     },
     audio: {
-      superShotChargeSfx: '/assets/audio/characters/villain-saab/supershot-charge.ogg',
-      superShotReleaseSfx: '/assets/audio/characters/villain-saab/supershot-release.ogg',
-      superShotImpactSfx: '/assets/audio/characters/villain-saab/supershot-impact.ogg',
-      superMoveChargeSfx: '/assets/audio/characters/villain-saab/supermove-charge.ogg',
-      superMoveImpactSfx: '/assets/audio/characters/villain-saab/supermove-impact.ogg',
-      normalAttackSfx: '/assets/audio/characters/villain-saab/normal-attack.ogg',
-      hitReactSfx: '/assets/audio/characters/villain-saab/hit-react.ogg',
-      victorySfx: '/assets/audio/characters/villain-saab/victory.ogg',
-      defeatSfx: '/assets/audio/characters/villain-saab/defeat.ogg',
+      superShotChargeSfx: '/assets/audio/characters/bhidu/supershot-charge.ogg',
+      superShotReleaseSfx: '/assets/audio/characters/bhidu/supershot-release.ogg',
+      superShotImpactSfx: '/assets/audio/characters/bhidu/supershot-impact.ogg',
+      superMoveChargeSfx: '/assets/audio/characters/bhidu/supermove-charge.ogg',
+      superMoveImpactSfx: '/assets/audio/characters/bhidu/supermove-impact.ogg',
+      normalAttackSfx: '/assets/audio/characters/bhidu/normal-attack.ogg',
+      hitReactSfx: '/assets/audio/characters/bhidu/hit-react.ogg',
+      victorySfx: '/assets/audio/characters/bhidu/victory.ogg',
+      defeatSfx: '/assets/audio/characters/bhidu/defeat.ogg',
     },
   },
 };
@@ -669,7 +721,6 @@ export function resolveCharacterAnimationClip(
     }
   }
 
-  // Fallback to configured fallbackClip or 'Idle'
   const fallbackConfig = config.animations[mapping.fallbackClip] || config.animations.idle;
   const warnMsg = `[CharacterAssetLoader] Character "${characterId}" is missing animation clip "${mapping.clipName}" (for state "${clipId}"). Falling back to "${fallbackConfig.clipName}".`;
   if (onMissingWarning) {
@@ -759,8 +810,11 @@ export function validateCharacterAssetManifestConfig(
     if (ss.projectileReleaseFrame <= ss.chargeStartFrame) {
       errors.push('superShot.projectileReleaseFrame must be > chargeStartFrame');
     }
-    if (ss.animationCompleteFrame <= ss.projectileReleaseFrame) {
-      errors.push('superShot.animationCompleteFrame must be > projectileReleaseFrame');
+    if (ss.specialImpactFrame < ss.projectileReleaseFrame) {
+      errors.push('superShot.specialImpactFrame must be >= projectileReleaseFrame');
+    }
+    if (ss.animationCompleteFrame <= ss.specialImpactFrame) {
+      errors.push('superShot.animationCompleteFrame must be > specialImpactFrame');
     }
   }
 

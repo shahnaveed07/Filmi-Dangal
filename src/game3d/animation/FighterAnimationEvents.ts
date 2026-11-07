@@ -1,687 +1,631 @@
-import { AttackType, BoneAttachmentName, CharacterId, FighterStateName } from '../../types/fighter';
-import { getCharacterAssetConfig, mapStateToStandardClipId } from '../../config/characterAssets';
+import { BoneAttachmentName, FighterId, FighterStateName } from '../../types/fighter';
+import { getCharacterAssetConfig } from '../../config/characterAssets';
 
 /**
  * FighterAnimationEvents
  *
- * Frame-accurate animation event system for Filmi Dangal 3D characters.
- * Triggers hitbox activation windows, SuperShot charge/release/impact events,
- * SuperMove charge/rush/climax/impact events, animation completion cues,
- * camera trauma cues, and character-specific sound effects at exact configured
- * keyframe indices.
+ * Frame-accurate animation event system for all 4 fighters:
+ * - action_sultan (Action Sultan — Salman Khan)
+ * - romance_raja  (Romance Raja — Shah Rukh Khan)
+ * - duggu         (Duggu — Hrithik Roshan)
+ * - bhidu         (Bhidu — Jackie Shroff)
+ *
+ * Emits:
+ * - ON_STARTUP_BEGIN
+ * - ON_CHARGE_START          (triggers character-specific supershot-charge / supermove-charge SFX & charge VFX)
+ * - ON_ACTIVE_HITBOX_START
+ * - ON_ACTIVE_HITBOX_END
+ * - ON_PROJECTILE_SPAWN      (spawns visual SuperShot projectile/wave at release frame)
+ * - ON_PROJECTILE_RELEASE    (triggers character-specific supershot-release SFX & release VFX)
+ * - ON_SPECIAL_IMPACT        (triggers authoritative guaranteed damage resolution & supershot-impact SFX/VFX)
+ * - ON_SUPERMOVE_PHASE
+ * - ON_SUPERMOVE_CLIMAX
+ * - ON_RECOVERY_BEGIN
+ * - ON_ANIMATION_COMPLETE
  */
 
+export type AnimationPhase = 'IDLE_LOOP' | 'STARTUP' | 'ACTIVE' | 'RECOVERY';
+
+export type SuperMoveSequencePhase =
+  | 'NONE'
+  | 'CHARGE_POSE'
+  | 'BURST_ENGAGE'
+  | 'CLIMAX_IMPACT'
+  | 'RECOVERY_POSE';
+
 export type AnimationEventType =
-  | 'ON_CHARGE_START'
-  | 'ON_PROJECTILE_RELEASE'
-  | 'ON_SPECIAL_IMPACT'
-  | 'ON_SUPERMOVE_CLIMAX'
-  | 'ON_ANIMATION_COMPLETE'
   | 'ON_STARTUP_BEGIN'
+  | 'ON_CHARGE_START'
   | 'ON_ACTIVE_HITBOX_START'
   | 'ON_ACTIVE_HITBOX_END'
   | 'ON_PROJECTILE_SPAWN'
+  | 'ON_PROJECTILE_RELEASE'
+  | 'ON_SPECIAL_IMPACT'
   | 'ON_SUPERMOVE_PHASE'
-  | 'ON_CAMERA_CUT'
-  | 'ON_VFX_BURST'
-  | 'ON_RECOVERY_BEGIN';
+  | 'ON_SUPERMOVE_CLIMAX'
+  | 'ON_RECOVERY_BEGIN'
+  | 'ON_ANIMATION_COMPLETE';
 
-export type FacialExpressionState =
-  | 'NEUTRAL'
-  | 'BATTLE_CRY'
-  | 'FIERCE_EFFORT'
-  | 'PAIN_GRIMACE'
-  | 'VICTORY_SMIRK'
-  | 'GUARD_FOCUS';
-
-export interface AnimationFrameEvent {
-  type: AnimationEventType;
-  characterId: CharacterId;
-  moveType: AttackType;
-  frame: number;
-  attachedBone: BoneAttachmentName;
-  hitRadius3D: number;
-  superMovePhase?: 'CHARGE' | 'BURST_ENGAGE' | 'RUSH_IMPACT' | 'CLIMAX_IMPACT';
-  cameraTrauma?: number;
-  calloutText?: string;
-}
-
-export interface FighterAnimationEventMetadata {
+export interface MoveFrameTimingSpec {
   clipName: string;
-  phase: 'IDLE_LOOP' | 'STARTUP' | 'ACTIVE' | 'RECOVERY';
-  frame: number;
   totalFrames: number;
-  activeBone: BoneAttachmentName | undefined;
-  hitboxRadius: number;
-  facialExpression: FacialExpressionState;
-}
-
-export type FighterAnimationEventPayload = AnimationFrameEvent[] & FighterAnimationEventMetadata;
-
-export interface MoveAnimationEventSpec {
-  clipName: string;
   startupFrames: number;
   activeFrames: number;
   recoveryFrames: number;
-  attachedBone: BoneAttachmentName;
-  hitRadius3D: number;
+  activeBone?: BoneAttachmentName;
+  hitboxRadius?: number;
   chargeStartFrame?: number;
   projectileSpawnFrame?: number;
   specialImpactFrame?: number;
   superMoveClimaxFrame?: number;
-  animationCompleteFrame?: number;
+  isLooping: boolean;
 }
 
-const CHARACTER_MOVE_EVENT_SPECS: Record<
-  CharacterId,
-  Record<AttackType, MoveAnimationEventSpec>
-> = {
+export interface FighterAnimationEventPayload {
+  characterId: FighterId;
+  state: FighterStateName;
+  clipName: string;
+  type: AnimationEventType;
+  phase: AnimationPhase;
+  superMovePhase: SuperMoveSequencePhase;
+  frame: number;
+  totalFrames: number;
+  normalizedTime: number;
+  activeBone?: BoneAttachmentName;
+  hitboxRadius?: number;
+  facialExpression: 'NEUTRAL' | 'EFFORT' | 'PAIN' | 'VICTORY_SMILE' | 'SUPER_ROAR';
+}
+
+const CHARACTER_MOVE_SPECS: Record<FighterId, Record<string, MoveFrameTimingSpec>> = {
   action_sultan: {
+    idle: {
+      clipName: 'Idle',
+      totalFrames: 60,
+      startupFrames: 0,
+      activeFrames: 0,
+      recoveryFrames: 0,
+      isLooping: true,
+    },
+    walk: {
+      clipName: 'Walk',
+      totalFrames: 40,
+      startupFrames: 0,
+      activeFrames: 0,
+      recoveryFrames: 0,
+      isLooping: true,
+    },
+    run: {
+      clipName: 'Run',
+      totalFrames: 30,
+      startupFrames: 0,
+      activeFrames: 0,
+      recoveryFrames: 0,
+      isLooping: true,
+    },
     punch: {
       clipName: 'Punch',
-      startupFrames: 5,
-      activeFrames: 4,
-      recoveryFrames: 9,
-      attachedBone: 'RightHand',
-      hitRadius3D: 0.42,
+      totalFrames: 22,
+      startupFrames: 6,
+      activeFrames: 5,
+      recoveryFrames: 11,
+      activeBone: 'RightHand',
+      hitboxRadius: 0.34,
+      isLooping: false,
     },
     kick: {
       clipName: 'Kick',
-      startupFrames: 8,
-      activeFrames: 5,
-      recoveryFrames: 13,
-      attachedBone: 'RightFoot',
-      hitRadius3D: 0.48,
-    },
-    sweep: {
-      clipName: 'Kick',
+      totalFrames: 30,
       startupFrames: 9,
-      activeFrames: 6,
-      recoveryFrames: 16,
-      attachedBone: 'RightFoot',
-      hitRadius3D: 0.5,
-    },
-    forward_punch: {
-      clipName: 'Punch',
-      startupFrames: 9,
-      activeFrames: 5,
-      recoveryFrames: 13,
-      attachedBone: 'RightHand',
-      hitRadius3D: 0.48,
-    },
-    forward_kick: {
-      clipName: 'Kick',
-      startupFrames: 11,
       activeFrames: 6,
       recoveryFrames: 15,
-      attachedBone: 'RightFoot',
-      hitRadius3D: 0.54,
+      activeBone: 'RightFoot',
+      hitboxRadius: 0.38,
+      isLooping: false,
     },
-    grab: {
-      clipName: 'Grab',
-      startupFrames: 6,
-      activeFrames: 4,
-      recoveryFrames: 16,
-      attachedBone: 'RightHand',
-      hitRadius3D: 0.52,
+    block: {
+      clipName: 'Block',
+      totalFrames: 30,
+      startupFrames: 2,
+      activeFrames: 24,
+      recoveryFrames: 4,
+      isLooping: true,
+    },
+    jump: {
+      clipName: 'Jump',
+      totalFrames: 38,
+      startupFrames: 4,
+      activeFrames: 26,
+      recoveryFrames: 8,
+      isLooping: false,
     },
     super_shot: {
-      clipName: 'Anim_AS_SuperShot_PowerlineBlast',
-      startupFrames: 10,
-      activeFrames: 12,
-      recoveryFrames: 14,
-      attachedBone: 'RightHand',
-      hitRadius3D: 0.56,
+      clipName: 'Anim_AS_SuperShot_BlackbuckGunshot',
+      totalFrames: 36,
+      startupFrames: 14,
+      activeFrames: 14,
+      recoveryFrames: 8,
+      activeBone: 'RightHand',
+      hitboxRadius: 0.45,
       chargeStartFrame: 1,
       projectileSpawnFrame: 10,
-      specialImpactFrame: 10,
-      animationCompleteFrame: 36,
+      specialImpactFrame: 14,
+      isLooping: false,
     },
     super_move: {
       clipName: 'Anim_AS_SuperMove_SultanBreaker',
-      startupFrames: 12,
+      totalFrames: 42,
+      startupFrames: 8,
       activeFrames: 16,
-      recoveryFrames: 20,
-      attachedBone: 'Chest',
-      hitRadius3D: 1.45,
+      recoveryFrames: 18,
+      activeBone: 'Chest',
+      hitboxRadius: 1.05,
       chargeStartFrame: 1,
       superMoveClimaxFrame: 20,
-      specialImpactFrame: 20,
-      animationCompleteFrame: 48,
-    },
-    super: {
-      clipName: 'Anim_AS_SuperMove_SultanBreaker',
-      startupFrames: 12,
-      activeFrames: 16,
-      recoveryFrames: 20,
-      attachedBone: 'Chest',
-      hitRadius3D: 1.45,
-      chargeStartFrame: 1,
-      superMoveClimaxFrame: 20,
-      specialImpactFrame: 20,
-      animationCompleteFrame: 48,
+      isLooping: false,
     },
   },
   romance_raja: {
+    idle: {
+      clipName: 'Idle',
+      totalFrames: 60,
+      startupFrames: 0,
+      activeFrames: 0,
+      recoveryFrames: 0,
+      isLooping: true,
+    },
+    walk: {
+      clipName: 'Walk',
+      totalFrames: 38,
+      startupFrames: 0,
+      activeFrames: 0,
+      recoveryFrames: 0,
+      isLooping: true,
+    },
+    run: {
+      clipName: 'Run',
+      totalFrames: 28,
+      startupFrames: 0,
+      activeFrames: 0,
+      recoveryFrames: 0,
+      isLooping: true,
+    },
     punch: {
       clipName: 'Punch',
+      totalFrames: 19,
+      startupFrames: 5,
+      activeFrames: 5,
+      recoveryFrames: 9,
+      activeBone: 'RightHand',
+      hitboxRadius: 0.32,
+      isLooping: false,
+    },
+    kick: {
+      clipName: 'Kick',
+      totalFrames: 26,
+      startupFrames: 7,
+      activeFrames: 6,
+      recoveryFrames: 13,
+      activeBone: 'RightFoot',
+      hitboxRadius: 0.36,
+      isLooping: false,
+    },
+    block: {
+      clipName: 'Block',
+      totalFrames: 30,
+      startupFrames: 2,
+      activeFrames: 24,
+      recoveryFrames: 4,
+      isLooping: true,
+    },
+    jump: {
+      clipName: 'Jump',
+      totalFrames: 36,
+      startupFrames: 4,
+      activeFrames: 24,
+      recoveryFrames: 8,
+      isLooping: false,
+    },
+    super_shot: {
+      clipName: 'Anim_RR_SuperShot_OpenArmsPose',
+      totalFrames: 36,
+      startupFrames: 16,
+      activeFrames: 12,
+      recoveryFrames: 8,
+      activeBone: 'Chest',
+      hitboxRadius: 0.44,
+      chargeStartFrame: 1,
+      projectileSpawnFrame: 11,
+      specialImpactFrame: 16,
+      isLooping: false,
+    },
+    super_move: {
+      clipName: 'Anim_RR_SuperMove_BaadshahGrandGesture',
+      totalFrames: 39,
+      startupFrames: 7,
+      activeFrames: 16,
+      recoveryFrames: 16,
+      activeBone: 'Chest',
+      hitboxRadius: 1.0,
+      chargeStartFrame: 1,
+      superMoveClimaxFrame: 18,
+      isLooping: false,
+    },
+  },
+  duggu: {
+    idle: {
+      clipName: 'Idle',
+      totalFrames: 54,
+      startupFrames: 0,
+      activeFrames: 0,
+      recoveryFrames: 0,
+      isLooping: true,
+    },
+    walk: {
+      clipName: 'Walk',
+      totalFrames: 34,
+      startupFrames: 0,
+      activeFrames: 0,
+      recoveryFrames: 0,
+      isLooping: true,
+    },
+    run: {
+      clipName: 'Run',
+      totalFrames: 24,
+      startupFrames: 0,
+      activeFrames: 0,
+      recoveryFrames: 0,
+      isLooping: true,
+    },
+    punch: {
+      clipName: 'Punch',
+      totalFrames: 16,
       startupFrames: 4,
       activeFrames: 4,
       recoveryFrames: 8,
-      attachedBone: 'RightHand',
-      hitRadius3D: 0.38,
+      activeBone: 'RightHand',
+      hitboxRadius: 0.31,
+      isLooping: false,
     },
     kick: {
       clipName: 'Kick',
-      startupFrames: 7,
-      activeFrames: 5,
+      totalFrames: 23,
+      startupFrames: 6,
+      activeFrames: 6,
       recoveryFrames: 11,
-      attachedBone: 'RightFoot',
-      hitRadius3D: 0.45,
+      activeBone: 'RightFoot',
+      hitboxRadius: 0.37,
+      isLooping: false,
     },
-    sweep: {
-      clipName: 'Kick',
-      startupFrames: 8,
-      activeFrames: 5,
-      recoveryFrames: 14,
-      attachedBone: 'RightFoot',
-      hitRadius3D: 0.46,
+    block: {
+      clipName: 'Block',
+      totalFrames: 28,
+      startupFrames: 2,
+      activeFrames: 22,
+      recoveryFrames: 4,
+      isLooping: true,
     },
-    forward_punch: {
-      clipName: 'Punch',
-      startupFrames: 7,
-      activeFrames: 5,
-      recoveryFrames: 11,
-      attachedBone: 'RightHand',
-      hitRadius3D: 0.44,
-    },
-    forward_kick: {
-      clipName: 'Kick',
-      startupFrames: 9,
-      activeFrames: 5,
-      recoveryFrames: 13,
-      attachedBone: 'RightFoot',
-      hitRadius3D: 0.5,
-    },
-    grab: {
-      clipName: 'Grab',
-      startupFrames: 5,
-      activeFrames: 4,
-      recoveryFrames: 15,
-      attachedBone: 'RightHand',
-      hitRadius3D: 0.48,
-    },
-    super_shot: {
-      clipName: 'Anim_RR_SuperShot_DilSePulse',
-      startupFrames: 9,
-      activeFrames: 11,
-      recoveryFrames: 13,
-      attachedBone: 'Chest',
-      hitRadius3D: 0.54,
-      chargeStartFrame: 1,
-      projectileSpawnFrame: 9,
-      specialImpactFrame: 9,
-      animationCompleteFrame: 33,
-    },
-    super_move: {
-      clipName: 'Anim_RR_SuperMove_BaadshahGrandGesture',
-      startupFrames: 11,
-      activeFrames: 15,
-      recoveryFrames: 18,
-      attachedBone: 'Chest',
-      hitRadius3D: 1.5,
-      chargeStartFrame: 1,
-      superMoveClimaxFrame: 18,
-      specialImpactFrame: 18,
-      animationCompleteFrame: 44,
-    },
-    super: {
-      clipName: 'Anim_RR_SuperMove_BaadshahGrandGesture',
-      startupFrames: 11,
-      activeFrames: 15,
-      recoveryFrames: 18,
-      attachedBone: 'Chest',
-      hitRadius3D: 1.5,
-      chargeStartFrame: 1,
-      superMoveClimaxFrame: 18,
-      specialImpactFrame: 18,
-      animationCompleteFrame: 44,
-    },
-  },
-  dance_dynamo: {
-    punch: {
-      clipName: 'Punch',
-      startupFrames: 4,
-      activeFrames: 3,
+    jump: {
+      clipName: 'Jump',
+      totalFrames: 34,
+      startupFrames: 3,
+      activeFrames: 24,
       recoveryFrames: 7,
-      attachedBone: 'LeftHand',
-      hitRadius3D: 0.37,
-    },
-    kick: {
-      clipName: 'Kick',
-      startupFrames: 6,
-      activeFrames: 5,
-      recoveryFrames: 10,
-      attachedBone: 'RightFoot',
-      hitRadius3D: 0.5,
-    },
-    sweep: {
-      clipName: 'Kick',
-      startupFrames: 7,
-      activeFrames: 5,
-      recoveryFrames: 12,
-      attachedBone: 'LeftFoot',
-      hitRadius3D: 0.48,
-    },
-    forward_punch: {
-      clipName: 'Punch',
-      startupFrames: 6,
-      activeFrames: 4,
-      recoveryFrames: 10,
-      attachedBone: 'RightHand',
-      hitRadius3D: 0.42,
-    },
-    forward_kick: {
-      clipName: 'Kick',
-      startupFrames: 8,
-      activeFrames: 5,
-      recoveryFrames: 11,
-      attachedBone: 'RightFoot',
-      hitRadius3D: 0.52,
-    },
-    grab: {
-      clipName: 'Grab',
-      startupFrames: 5,
-      activeFrames: 4,
-      recoveryFrames: 14,
-      attachedBone: 'RightHand',
-      hitRadius3D: 0.46,
+      isLooping: false,
     },
     super_shot: {
-      clipName: 'Anim_DD_SuperShot_BeatDrop',
-      startupFrames: 8,
-      activeFrames: 10,
-      recoveryFrames: 12,
-      attachedBone: 'RightFoot',
-      hitRadius3D: 0.54,
-      chargeStartFrame: 1,
-      projectileSpawnFrame: 8,
-      specialImpactFrame: 8,
-      animationCompleteFrame: 30,
-    },
-    super_move: {
-      clipName: 'Anim_DD_SuperMove_RhythmOverdrive',
-      startupFrames: 10,
-      activeFrames: 16,
-      recoveryFrames: 16,
-      attachedBone: 'RightFoot',
-      hitRadius3D: 1.4,
-      chargeStartFrame: 1,
-      superMoveClimaxFrame: 19,
-      specialImpactFrame: 19,
-      animationCompleteFrame: 42,
-    },
-    super: {
-      clipName: 'Anim_DD_SuperMove_RhythmOverdrive',
-      startupFrames: 10,
-      activeFrames: 16,
-      recoveryFrames: 16,
-      attachedBone: 'RightFoot',
-      hitRadius3D: 1.4,
-      chargeStartFrame: 1,
-      superMoveClimaxFrame: 19,
-      specialImpactFrame: 19,
-      animationCompleteFrame: 42,
-    },
-  },
-  villain_saab: {
-    punch: {
-      clipName: 'Punch',
-      startupFrames: 6,
-      activeFrames: 5,
-      recoveryFrames: 10,
-      attachedBone: 'RightHand',
-      hitRadius3D: 0.45,
-    },
-    kick: {
-      clipName: 'Kick',
-      startupFrames: 9,
-      activeFrames: 6,
-      recoveryFrames: 14,
-      attachedBone: 'RightFoot',
-      hitRadius3D: 0.5,
-    },
-    sweep: {
-      clipName: 'Kick',
-      startupFrames: 10,
-      activeFrames: 6,
-      recoveryFrames: 17,
-      attachedBone: 'RightFoot',
-      hitRadius3D: 0.52,
-    },
-    forward_punch: {
-      clipName: 'Punch',
-      startupFrames: 10,
-      activeFrames: 6,
-      recoveryFrames: 14,
-      attachedBone: 'RightHand',
-      hitRadius3D: 0.5,
-    },
-    forward_kick: {
-      clipName: 'Kick',
-      startupFrames: 12,
-      activeFrames: 6,
-      recoveryFrames: 16,
-      attachedBone: 'RightFoot',
-      hitRadius3D: 0.56,
-    },
-    grab: {
-      clipName: 'Grab',
-      startupFrames: 6,
-      activeFrames: 5,
-      recoveryFrames: 16,
-      attachedBone: 'RightHand',
-      hitRadius3D: 0.55,
-    },
-    super_shot: {
-      clipName: 'Anim_VS_SuperShot_UnderworldBarrage',
-      startupFrames: 12,
-      activeFrames: 12,
-      recoveryFrames: 15,
-      attachedBone: 'RightFoot',
-      hitRadius3D: 0.58,
+      clipName: 'Anim_DG_SuperShot_KahoNaaDanceWave',
+      totalFrames: 38,
+      startupFrames: 17,
+      activeFrames: 13,
+      recoveryFrames: 8,
+      activeBone: 'RightFoot',
+      hitboxRadius: 0.44,
       chargeStartFrame: 1,
       projectileSpawnFrame: 12,
-      specialImpactFrame: 12,
-      animationCompleteFrame: 39,
+      specialImpactFrame: 17,
+      isLooping: false,
     },
     super_move: {
-      clipName: 'Anim_VS_SuperMove_BlackoutVerdict',
-      startupFrames: 14,
-      activeFrames: 16,
-      recoveryFrames: 22,
-      attachedBone: 'Chest',
-      hitRadius3D: 1.55,
+      clipName: 'Anim_DG_SuperMove_RhythmOverdrive',
+      totalFrames: 39,
+      startupFrames: 6,
+      activeFrames: 18,
+      recoveryFrames: 15,
+      activeBone: 'RightFoot',
+      hitboxRadius: 1.02,
       chargeStartFrame: 1,
-      superMoveClimaxFrame: 21,
-      specialImpactFrame: 21,
-      animationCompleteFrame: 52,
+      superMoveClimaxFrame: 19,
+      isLooping: false,
     },
-    super: {
-      clipName: 'Anim_VS_SuperMove_BlackoutVerdict',
-      startupFrames: 14,
+  },
+  bhidu: {
+    idle: {
+      clipName: 'Idle',
+      totalFrames: 64,
+      startupFrames: 0,
+      activeFrames: 0,
+      recoveryFrames: 0,
+      isLooping: true,
+    },
+    walk: {
+      clipName: 'Walk',
+      totalFrames: 44,
+      startupFrames: 0,
+      activeFrames: 0,
+      recoveryFrames: 0,
+      isLooping: true,
+    },
+    run: {
+      clipName: 'Run',
+      totalFrames: 32,
+      startupFrames: 0,
+      activeFrames: 0,
+      recoveryFrames: 0,
+      isLooping: true,
+    },
+    punch: {
+      clipName: 'Punch',
+      totalFrames: 24,
+      startupFrames: 7,
+      activeFrames: 5,
+      recoveryFrames: 12,
+      activeBone: 'RightHand',
+      hitboxRadius: 0.36,
+      isLooping: false,
+    },
+    kick: {
+      clipName: 'Kick',
+      totalFrames: 32,
+      startupFrames: 10,
+      activeFrames: 6,
+      recoveryFrames: 16,
+      activeBone: 'RightFoot',
+      hitboxRadius: 0.4,
+      isLooping: false,
+    },
+    block: {
+      clipName: 'Block',
+      totalFrames: 32,
+      startupFrames: 2,
+      activeFrames: 26,
+      recoveryFrames: 4,
+      isLooping: true,
+    },
+    jump: {
+      clipName: 'Jump',
+      totalFrames: 40,
+      startupFrames: 5,
+      activeFrames: 26,
+      recoveryFrames: 9,
+      isLooping: false,
+    },
+    super_shot: {
+      clipName: 'Anim_BH_SuperShot_BhiduSwaggerWalk',
+      totalFrames: 40,
+      startupFrames: 18,
+      activeFrames: 14,
+      recoveryFrames: 8,
+      activeBone: 'RightFoot',
+      hitboxRadius: 0.48,
+      chargeStartFrame: 1,
+      projectileSpawnFrame: 13,
+      specialImpactFrame: 18,
+      isLooping: false,
+    },
+    super_move: {
+      clipName: 'Anim_BH_SuperMove_BlackoutVerdict',
+      totalFrames: 45,
+      startupFrames: 9,
       activeFrames: 16,
-      recoveryFrames: 22,
-      attachedBone: 'Chest',
-      hitRadius3D: 1.55,
+      recoveryFrames: 20,
+      activeBone: 'Chest',
+      hitboxRadius: 1.1,
       chargeStartFrame: 1,
       superMoveClimaxFrame: 21,
-      specialImpactFrame: 21,
-      animationCompleteFrame: 52,
+      isLooping: false,
     },
   },
 };
 
-export type AnimationEventListener = (event: AnimationFrameEvent) => void;
-
 export class FighterAnimationEvents {
-  private listeners: AnimationEventListener[] = [];
+  private lastDispatchedState: FighterStateName | null = null;
+  private lastDispatchedFrame = -1;
+  private listeners: Array<(payload: FighterAnimationEventPayload) => void> = [];
 
-  public onEvent(listener: AnimationEventListener): () => void {
+  public onEvent(listener: (payload: FighterAnimationEventPayload) => void): () => void {
     this.listeners.push(listener);
     return () => {
       this.listeners = this.listeners.filter((l) => l !== listener);
     };
   }
 
-  public static getMoveSpec(
-    characterId: CharacterId,
-    moveType: AttackType
-  ): MoveAnimationEventSpec {
-    return CHARACTER_MOVE_EVENT_SPECS[characterId][moveType];
+  public static getMoveSpec(characterId: FighterId, state: FighterStateName): MoveFrameTimingSpec {
+    const charSpecs = CHARACTER_MOVE_SPECS[characterId] || CHARACTER_MOVE_SPECS.action_sultan;
+    const manifestEvents = getCharacterAssetConfig(characterId)?.specialAttackEvents;
+
+    if (state === 'super_shot') {
+      const base = charSpecs.super_shot;
+      if (manifestEvents?.superShot) {
+        return {
+          ...base,
+          chargeStartFrame: manifestEvents.superShot.chargeStartFrame,
+          projectileSpawnFrame: manifestEvents.superShot.projectileReleaseFrame,
+          specialImpactFrame: manifestEvents.superShot.specialImpactFrame,
+          totalFrames: manifestEvents.superShot.animationCompleteFrame,
+          activeBone: manifestEvents.superShot.projectileSpawnBone,
+        };
+      }
+      return base;
+    }
+
+    if (state === 'super_move' || state === 'super' || state === 'special') {
+      const base = charSpecs.super_move;
+      if (manifestEvents?.superMove) {
+        return {
+          ...base,
+          chargeStartFrame: manifestEvents.superMove.chargeStartFrame,
+          superMoveClimaxFrame: manifestEvents.superMove.climaxImpactFrame,
+          impactBone: manifestEvents.superMove.impactBone,
+        } as MoveFrameTimingSpec;
+      }
+      return base;
+    }
+
+    const mappedKey =
+      state === 'walk_forward' || state === 'walk_backward'
+        ? 'walk'
+        : state === 'crouch_block'
+        ? 'block'
+        : state === 'forward_punch'
+        ? 'punch'
+        : state === 'forward_kick' || state === 'sweep'
+        ? 'kick'
+        : state;
+
+    return (
+      charSpecs[mappedKey] || {
+        clipName: state.toUpperCase(),
+        totalFrames: 30,
+        startupFrames: 5,
+        activeFrames: 10,
+        recoveryFrames: 15,
+        isLooping: false,
+      }
+    );
   }
 
-  public static resolveCanonicalClipName(
-    characterId: CharacterId,
-    state: FighterStateName
-  ): string {
-    const manifest = getCharacterAssetConfig(characterId);
-    const stdId = mapStateToStandardClipId(state);
-    if (state === 'grab') return 'Grab';
-    if (state === 'knockback') return 'Knockback';
-    if (state === 'recovery') return 'Recovery';
-    return manifest.animations[stdId]?.clipName || 'Idle';
-  }
-
+  /**
+   * Evaluates current state and frame, returning the current phase, superMovePhase,
+   * and facial expression, while firing discrete edge-triggered events to listeners.
+   */
   public evaluateFrame(
-    characterId: CharacterId,
+    characterId: FighterId,
     state: FighterStateName,
     stateFrame: number
   ): FighterAnimationEventPayload {
-    const clipName = FighterAnimationEvents.resolveCanonicalClipName(characterId, state);
-    const moveType = this.stateToMoveType(state);
-    const emitted: AnimationFrameEvent[] = [];
+    const spec = FighterAnimationEvents.getMoveSpec(characterId, state);
+    const frame = spec.isLooping
+      ? stateFrame % Math.max(1, spec.totalFrames)
+      : Math.min(stateFrame, spec.totalFrames);
 
-    let facialExpression: FacialExpressionState = 'NEUTRAL';
-    if (
+    const normalizedTime = Math.min(1, Math.max(0, frame / Math.max(1, spec.totalFrames)));
+
+    let phase: AnimationPhase = 'IDLE_LOOP';
+    if (!spec.isLooping) {
+      if (frame < spec.startupFrames) {
+        phase = 'STARTUP';
+      } else if (frame < spec.startupFrames + spec.activeFrames) {
+        phase = 'ACTIVE';
+      } else {
+        phase = 'RECOVERY';
+      }
+    }
+
+    let superMovePhase: SuperMoveSequencePhase = 'NONE';
+    if (state === 'super_move' || state === 'super' || state === 'special') {
+      if (normalizedTime < 0.28) {
+        superMovePhase = 'CHARGE_POSE';
+      } else if (normalizedTime < 0.62) {
+        superMovePhase = 'BURST_ENGAGE';
+      } else if (normalizedTime < 0.84) {
+        superMovePhase = 'CLIMAX_IMPACT';
+      } else {
+        superMovePhase = 'RECOVERY_POSE';
+      }
+    }
+
+    let facialExpression: FighterAnimationEventPayload['facialExpression'] = 'NEUTRAL';
+    if (state === 'hurt' || state === 'knockback' || state === 'knockdown' || state === 'defeat') {
+      facialExpression = 'PAIN';
+    } else if (state === 'victory') {
+      facialExpression = 'VICTORY_SMILE';
+    } else if (
       state === 'super_move' ||
       state === 'super' ||
-      state === 'special' ||
-      state === 'super_shot' ||
-      state === 'grab'
+      state === 'super_shot'
     ) {
-      facialExpression = 'BATTLE_CRY';
-    } else if (moveType) {
-      facialExpression = 'FIERCE_EFFORT';
-    } else if (state === 'hurt' || state === 'knockback' || state === 'knockdown') {
-      facialExpression = 'PAIN_GRIMACE';
-    } else if (state === 'victory') {
-      facialExpression = 'VICTORY_SMIRK';
-    } else if (state === 'block' || state === 'crouch_block') {
-      facialExpression = 'GUARD_FOCUS';
+      facialExpression = 'SUPER_ROAR';
+    } else if (phase === 'ACTIVE') {
+      facialExpression = 'EFFORT';
     }
 
-    if (!moveType) {
-      return Object.assign(emitted, {
-        clipName,
-        phase: 'IDLE_LOOP' as const,
-        frame: stateFrame,
-        totalFrames: 60,
-        activeBone: undefined,
-        hitboxRadius: 0,
-        facialExpression,
-      });
-    }
-
-    const spec = CHARACTER_MOVE_EVENT_SPECS[characterId][moveType];
-    const totalFrames = spec.startupFrames + spec.activeFrames + spec.recoveryFrames;
-    const isActiveWindow =
-      stateFrame >= spec.startupFrames &&
-      stateFrame < spec.startupFrames + spec.activeFrames;
-    const phase: 'IDLE_LOOP' | 'STARTUP' | 'ACTIVE' | 'RECOVERY' =
-      stateFrame < spec.startupFrames
-        ? 'STARTUP'
-        : isActiveWindow
-        ? 'ACTIVE'
-        : 'RECOVERY';
-
-    const chargeFrame = spec.chargeStartFrame ?? 1;
-    if (stateFrame === chargeFrame) {
-      emitted.push({
-        type: 'ON_STARTUP_BEGIN',
-        characterId,
-        moveType,
-        frame: stateFrame,
-        attachedBone: spec.attachedBone,
-        hitRadius3D: spec.hitRadius3D,
-      });
-
-      if (moveType === 'super_shot' || moveType === 'super_move' || moveType === 'super') {
-        emitted.push({
-          type: 'ON_CHARGE_START',
-          characterId,
-          moveType,
-          frame: stateFrame,
-          attachedBone: spec.attachedBone,
-          hitRadius3D: spec.hitRadius3D,
-        });
-      }
-
-      if (moveType === 'super_move' || moveType === 'super') {
-        emitted.push({
-          type: 'ON_SUPERMOVE_PHASE',
-          characterId,
-          moveType,
-          frame: stateFrame,
-          attachedBone: spec.attachedBone,
-          hitRadius3D: spec.hitRadius3D,
-          superMovePhase: 'CHARGE',
-          cameraTrauma: 0.25,
-        });
-      }
-    }
-
-    if (stateFrame === spec.startupFrames) {
-      emitted.push({
-        type: 'ON_ACTIVE_HITBOX_START',
-        characterId,
-        moveType,
-        frame: stateFrame,
-        attachedBone: spec.attachedBone,
-        hitRadius3D: spec.hitRadius3D,
-      });
-
-      if (moveType === 'super_move' || moveType === 'super') {
-        emitted.push({
-          type: 'ON_SUPERMOVE_PHASE',
-          characterId,
-          moveType,
-          frame: stateFrame,
-          attachedBone: spec.attachedBone,
-          hitRadius3D: spec.hitRadius3D,
-          superMovePhase: 'RUSH_IMPACT',
-          cameraTrauma: 0.48,
-        });
-      }
-    }
-
-    if (spec.projectileSpawnFrame !== undefined && stateFrame === spec.projectileSpawnFrame) {
-      emitted.push({
-        type: 'ON_PROJECTILE_RELEASE',
-        characterId,
-        moveType,
-        frame: stateFrame,
-        attachedBone: spec.attachedBone,
-        hitRadius3D: spec.hitRadius3D,
-      });
-      emitted.push({
-        type: 'ON_PROJECTILE_SPAWN',
-        characterId,
-        moveType,
-        frame: stateFrame,
-        attachedBone: spec.attachedBone,
-        hitRadius3D: spec.hitRadius3D,
-      });
-    }
-
-    if (spec.superMoveClimaxFrame !== undefined && stateFrame === spec.superMoveClimaxFrame) {
-      emitted.push({
-        type: 'ON_SUPERMOVE_CLIMAX',
-        characterId,
-        moveType,
-        frame: stateFrame,
-        attachedBone: spec.attachedBone,
-        hitRadius3D: spec.hitRadius3D,
-        superMovePhase: 'CLIMAX_IMPACT',
-        cameraTrauma: 0.72,
-      });
-      emitted.push({
-        type: 'ON_SUPERMOVE_PHASE',
-        characterId,
-        moveType,
-        frame: stateFrame,
-        attachedBone: spec.attachedBone,
-        hitRadius3D: spec.hitRadius3D,
-        superMovePhase: 'CLIMAX_IMPACT',
-        cameraTrauma: 0.72,
-      });
-    }
-
-    if (spec.specialImpactFrame !== undefined && stateFrame === spec.specialImpactFrame) {
-      emitted.push({
-        type: 'ON_SPECIAL_IMPACT',
-        characterId,
-        moveType,
-        frame: stateFrame,
-        attachedBone: spec.attachedBone,
-        hitRadius3D: spec.hitRadius3D,
-      });
-    }
-
-    if (stateFrame === spec.startupFrames + spec.activeFrames) {
-      emitted.push({
-        type: 'ON_ACTIVE_HITBOX_END',
-        characterId,
-        moveType,
-        frame: stateFrame,
-        attachedBone: spec.attachedBone,
-        hitRadius3D: spec.hitRadius3D,
-      });
-      emitted.push({
-        type: 'ON_RECOVERY_BEGIN',
-        characterId,
-        moveType,
-        frame: stateFrame,
-        attachedBone: spec.attachedBone,
-        hitRadius3D: spec.hitRadius3D,
-      });
-    }
-
-    const completeFrame = spec.animationCompleteFrame ?? totalFrames;
-    if (stateFrame === completeFrame) {
-      emitted.push({
-        type: 'ON_ANIMATION_COMPLETE',
-        characterId,
-        moveType,
-        frame: stateFrame,
-        attachedBone: spec.attachedBone,
-        hitRadius3D: spec.hitRadius3D,
-      });
-    }
-
-    for (const evt of emitted) {
-      for (const listener of this.listeners) {
-        listener(evt);
-      }
-    }
-
-    return Object.assign(emitted, {
-      clipName,
+    const basePayload: FighterAnimationEventPayload = {
+      characterId,
+      state,
+      clipName: spec.clipName,
+      type: 'ON_STARTUP_BEGIN',
       phase,
-      frame: stateFrame,
-      totalFrames,
-      activeBone: isActiveWindow ? spec.attachedBone : undefined,
-      hitboxRadius: spec.hitRadius3D,
+      superMovePhase,
+      frame,
+      totalFrames: spec.totalFrames,
+      normalizedTime,
+      activeBone: spec.activeBone,
+      hitboxRadius: spec.hitboxRadius,
       facialExpression,
-    });
+    };
+
+    const isNewFrame =
+      this.lastDispatchedState !== state || this.lastDispatchedFrame !== frame;
+
+    if (isNewFrame) {
+      if (this.lastDispatchedState !== state || frame === 0) {
+        this.emit({ ...basePayload, type: 'ON_STARTUP_BEGIN' });
+      }
+      if (
+        spec.chargeStartFrame !== undefined &&
+        frame === spec.chargeStartFrame
+      ) {
+        this.emit({ ...basePayload, type: 'ON_CHARGE_START' });
+      }
+      if (!spec.isLooping && frame === spec.startupFrames) {
+        this.emit({ ...basePayload, type: 'ON_ACTIVE_HITBOX_START' });
+      }
+      if (spec.projectileSpawnFrame !== undefined && frame === spec.projectileSpawnFrame) {
+        this.emit({ ...basePayload, type: 'ON_PROJECTILE_SPAWN' });
+        this.emit({ ...basePayload, type: 'ON_PROJECTILE_RELEASE' });
+      }
+      if (
+        (state === 'super_shot' &&
+          (spec.specialImpactFrame ?? spec.projectileSpawnFrame) !== undefined &&
+          frame === (spec.specialImpactFrame ?? spec.projectileSpawnFrame)) ||
+        ((state === 'super_move' || state === 'super' || state === 'special') &&
+          spec.superMoveClimaxFrame !== undefined &&
+          frame === spec.superMoveClimaxFrame)
+      ) {
+        if (state === 'super_move' || state === 'super' || state === 'special') {
+          this.emit({ ...basePayload, type: 'ON_SUPERMOVE_CLIMAX' });
+        }
+        this.emit({ ...basePayload, type: 'ON_SPECIAL_IMPACT' });
+      }
+      if (
+        !spec.isLooping &&
+        frame === spec.startupFrames + spec.activeFrames
+      ) {
+        this.emit({ ...basePayload, type: 'ON_ACTIVE_HITBOX_END' });
+        this.emit({ ...basePayload, type: 'ON_RECOVERY_BEGIN' });
+      }
+      if (
+        (state === 'super_move' || state === 'super') &&
+        (frame === 1 ||
+          frame === Math.floor(spec.totalFrames * 0.28) ||
+          frame === (spec.superMoveClimaxFrame ?? Math.floor(spec.totalFrames * 0.62)))
+      ) {
+        this.emit({ ...basePayload, type: 'ON_SUPERMOVE_PHASE' });
+      }
+      if (!spec.isLooping && frame === spec.totalFrames) {
+        this.emit({ ...basePayload, type: 'ON_ANIMATION_COMPLETE' });
+      }
+
+      this.lastDispatchedState = state;
+      this.lastDispatchedFrame = frame;
+    }
+
+    return basePayload;
   }
 
-  private stateToMoveType(state: FighterStateName): AttackType | null {
-    switch (state) {
-      case 'punch':
-      case 'kick':
-      case 'sweep':
-      case 'forward_punch':
-      case 'forward_kick':
-      case 'grab':
-      case 'super_shot':
-      case 'super_move':
-      case 'super':
-        return state;
-      case 'special':
-        return 'super_move';
-      default:
-        return null;
+  private emit(payload: FighterAnimationEventPayload): void {
+    for (const listener of this.listeners) {
+      listener(payload);
     }
   }
 }

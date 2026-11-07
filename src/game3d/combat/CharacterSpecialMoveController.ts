@@ -7,8 +7,9 @@ import { Fighter3D } from './Fighter3D';
  * CharacterSpecialMoveController
  *
  * Coordinates the two completely unique special attacks (`SuperShot` and `SuperMove`)
- * for each of the four characters and connects them to FighterAnimationEvents and the
- * authoritative combat resolution function (`CombatSystem3D.applyGuaranteedSpecialHit`).
+ * for each of the four characters (`action_sultan`, `romance_raja`, `duggu`, `bhidu`)
+ * and connects them to FighterAnimationEvents and the authoritative combat resolution
+ * function (`CombatSystem3D.applyGuaranteedSpecialHit`).
  */
 
 export interface SpecialMoveProfile {
@@ -27,12 +28,12 @@ export interface SpecialMoveProfile {
 const SPECIAL_MOVE_PROFILES: Record<CharacterId, SpecialMoveProfile> = {
   action_sultan: {
     characterId: 'action_sultan',
-    superShotName: 'POWERLINE BLAST',
+    superShotName: 'BLACKBUCK GUNSHOT',
     superMoveName: 'SULTAN BREAKER',
-    superShotAnimName: 'Anim_AS_SuperShot_PowerlineBlast',
+    superShotAnimName: 'Anim_AS_SuperShot_BlackbuckGunshot',
     superMoveAnimName: 'Anim_AS_SuperMove_SultanBreaker',
     superShotChoreography:
-      'Wide brawler plant -> turquoise bracelet charge -> explosive two-handed forward palm thrust',
+      'Holster draw -> marksman aiming stance with stylized golden blackbuck hologram sight -> muzzle flash, recoil, shell ejection & bullet tracer',
     superMoveChoreography:
       'Collar/sleeve flex taunt -> unstoppable forward shoulder tackle -> two-handed seismic ground slam',
     superMoveRushMultiplier: 1.15,
@@ -41,40 +42,40 @@ const SPECIAL_MOVE_PROFILES: Record<CharacterId, SpecialMoveProfile> = {
   },
   romance_raja: {
     characterId: 'romance_raja',
-    superShotName: 'HEARTBEAT PULSE',
+    superShotName: 'ICONIC OPEN-ARMS POSE',
     superMoveName: "MONARCH'S GRAND GESTURE",
-    superShotAnimName: 'Anim_RR_SuperShot_DilSePulse',
+    superShotAnimName: 'Anim_RR_SuperShot_OpenArmsPose',
     superMoveAnimName: 'Anim_RR_SuperMove_BaadshahGrandGesture',
     superShotChoreography:
-      'Dramatic step-back spin -> sweeping wide open-arms pose -> chest-projected crimson-gold wave',
+      'Dramatic standing pose -> slowly opens both arms wide with head tilted upward in golden wind aura -> releases expanding crimson-gold energy wave',
     superMoveChoreography:
       'Spotlight spin -> rapid 3-palm flurry -> levitating signature open-arms radial burst',
     superMoveRushMultiplier: 1.0,
     superMoveVerticalArc: 0.25,
     superMoveShockwaveRadius: 2.0,
   },
-  dance_dynamo: {
-    characterId: 'dance_dynamo',
-    superShotName: 'BEAT DROP',
+  duggu: {
+    characterId: 'duggu',
+    superShotName: 'KAHO NAA DANCE WAVE',
     superMoveName: 'RHYTHM OVERDRIVE',
-    superShotAnimName: 'Anim_DD_SuperShot_BeatDrop',
-    superMoveAnimName: 'Anim_DD_SuperMove_RhythmOverdrive',
+    superShotAnimName: 'Anim_DG_SuperShot_KahoNaaDanceWave',
+    superMoveAnimName: 'Anim_DG_SuperMove_RhythmOverdrive',
     superShotChoreography:
-      'Syncopated prep -> 360-degree tornado crescent kick slicing a cyan-gold sonic wave',
+      'Confident dancer stance -> Kaho Naa... Pyaar Hai-inspired footwork & arm wave -> 360-degree acrobatic spin releasing a rhythmic sonic wave',
     superMoveChoreography:
       'Multi-spin helicopter cyclone kick -> high-altitude scissor-kick slam',
     superMoveRushMultiplier: 1.28,
     superMoveVerticalArc: 0.36,
     superMoveShockwaveRadius: 1.9,
   },
-  villain_saab: {
-    characterId: 'villain_saab',
-    superShotName: 'UNDERWORLD BARRAGE',
+  bhidu: {
+    characterId: 'bhidu',
+    superShotName: 'BHIDU SWAGGER SHOCKWAVE',
     superMoveName: 'BLACKOUT VERDICT',
-    superShotAnimName: 'Anim_VS_SuperShot_UnderworldBarrage',
-    superMoveAnimName: 'Anim_VS_SuperMove_BlackoutVerdict',
+    superShotAnimName: 'Anim_BH_SuperShot_BhiduSwaggerWalk',
+    superMoveAnimName: 'Anim_BH_SuperMove_BlackoutVerdict',
     superShotChoreography:
-      'Overhead two-handed lift -> ground-shattering boot stomp launching a floor fissure wave',
+      'Relaxed confident stance -> slow deliberate Jackie Shroff swagger walk with shoulder roll & hand gesture -> hero stance releasing heavy ground shockwave',
     superMoveChoreography:
       'Menacing chest roar -> heavy clothesline rush -> overhead double-fist execution slam',
     superMoveRushMultiplier: 1.08,
@@ -110,8 +111,8 @@ export class CharacterSpecialMoveController {
 
   /**
    * Initiates a character's ranged SuperShot and, if defender & combat are provided,
-   * steps the simulation through the configured projectileSpawnFrame to resolve
-   * guaranteed damage at the exact animation release event.
+   * steps the simulation through the configured specialImpactFrame to resolve
+   * guaranteed damage at the exact animation impact event.
    */
   public static tryExecuteSuperShot(
     fighter: Fighter3D,
@@ -123,7 +124,7 @@ export class CharacterSpecialMoveController {
     if (!started) return false;
     if (defender && combat && fighter.currentSpecialActivationId) {
       const spec = FighterAnimationEvents.getMoveSpec(fighter.id, 'super_shot');
-      const targetFrame = spec.projectileSpawnFrame ?? spec.startupFrames;
+      const targetFrame = spec.specialImpactFrame ?? spec.projectileSpawnFrame ?? spec.startupFrames;
       let resolvedEvent: CombatHitEvent3D | null = null;
       while (fighter.stateFrame < targetFrame) {
         fighter.stepPhysics();

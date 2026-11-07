@@ -68,20 +68,20 @@ export const EXPECTED_SPECIAL_CLIPS: Record<
   { superShotClip: string; superMoveClip: string }
 > = {
   action_sultan: {
-    superShotClip: 'Anim_AS_SuperShot_PowerlineBlast',
+    superShotClip: 'Anim_AS_SuperShot_BlackbuckGunshot',
     superMoveClip: 'Anim_AS_SuperMove_SultanBreaker',
   },
   romance_raja: {
-    superShotClip: 'Anim_RR_SuperShot_DilSePulse',
+    superShotClip: 'Anim_RR_SuperShot_OpenArmsPose',
     superMoveClip: 'Anim_RR_SuperMove_BaadshahGrandGesture',
   },
-  dance_dynamo: {
-    superShotClip: 'Anim_DD_SuperShot_BeatDrop',
-    superMoveClip: 'Anim_DD_SuperMove_RhythmOverdrive',
+  duggu: {
+    superShotClip: 'Anim_DG_SuperShot_KahoNaaDanceWave',
+    superMoveClip: 'Anim_DG_SuperMove_RhythmOverdrive',
   },
-  villain_saab: {
-    superShotClip: 'Anim_VS_SuperShot_UnderworldBarrage',
-    superMoveClip: 'Anim_VS_SuperMove_BlackoutVerdict',
+  bhidu: {
+    superShotClip: 'Anim_BH_SuperShot_BhiduSwaggerWalk',
+    superMoveClip: 'Anim_BH_SuperMove_BlackoutVerdict',
   },
 };
 

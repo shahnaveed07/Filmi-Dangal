@@ -74,10 +74,16 @@ export const CharacterPreview3D: React.FC<CharacterPreview3DProps> = ({
 
     // Play character-specific audio preview for special attacks & melee
     if (state === 'super_shot') {
+      const shotFrames = assetConfig.specialAttackEvents.superShot;
+      const releaseDelayMs = Math.round((shotFrames.projectileReleaseFrame / 60) * 1000);
+      const impactDelayMs = Math.round((shotFrames.specialImpactFrame / 60) * 1000);
       audio.playCharacterEvent(characterId, 'supershot-charge');
       setTimeout(() => {
         audio.playCharacterEvent(characterId, 'supershot-release');
-      }, 210);
+      }, releaseDelayMs);
+      setTimeout(() => {
+        audio.playCharacterEvent(characterId, 'supershot-impact');
+      }, impactDelayMs);
     } else if (state === 'super_move') {
       audio.playCharacterEvent(characterId, 'supermove-charge');
       setTimeout(() => {

@@ -13,9 +13,9 @@ export function getCharacterMonogram(id: FighterId): string {
       return 'AS';
     case 'romance_raja':
       return 'RR';
-    case 'dance_dynamo':
-      return 'DD';
-    case 'villain_saab':
-      return 'VS';
+    case 'duggu':
+      return 'DG';
+    case 'bhidu':
+      return 'BH';
   }
 }

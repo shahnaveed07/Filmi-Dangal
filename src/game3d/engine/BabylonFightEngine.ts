@@ -105,15 +105,27 @@ export class BabylonFightEngine {
     this.p2 = new Fighter3D(1, p2Def, MatchManager3D.P2_SPAWN_X_3D, 0, 0);
     this.cpu = new CPUController3D(bridge.difficulty);
 
-    // Connect animation events to character-specific SuperShot release SFX
+    // Connect animation events to character-specific SuperShot charge & release SFX/VFX
     this.unsubscribeP1AnimEvents = this.p1.animEvents.onEvent((evt) => {
-      if (evt.type === 'ON_PROJECTILE_RELEASE') {
+      if (evt.type === 'ON_CHARGE_START' && evt.state === 'super_shot') {
+        this.vfxManager.spawnSuperShotChargeVFX(this.p1.id, this.p1.position, this.p1.facing);
+      } else if (evt.type === 'ON_PROJECTILE_RELEASE' && evt.state === 'super_shot') {
         AudioManager3D.playSuperShotRelease(this.p1.id);
+        this.vfxManager.spawnSuperShotReleaseVFX(this.p1.id, this.p1.position, this.p1.facing);
+        if (this.p1.id === 'action_sultan' || this.p1.id === 'bhidu') {
+          this.addCameraTrauma(0.24);
+        }
       }
     });
     this.unsubscribeP2AnimEvents = this.p2.animEvents.onEvent((evt) => {
-      if (evt.type === 'ON_PROJECTILE_RELEASE') {
+      if (evt.type === 'ON_CHARGE_START' && evt.state === 'super_shot') {
+        this.vfxManager.spawnSuperShotChargeVFX(this.p2.id, this.p2.position, this.p2.facing);
+      } else if (evt.type === 'ON_PROJECTILE_RELEASE' && evt.state === 'super_shot') {
         AudioManager3D.playSuperShotRelease(this.p2.id);
+        this.vfxManager.spawnSuperShotReleaseVFX(this.p2.id, this.p2.position, this.p2.facing);
+        if (this.p2.id === 'action_sultan' || this.p2.id === 'bhidu') {
+          this.addCameraTrauma(0.24);
+        }
       }
     });
 
@@ -585,7 +597,7 @@ export class BabylonFightEngine {
       this.vfxManager.spawnSuperMoveSignatureVFX(fighter.id, fighter.position);
       this.specialCallout = `${fighter.def.name.toUpperCase()}: ${fighter.def.superMoveInfo.name}!`;
       this.specialCalloutFrames = 75;
-      if (fighter.id === 'villain_saab') {
+      if (fighter.id === 'bhidu') {
         this.blackoutTimer = 1.25;
       }
       this.pushHUDUpdate();

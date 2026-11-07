@@ -10,7 +10,8 @@ export type ComboInputCommand =
   | 'grab'
   | 'super_shot'
   | 'super_move'
-  | 'super';
+  | 'super'
+  | 'special';
 
 export interface BufferedInput {
   command: ComboInputCommand;

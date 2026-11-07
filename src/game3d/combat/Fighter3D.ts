@@ -547,7 +547,7 @@ export class Fighter3D {
     }
 
     if (resolvedType === 'super_move') {
-      if (this.id === 'action_sultan' || this.id === 'dance_dynamo') {
+      if (this.id === 'action_sultan' || this.id === 'duggu') {
         this._velocity.x = this.facing * 6.5;
       } else if (this.id === 'romance_raja') {
         this._velocity.x = this.facing * 4.5;

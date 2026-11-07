@@ -12,16 +12,16 @@ import { SettingsManager } from './SettingsManager';
 /**
  * AudioManager
  *
- * Production-ready, manifest-driven audio system for Filmi Dangal (Section 5).
+ * Production-ready, manifest-driven audio system for Filmi Dangal.
  * Supports:
  * - Separate Master Volume, Music Volume, SFX Volume, and Master Mute
  * - Per-character SuperShot and SuperMove audio events (`supershot-charge`,
  *   `supershot-release`, `supershot-impact`, `supermove-charge`, `supermove-impact`,
  *   `normal-attack`, `hit-react`, `victory`, `defeat`)
- * - Audio buffer preloading/caching for external `.ogg`/`.mp3`/`.wav` files
- * - Missing-file detection with one-time clear development warning + character-specific
- *   Web Audio procedural synthesis fallback when external audio files are not yet on disk
- * - Browser autoplay unlock handling and clean disposal
+ * - Audio buffer preloading/caching for external `.ogg` or `.mp3` files
+ * - Missing-file detection with one-time clear development warning + multi-layer character-specific
+ *   Web Audio procedural synthesis fallback (`isTemporaryPlaceholder: true`) when external audio files
+ *   are not yet on disk
  */
 export class AudioManager {
   private static instance: AudioManager;
@@ -40,6 +40,14 @@ export class AudioManager {
   private decodedBufferCache: Map<string, AudioBuffer> = new Map();
   private missingAudioPaths: Set<string> = new Set();
   private warnedAudioPaths: Set<string> = new Set();
+
+  // Diagnostics tracking for unit tests & runtime verification
+  private lastPlayedEvents: Array<{
+    characterId: FighterId;
+    eventId: CharacterAudioEventId;
+    signatureId: string;
+    isTemporaryPlaceholder: boolean;
+  }> = [];
 
   public static getInstance(): AudioManager {
     if (!AudioManager.instance) {
@@ -109,14 +117,27 @@ export class AudioManager {
     if (!this.warnedAudioPaths.has(filePath)) {
       this.warnedAudioPaths.add(filePath);
       console.warn(
-        `[AudioManager] External audio file not found at "${filePath}" for (${characterId}, ${eventId}). Using character-specific synthesized audio fallback until production audio file is added.`
+        `[AudioManager] External audio file not found at "${filePath}" for (${characterId}, ${eventId}). Using character-specific temporary synthesized SFX until production .ogg/.mp3 is added.`
       );
     }
   }
 
+  public getLastPlayedCharacterEvents(): ReadonlyArray<{
+    characterId: FighterId;
+    eventId: CharacterAudioEventId;
+    signatureId: string;
+    isTemporaryPlaceholder: boolean;
+  }> {
+    return this.lastPlayedEvents;
+  }
+
+  public clearPlayedEventsHistory(): void {
+    this.lastPlayedEvents = [];
+  }
+
   /**
-   * Preloads character audio files from `CHARACTER_AUDIO_MANIFEST` if present in `public/assets/audio/`.
-   * Gracefully records missing paths without crashing when external `.ogg` files are not yet added.
+   * Preloads character audio files (`.ogg` or `.mp3`) from `CHARACTER_AUDIO_MANIFEST` if present in `public/assets/audio/`.
+   * Gracefully records missing paths without crashing when external files are not yet added.
    */
   public async preloadCharacterAudio(characterId?: FighterId): Promise<{
     loaded: string[];
@@ -149,22 +170,29 @@ export class AudioManager {
           continue;
         }
 
-        try {
-          const resp = await fetch(cfg.filePath, { method: 'GET' });
-          const contentType = resp.headers.get('content-type') || '';
-          if (!resp.ok || contentType.includes('text/html')) {
-            this.logMissingAudioOnce(cfg.filePath, cId, evtId);
-            missing.push(cfg.filePath);
-            continue;
+        let loadedBuffer = false;
+        for (const candidateUrl of [cfg.filePath, cfg.mp3FallbackPath]) {
+          try {
+            const resp = await fetch(candidateUrl, { method: 'GET' });
+            const contentType = resp.headers.get('content-type') || '';
+            if (!resp.ok || contentType.includes('text/html')) {
+              continue;
+            }
+            const arrayBuffer = await resp.arrayBuffer();
+            this.initContext();
+            if (this.ctx) {
+              const audioBuf = await this.ctx.decodeAudioData(arrayBuffer);
+              this.decodedBufferCache.set(cfg.filePath, audioBuf);
+              loaded.push(candidateUrl);
+              loadedBuffer = true;
+              break;
+            }
+          } catch {
+            // Try next candidate
           }
-          const arrayBuffer = await resp.arrayBuffer();
-          this.initContext();
-          if (this.ctx) {
-            const audioBuf = await this.ctx.decodeAudioData(arrayBuffer);
-            this.decodedBufferCache.set(cfg.filePath, audioBuf);
-            loaded.push(cfg.filePath);
-          }
-        } catch {
+        }
+
+        if (!loadedBuffer) {
           this.logMissingAudioOnce(cfg.filePath, cId, evtId);
           missing.push(cfg.filePath);
         }
@@ -179,17 +207,28 @@ export class AudioManager {
    * `supershot-impact`, `supermove-charge`, `supermove-impact`, `normal-attack`,
    * `hit-react`, `victory`, `defeat`).
    * If an external decoded AudioBuffer is cached, plays it; otherwise synthesizes
-   * the character's distinct fallback profile.
+   * the character's distinct multi-layer fallback profile.
    */
   public playCharacterEvent(characterId: FighterId, eventId: CharacterAudioEventId): void {
-    if (this.isMuted) return;
     const cfg = getCharacterAudioEventConfig(characterId, eventId);
     if (!cfg) return;
+
+    const cachedBuffer = this.decodedBufferCache.get(cfg.filePath);
+    this.lastPlayedEvents.push({
+      characterId,
+      eventId,
+      signatureId: cfg.fallbackSynth.signatureId,
+      isTemporaryPlaceholder: !cachedBuffer && cfg.isTemporaryPlaceholder,
+    });
+    if (this.lastPlayedEvents.length > 64) {
+      this.lastPlayedEvents.shift();
+    }
+
+    if (this.isMuted) return;
 
     this.initContext();
     if (!this.ctx) return;
 
-    const cachedBuffer = this.decodedBufferCache.get(cfg.filePath);
     if (cachedBuffer) {
       try {
         const source = this.ctx.createBufferSource();
@@ -219,32 +258,64 @@ export class AudioManager {
     if (effectiveGain <= 0.001) return;
 
     try {
-      const t = this.ctx.currentTime;
-      const dur = Math.max(0.05, profile.durationSec);
+      const baseTime = this.ctx.currentTime;
 
+      if (profile.layers && profile.layers.length > 0) {
+        for (const layer of profile.layers) {
+          const t = baseTime + Math.max(0, layer.delaySec);
+          const dur = Math.max(0.03, layer.durationSec);
+          const layerGainVal = this.getEffectiveSfxGain(layer.gainLevel);
+          if (layerGainVal <= 0.001) continue;
+
+          const osc = this.ctx.createOscillator();
+          const gain = this.ctx.createGain();
+          osc.type = layer.waveform;
+          osc.frequency.setValueAtTime(Math.max(20, layer.startFreqHz), t);
+          if (layer.midFreqHz !== undefined) {
+            osc.frequency.linearRampToValueAtTime(
+              Math.max(20, layer.midFreqHz),
+              t + dur * 0.45
+            );
+          }
+          osc.frequency.exponentialRampToValueAtTime(
+            Math.max(20, layer.endFreqHz),
+            t + dur
+          );
+          gain.gain.setValueAtTime(layerGainVal, t);
+          gain.gain.exponentialRampToValueAtTime(0.001, t + dur);
+
+          osc.connect(gain);
+          gain.connect(this.ctx.destination);
+          osc.start(t);
+          osc.stop(t + dur);
+        }
+        return;
+      }
+
+      const dur = Math.max(0.05, profile.durationSec);
       const osc = this.ctx.createOscillator();
       const gain = this.ctx.createGain();
       osc.type = profile.waveform;
-      osc.frequency.setValueAtTime(Math.max(20, profile.startFreqHz), t);
+      osc.frequency.setValueAtTime(Math.max(20, profile.startFreqHz), baseTime);
 
       if (profile.midFreqHz !== undefined) {
         osc.frequency.linearRampToValueAtTime(
           Math.max(20, profile.midFreqHz),
-          t + dur * 0.42
+          baseTime + dur * 0.42
         );
       }
       osc.frequency.exponentialRampToValueAtTime(
         Math.max(20, profile.endFreqHz),
-        t + dur
+        baseTime + dur
       );
 
-      gain.gain.setValueAtTime(effectiveGain, t);
-      gain.gain.exponentialRampToValueAtTime(0.001, t + dur);
+      gain.gain.setValueAtTime(effectiveGain, baseTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, baseTime + dur);
 
       osc.connect(gain);
       gain.connect(this.ctx.destination);
-      osc.start(t);
-      osc.stop(t + dur);
+      osc.start(baseTime);
+      osc.stop(baseTime + dur);
 
       if (profile.harmonicRatio && profile.harmonicRatio > 0) {
         const subOsc = this.ctx.createOscillator();
@@ -252,18 +323,18 @@ export class AudioManager {
         subOsc.type = 'triangle';
         subOsc.frequency.setValueAtTime(
           Math.max(20, profile.startFreqHz * profile.harmonicRatio),
-          t
+          baseTime
         );
         subOsc.frequency.exponentialRampToValueAtTime(
           Math.max(20, profile.endFreqHz * profile.harmonicRatio),
-          t + dur
+          baseTime + dur
         );
-        subGain.gain.setValueAtTime(effectiveGain * 0.35, t);
-        subGain.gain.exponentialRampToValueAtTime(0.001, t + dur);
+        subGain.gain.setValueAtTime(effectiveGain * 0.35, baseTime);
+        subGain.gain.exponentialRampToValueAtTime(0.001, baseTime + dur);
         subOsc.connect(subGain);
         subGain.connect(this.ctx.destination);
-        subOsc.start(t);
-        subOsc.stop(t + dur);
+        subOsc.start(baseTime);
+        subOsc.stop(baseTime + dur);
       }
     } catch {
       // Ignore Web Audio autoplay or context disposal exceptions

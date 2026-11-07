@@ -1,9 +1,35 @@
-export type FighterId = 'action_sultan' | 'romance_raja' | 'dance_dynamo' | 'villain_saab';
+export type FighterId =
+  | 'action_sultan'
+  | 'romance_raja'
+  | 'duggu'
+  | 'bhidu';
+
 export type CharacterId = FighterId;
 
 export type ArenaId = 'award_night' | 'film_city';
+
 export type Difficulty = 'easy' | 'normal' | 'hard';
 export type DifficultyLevel = Difficulty;
+
+export type GameMode = 'arcade' | 'vs_cpu' | 'training';
+
+export type TrainingDummyBehavior =
+  | 'stand'
+  | 'crouch'
+  | 'block'
+  | 'jump'
+  | 'cpu_spar';
+
+export type ScreenName =
+  | 'title'
+  | 'disclaimer'
+  | 'select'
+  | 'character_select'
+  | 'arena_select'
+  | 'controls'
+  | 'fighting'
+  | 'fight'
+  | 'results';
 
 export type FighterStateName =
   | 'idle'
@@ -41,17 +67,8 @@ export type AttackType =
   | 'grab'
   | 'super_shot'
   | 'super_move'
-  | 'super';
-
-export type BoneAttachmentName =
-  | 'Head'
-  | 'Chest'
-  | 'RightHand'
-  | 'LeftHand'
-  | 'RightFoot'
-  | 'LeftFoot'
-  | 'Hips'
-  | 'Projectile';
+  | 'super'
+  | 'special';
 
 export interface Rect {
   x: number;
@@ -61,6 +78,11 @@ export interface Rect {
 }
 
 export type Box = Rect;
+
+export interface Vector2D {
+  x: number;
+  y: number;
+}
 
 export interface Vector3D {
   x: number;
@@ -72,8 +94,8 @@ export interface Sphere3D {
   x: number;
   y: number;
   z: number;
-  radius: number;
   center?: Vector3D;
+  radius: number;
 }
 
 export interface CapsuleHurtbox3D {
@@ -88,9 +110,26 @@ export interface CapsuleHurtbox3D {
   legsSphere: Sphere3D;
 }
 
+export type BoneAttachmentName =
+  | 'RightHand'
+  | 'LeftHand'
+  | 'RightFoot'
+  | 'LeftFoot'
+  | 'Chest'
+  | 'Head'
+  | 'Hips'
+  | 'Projectile';
+
 export interface AttackFrameData {
-  type: AttackType;
+  type?: AttackType;
+  name?: string;
   damage: number;
+  chipDamage?: number;
+  meterGain?: number;
+  meterGainOnHit: number;
+  meterGainOnBlock: number;
+  meterCost?: number;
+  cooldownFrames?: number;
   startupFrames: number;
   activeFrames: number;
   recoveryFrames: number;
@@ -98,104 +137,100 @@ export interface AttackFrameData {
   blockStunFrames: number;
   knockbackX: number;
   knockbackY: number;
-  meterGainOnHit: number;
-  meterGainOnBlock: number;
-  meterCost?: number;
-  cooldownFrames?: number;
+  knockbackZ?: number;
+  hitboxOffset: { x: number; y: number; w: number; h: number };
+  attachedBone?: BoneAttachmentName;
+  hitRadius3D?: number;
   maxHits?: number;
   isHigh?: boolean;
   isLow?: boolean;
   isOverhead?: boolean;
   isUnblockable?: boolean;
+  isGrab?: boolean;
   isProjectile?: boolean;
   causesKnockdown?: boolean;
-  hitboxOffset: { x: number; y: number; w: number; h: number };
-  attachedBone?: BoneAttachmentName;
-  hitRadius3D: number;
-  localOffset3D?: Vector3D;
+  isSuper?: boolean;
+  isSuperMove?: boolean;
+  isSuperShot?: boolean;
 }
 
-export interface SignatureAbilityInfo {
-  name: string;
-  description: string;
-  meterCost: number;
-  cooldownSeconds?: number;
-}
-
-export interface FighterStats {
-  maxHealth: number;
-  walkSpeed: number;
-  runSpeed: number;
-  jumpVelocity: number;
-  powerMultiplier: number;
-  defenseMultiplier: number;
-  weight: number;
-}
-
-export interface FighterDialogue {
-  intro: string;
-  win: string;
-  superQuote: string;
-  superShotQuote: string;
-  taunt: string;
-}
-
-export interface CharacterProportions3D {
+export interface CharacterModelProportions {
   heightScale: number;
   shoulderWidth: number;
-  chestDepth: number;
   torsoBulk: number;
-  waistWidth: number;
-  limbLength: number;
   limbThickness: number;
-  armThickness: number;
-  legThickness: number;
   jawWidth: number;
   hairStyle:
     | 'cropped_machismo'
     | 'swept_romantic_waves'
     | 'sculpted_bronze_waves'
-    | 'slicked_villain_mane';
-  facialHair: 'royal_mustache' | 'clean_shaven' | 'designer_stubble' | 'heavy_boss_goatee';
+    | 'slicked_villain_mane'
+    | 'bhidu_swagger_mane';
+  facialHair:
+    | 'clean_shaven'
+    | 'royal_mustache'
+    | 'designer_stubble'
+    | 'heavy_boss_goatee'
+    | 'bhidu_mustache';
   accessoryType:
     | 'aviator_and_kada'
     | 'silk_scarf_and_collar'
     | 'neon_visor_and_gauntlets'
-    | 'gold_chain_and_bandhgala';
-}
-
-export interface CharacterVisualSpec {
-  primaryColor: string;
-  secondaryColor: string;
-  accentColor: string;
-  skinColor: string;
-  skinTone: string;
-  hairColor: string;
-  outfitTrimColor: string;
-  auraColor: string;
-  glbModelPath: string;
-  actorInspiration: string;
-  attireDescription: string;
-  hairStyle: 'sultan_swept' | 'raja_pompadour' | 'dynamo_wavy' | 'saab_slick_mane';
-  accessoryType: 'aviators_bracelet' | 'open_jacket_collar' | 'neon_visor_vest' | 'villain_trench_rings';
-  proportions: CharacterProportions3D;
+    | 'gold_chain_and_bandhgala'
+    | 'bandana_and_shades';
 }
 
 export interface CharacterDef {
   id: FighterId;
+  slug: 'action-sultan' | 'romance-raja' | 'duggu' | 'bhidu';
   name: string;
   title: string;
+  subtitle: string;
   style: string;
   archetype: string;
+  inspiration: string;
   bio: string;
-  specialMoveName: string;
-  specialDescription: string;
-  superMoveInfo: SignatureAbilityInfo;
-  superShotInfo: SignatureAbilityInfo;
-  stats: FighterStats;
+  stats: {
+    maxHealth: number;
+    walkSpeed: number;
+    jumpVelocity: number;
+    weight: number;
+    powerRating: number;
+    speedRating: number;
+    techniqueRating: number;
+    powerMultiplier: number;
+    defenseMultiplier: number;
+  };
+  visuals: {
+    primaryColor: string;
+    secondaryColor: string;
+    accentColor: string;
+    skinTone: string;
+    hairColor: string;
+    costumeDescription: string;
+    attireDescription: string;
+    glbModelPath: string;
+    proportions: CharacterModelProportions;
+  };
+  dialogues: {
+    intro: string;
+    win: string;
+    lose?: string;
+    superQuote: string;
+    superShotQuote: string;
+    taunt: string;
+  };
+  superMoveInfo: {
+    name: string;
+    command: string;
+    description: string;
+  };
+  superShotInfo: {
+    name: string;
+    command: string;
+    description: string;
+  };
   moves: Record<AttackType, AttackFrameData>;
-  dialogues: FighterDialogue;
-  visuals: CharacterVisualSpec;
 }
 
 export interface ArenaBounds3D {
@@ -211,9 +246,13 @@ export interface ArenaDef {
   name: string;
   subtitle: string;
   description: string;
-  ambientColor: string;
-  groundY: number;
-  stageWidth: number;
+  ambientColor?: string;
+  groundY?: number;
+  stageWidth?: number;
+  skyTopColor?: string;
+  skyBottomColor?: string;
+  floorColor?: string;
+  accentColor?: string;
   bounds3D: ArenaBounds3D;
   themeFeatures: string[];
 }
@@ -232,9 +271,10 @@ export interface InputFrame {
   superShot: boolean;
   superMove: boolean;
   special: boolean;
-  pause: boolean;
-  upJustPressed: boolean;
+  pause?: boolean;
   jumpJustPressed: boolean;
+  upJustPressed: boolean;
+  downJustPressed?: boolean;
   punchJustPressed: boolean;
   kickJustPressed: boolean;
   grabJustPressed: boolean;
@@ -242,6 +282,7 @@ export interface InputFrame {
   superMoveJustPressed: boolean;
   specialJustPressed: boolean;
   pauseJustPressed: boolean;
+  muteJustPressed?: boolean;
 }
 
 export interface FighterSnapshot {
@@ -278,16 +319,14 @@ export interface CombatHitEvent {
   isBlocked: boolean;
   isCounter: boolean;
   isCritical: boolean;
+  isSuperMove?: boolean;
+  isSuperShot?: boolean;
   isGrab?: boolean;
   isProjectile?: boolean;
-  comboName?: string;
   hitX: number;
   hitY: number;
   hitZ?: number;
   comboCount: number;
+  comboName?: string | null;
+  moveName?: string;
 }
-
-export type ScreenName = 'title' | 'character_select' | 'arena_select' | 'fighting' | 'fight' | 'results';
-export type GameMode = 'arcade' | 'vs_cpu' | 'training';
-export type TrainingDummyBehavior = 'stand' | 'crouch' | 'block' | 'jump' | 'cpu_spar';
-

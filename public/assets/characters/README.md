@@ -6,19 +6,23 @@ Drop production rigged `.glb` (glTF 2.0 binary) models and portraits into the ch
 public/assets/characters/
   action-sultan/
     model.glb
-    portrait.webp
+    portrait.png
+    thumbnail.png
     animations/        (optional external animation clips)
   romance-raja/
     model.glb
-    portrait.webp
+    portrait.png
+    thumbnail.png
     animations/
-  dance-dynamo/
+  duggu/
     model.glb
-    portrait.webp
+    portrait.png
+    thumbnail.png
     animations/
-  villain-saab/
+  bhidu/
     model.glb
-    portrait.webp
+    portrait.png
+    thumbnail.png
     animations/
 ```
 
@@ -26,4 +30,4 @@ public/assets/characters/
 1. Place the rigged `.glb` file at `public/assets/characters/<character-slug>/model.glb`.
 2. Open `src/config/characterAssets.ts`.
 3. Set `isTemporaryPlaceholder: false` on that character's entry in `CHARACTER_ASSET_MANIFEST`.
-4. Adjust `scale`, `facingAngle`, `groundOffset`, `positionOffset`, or `animations` clip mappings in `src/config/characterAssets.ts` if your exported GLB uses custom clip names or scale.
+4. Adjust `scale`, `facingRotationY`, `groundOffset`, or `animations` clip mappings in `src/config/characterAssets.ts` if your exported GLB uses custom clip names or scale.

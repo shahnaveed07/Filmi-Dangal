@@ -71,7 +71,7 @@ export class GameBridge {
   public debugHitboxes: boolean = false;
 
   // Arcade Mode multi-stage ladder state (3 sequential opponents)
-  public arcadeLadder: FighterId[] = ['romance_raja', 'dance_dynamo', 'villain_saab'];
+  public arcadeLadder: FighterId[] = ['romance_raja', 'duggu', 'bhidu'];
   public arcadeStageIndex = 0;
 
   public lastMatchStats: MatchStats = {

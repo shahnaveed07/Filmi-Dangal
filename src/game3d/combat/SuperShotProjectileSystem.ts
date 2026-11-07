@@ -6,10 +6,10 @@ import { Fighter3D } from './Fighter3D';
  * SuperShotProjectileSystem
  *
  * Manages ranged 3D special attacks (`SuperShot`) for all four fighters:
- * - Action Sultan: POWERLINE BLAST (Anim_AS_SuperShot_PowerlineBlast)
- * - Romance Raja: DIL SE PULSE (Anim_RR_SuperShot_DilSePulse)
- * - Dance Dynamo: BEAT DROP (Anim_DD_SuperShot_BeatDrop)
- * - Villain Saab: UNDERWORLD BARRAGE (Anim_VS_SuperShot_UnderworldBarrage)
+ * - Action Sultan: BLACKBUCK GUNSHOT (Anim_AS_SuperShot_BlackbuckGunshot)
+ * - Romance Raja: ICONIC OPEN-ARMS POSE (Anim_RR_SuperShot_OpenArmsPose)
+ * - Duggu: KAHO NAA DANCE WAVE (Anim_DG_SuperShot_KahoNaaDanceWave)
+ * - Bhidu: BHIDU SWAGGER SHOCKWAVE (Anim_BH_SuperShot_BhiduSwaggerWalk)
  *
  * Wraps and extends ProjectileManager3D with animation-event-driven release frames
  * and 3D projectile-vs-projectile clash resolution.

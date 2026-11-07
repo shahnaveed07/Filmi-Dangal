@@ -1,15 +1,11 @@
 {
-  "characterId": "villain_saab",
-  "characterName": "VILLAIN SAAB",
-  "inspiration": "Sanjay Dutt-inspired (Configurable Parody Persona)",
+  "characterId": "bhidu",
+  "characterName": "BHIDU",
+  "inspiration": "Jackie Shroff-inspired (Configurable Parody Persona)",
   "productionStatus": "STAGE_2_INTEGRATED",
   "format": "glTF 2.0 Binary (.glb)",
-  "modelFile": "/assets/characters/villain-saab/model.glb",
-  "groundOrigin": [
-    0,
-    0,
-    0
-  ],
+  "modelFile": "/assets/characters/bhidu/model.glb",
+  "groundOrigin": [0, 0, 0],
   "forwardOrientation": "+Z",
   "skeletonStandard": "FilmiDangal_SharedHumanoid_26",
   "bones": [
@@ -40,33 +36,23 @@
     "RightLeg",
     "RightFoot"
   ],
-  "facialRigNodes": [
-    "Jaw",
-    "LeftBrow",
-    "RightBrow",
-    "LeftEyelid",
-    "RightEyelid"
-  ],
-  "lodLevels": [
-    "LOD0_High",
-    "LOD1_Medium",
-    "LOD2_Low"
-  ],
+  "facialRigNodes": ["Jaw", "LeftBrow", "RightBrow", "LeftEyelid", "RightEyelid"],
+  "lodLevels": ["LOD0_High", "LOD1_Medium", "LOD2_Low"],
   "materials": [
-    "villain_saab_Pants_PBR",
-    "villain_saab_Costume_Primary_PBR",
-    "villain_saab_Skin_Subsurface_PBR",
-    "villain_saab_Hair_And_Boots_PBR",
-    "villain_saab_Signature_Accessory_PBR"
+    "bhidu_Pants_PBR",
+    "bhidu_Costume_Primary_PBR",
+    "bhidu_Skin_Subsurface_PBR",
+    "bhidu_Hair_And_Boots_PBR",
+    "bhidu_Signature_Accessory_PBR"
   ],
   "specialAttacks": {
     "superShot": {
-      "name": "UNDERWORLD BARRAGE",
-      "animationClip": "Anim_VS_SuperShot_UnderworldBarrage"
+      "name": "BHIDU SWAGGER SHOCKWAVE",
+      "animationClip": "Anim_BH_SuperShot_BhiduSwaggerWalk"
     },
     "superMove": {
       "name": "BLACKOUT VERDICT",
-      "animationClip": "Anim_VS_SuperMove_BlackoutVerdict"
+      "animationClip": "Anim_BH_SuperMove_BlackoutVerdict"
     }
   },
   "documentedAnimations": [
@@ -85,7 +71,7 @@
     "Recovery",
     "Victory",
     "Defeat",
-    "Anim_VS_SuperShot_UnderworldBarrage",
-    "Anim_VS_SuperMove_BlackoutVerdict"
+    "Anim_BH_SuperShot_BhiduSwaggerWalk",
+    "Anim_BH_SuperMove_BlackoutVerdict"
   ]
 }

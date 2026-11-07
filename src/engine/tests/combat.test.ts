@@ -239,13 +239,19 @@ test('4. Normal melee hitboxes/hurtboxes, Blocking, Guard-Breaking Grabs, and Kn
   assert.equal(p2.state, 'idle', 'Recovery returns fighter to idle');
 });
 
-test('5. Frame-Accurate SuperShot Timing: Spawns projectile & resolves guaranteed damage at ON_PROJECTILE_RELEASE frame (not frame 0/1)', () => {
+test('5. Frame-Accurate SuperShot Timing: Spawns projectile at ON_PROJECTILE_RELEASE and resolves guaranteed damage at ON_SPECIAL_IMPACT (never frame 0/1)', () => {
   for (const char of CHARACTER_LIST) {
     const attacker = new Fighter3D(0, char, -4.5, 0, 0);
     const defender = new Fighter3D(1, CHARACTERS.action_sultan, 4.5, 0, 0);
     const combat = new CombatSystem3D();
     const spec = FighterAnimationEvents.getMoveSpec(char.id, 'super_shot');
+    const chargeFrame = spec.chargeStartFrame!;
     const releaseFrame = spec.projectileSpawnFrame!;
+    const impactFrame = spec.specialImpactFrame!;
+
+    assert.ok(chargeFrame >= 1, `${char.id} chargeStartFrame >= 1`);
+    assert.ok(releaseFrame > chargeFrame, `${char.id} releaseFrame (${releaseFrame}) > chargeFrame (${chargeFrame})`);
+    assert.ok(impactFrame > releaseFrame, `${char.id} impactFrame (${impactFrame}) > releaseFrame (${releaseFrame})`);
 
     attacker.specialMeter = 50;
     const initialDefenderHp = defender.health;
@@ -268,22 +274,42 @@ test('5. Frame-Accurate SuperShot Timing: Spawns projectile & resolves guarantee
       );
     }
 
-    // Step onto exact releaseFrame: projectile spawns AND guaranteed damage resolves!
+    // Step onto exact releaseFrame (ON_PROJECTILE_RELEASE): projectile spawns, damage STILL NOT applied until impactFrame!
     attacker.stepPhysics();
     assert.equal(attacker.stateFrame, releaseFrame);
     const releaseEvents = combat.updateAndResolveCombat(attacker, defender);
     assert.equal(
       releaseEvents.length,
-      1,
-      `${char.id} SuperShot resolves guaranteed damage at exact releaseFrame ${releaseFrame}`
+      0,
+      `${char.id} SuperShot must NOT apply damage on projectile releaseFrame (${releaseFrame}) before impactFrame (${impactFrame})`
     );
-    assert.equal(releaseEvents[0].isSuperShot, true);
-    assert.ok(releaseEvents[0].damage > 0);
-    assert.equal(defender.health, initialDefenderHp - releaseEvents[0].damage);
-
     const activeProjs = combat.projectileManager.getActiveProjectiles();
-    assert.equal(activeProjs.length, 1, `${char.id} spawned visual 3D SuperShot projectile at releaseFrame`);
+    assert.equal(activeProjs.length, 1, `${char.id} spawned visual 3D SuperShot projectile at releaseFrame ${releaseFrame}`);
     assert.equal(activeProjs[0].position.z, 0, 'Projectile travels strictly on Z = 0 plane');
+
+    // Step through frames between releaseFrame and impactFrame: still 0 damage
+    for (let f = releaseFrame + 1; f < impactFrame; f++) {
+      attacker.stepPhysics();
+      const midEvents = combat.updateAndResolveCombat(attacker, defender);
+      assert.equal(
+        midEvents.length,
+        0,
+        `${char.id} SuperShot must NOT deal damage before impactFrame (${impactFrame}) at frame ${f}`
+      );
+    }
+
+    // Step onto exact impactFrame (ON_SPECIAL_IMPACT): guaranteed damage resolves ONCE!
+    attacker.stepPhysics();
+    assert.equal(attacker.stateFrame, impactFrame);
+    const impactEvents = combat.updateAndResolveCombat(attacker, defender);
+    assert.equal(
+      impactEvents.length,
+      1,
+      `${char.id} SuperShot resolves guaranteed damage at exact impactFrame ${impactFrame}`
+    );
+    assert.equal(impactEvents[0].isSuperShot, true);
+    assert.ok(impactEvents[0].damage > 0);
+    assert.equal(defender.health, initialDefenderHp - impactEvents[0].damage);
 
     // Step through remaining active & recovery frames: no duplicate damage!
     for (let f = 0; f < 25; f++) {
@@ -297,7 +323,7 @@ test('5. Frame-Accurate SuperShot Timing: Spawns projectile & resolves guarantee
 test('6. Frame-Accurate SuperMove Timing: Resolves guaranteed damage at ON_SUPERMOVE_CLIMAX frame (not frame 0/1)', () => {
   for (const char of CHARACTER_LIST) {
     const attacker = new Fighter3D(0, char, -6.0, 0, 0);
-    const defender = new Fighter3D(1, CHARACTERS.villain_saab, 6.0, 0, 0);
+    const defender = new Fighter3D(1, CHARACTERS.bhidu, 6.0, 0, 0);
     const combat = new CombatSystem3D();
     const spec = FighterAnimationEvents.getMoveSpec(char.id, 'super_move');
     const climaxFrame = spec.superMoveClimaxFrame!;
@@ -348,7 +374,7 @@ test('6. Frame-Accurate SuperMove Timing: Resolves guaranteed damage at ON_SUPER
 
 test('7. CPUController3D decision-making across Easy, Normal, and Hard difficulties on 2D XY plane', () => {
   const p1 = new Fighter3D(0, CHARACTERS.action_sultan, -2.5, 0, 0);
-  const cpuFighter = new Fighter3D(1, CHARACTERS.dance_dynamo, 1.5, 0, 0);
+  const cpuFighter = new Fighter3D(1, CHARACTERS.duggu, 1.5, 0, 0);
   const combat = new CombatSystem3D();
 
   for (const diff of ['easy', 'normal', 'hard'] as const) {
@@ -457,11 +483,11 @@ test('8. Match Lifecycle, Pause/Resume, Round Restart, Rematch, and Game Mode Pr
 
   // Versus CPU mode does not override chosen opponent or difficulty
   bridge.gameMode = 'vs_cpu';
-  bridge.p1CharacterId = 'dance_dynamo';
-  bridge.p2CharacterId = 'villain_saab';
+  bridge.p1CharacterId = 'duggu';
+  bridge.p2CharacterId = 'bhidu';
   bridge.difficulty = 'hard';
   bridge.startNewMatch();
-  assert.equal(bridge.p2CharacterId, 'villain_saab');
+  assert.equal(bridge.p2CharacterId, 'bhidu');
   assert.equal(bridge.difficulty, 'hard');
   assert.equal(bridge.hasNextArcadeStage(), false);
 });
@@ -747,7 +773,7 @@ test('11. Section 8 Mandatory 10-Scenario Matrix: Every character SuperMove & Su
           const spec = FighterAnimationEvents.getMoveSpec(attackerChar.id, ability);
           const expectedImpactFrame =
             ability === 'super_shot'
-              ? spec.projectileSpawnFrame!
+              ? spec.specialImpactFrame!
               : spec.superMoveClimaxFrame!;
 
           let attackerHitEvents = 0;
@@ -890,6 +916,7 @@ test('13. Character-Specific Audio Manifest & AudioManager Volume / Event Routin
   assert.ok(Math.abs(audio.musicVolume - 0.6) < 0.01);
   assert.ok(Math.abs(audio.sfxVolume - 0.9) < 0.01);
 
+  const seenSuperShotSignatures = new Set<string>();
   for (const char of CHARACTER_LIST) {
     const manifest = CHARACTER_AUDIO_MANIFEST[char.id];
     assert.ok(manifest, `Audio manifest exists for ${char.id}`);
@@ -900,15 +927,36 @@ test('13. Character-Specific Audio Manifest & AudioManager Volume / Event Routin
         entry.filePath.startsWith('/assets/audio/characters/'),
         `${char.id} ${evt} has drop-in audio path`
       );
+      assert.equal(
+        entry.isTemporaryPlaceholder,
+        true,
+        `${char.id} ${evt} is explicitly flagged as temporary placeholder until custom audio files are dropped in`
+      );
       assert.ok(
         entry.fallbackSynth.startFreqHz > 0,
         `${char.id} ${evt} has procedural synth fallback`
       );
+      if (evt.startsWith('supershot-')) {
+        assert.ok(
+          entry.fallbackSynth.signatureId && entry.fallbackSynth.signatureId.length > 0,
+          `${char.id} ${evt} defines a unique signatureId`
+        );
+        assert.ok(
+          entry.fallbackSynth.layers && entry.fallbackSynth.layers.length >= 2,
+          `${char.id} ${evt} defines multi-layered sound synthesis`
+        );
+        seenSuperShotSignatures.add(entry.fallbackSynth.signatureId!);
+      }
 
       // Should execute cleanly without throwing even in headless Node environment
       audio.playCharacterEvent(char.id, evt);
     }
   }
+  assert.equal(
+    seenSuperShotSignatures.size,
+    12,
+    'All 12 SuperShot audio events (4 characters x 3 phases) have distinct signatureIds'
+  );
 });
 
 test('14. SettingsManager Persistence, Key Rebinding, and Corrupted Storage Recovery', () => {

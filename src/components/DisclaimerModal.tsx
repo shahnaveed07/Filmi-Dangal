@@ -39,8 +39,8 @@ export const DisclaimerModal: React.FC<DisclaimerModalProps> = ({ onClose }) => 
           <p>
             All characters (<em className="text-amber-200">Action Sultan</em>,{' '}
             <em className="text-amber-200">Romance Raja</em>,{' '}
-            <em className="text-amber-200">Dance Dynamo</em>, and{' '}
-            <em className="text-amber-200">Villain Saab</em>), arenas, move names, and voice/dialogue
+            <em className="text-amber-200">Duggu</em>, and{' '}
+            <em className="text-amber-200">Bhidu</em>), arenas, move names, and voice/dialogue
             lines are entirely fictional archetypes created for light-hearted comedic tribute.
           </p>
           <p>

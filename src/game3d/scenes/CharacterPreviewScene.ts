@@ -18,6 +18,7 @@ import { FighterAnimationEventPayload } from '../animation/FighterAnimationEvent
 import { CharacterAssetValidationReport } from '../assets/CharacterAssetValidator';
 import { CharacterRig3D, loadCharacterRig3D } from '../assets/AssetLoader3D';
 import { detectSoftwareWebGL } from '../engine/BabylonFightEngine';
+import { VFXManager3D } from '../vfx/VFXManager3D';
 
 /**
  * CharacterPreviewScene
@@ -50,6 +51,7 @@ export class CharacterPreviewScene {
   private scene: Scene;
   private camera: UniversalCamera;
   private animController = new CharacterAnimationController();
+  private vfxManager: VFXManager3D;
   private currentRig: CharacterRig3D | null = null;
   private validationReport: CharacterAssetValidationReport | null = null;
 
@@ -89,6 +91,7 @@ export class CharacterPreviewScene {
 
     this.scene = new Scene(this.engine);
     this.scene.clearColor = new Color4(0.06, 0.05, 0.11, 1);
+    this.vfxManager = new VFXManager3D(this.scene);
 
     this.camera = new UniversalCamera(
       'previewCam',
@@ -182,9 +185,12 @@ export class CharacterPreviewScene {
     this.previewShockwaveRing.material = shockMat;
     this.previewShockwaveRing.isVisible = false;
 
-    // Subscribe to FighterAnimationEvents for projectile & shockwave triggers
+    // Subscribe to FighterAnimationEvents for character-specific SuperShot & SuperMove VFX triggers
     this.animController.getEventsDispatcher().onEvent((evt) => {
-      if (evt.type === 'ON_PROJECTILE_SPAWN') {
+      if (evt.type === 'ON_CHARGE_START' && evt.state === 'super_shot') {
+        this.vfxManager.spawnSuperShotChargeVFX(this.characterId, { x: 0, y: 0, z: 0 }, 1);
+      } else if (evt.type === 'ON_PROJECTILE_RELEASE' && evt.state === 'super_shot') {
+        this.vfxManager.spawnSuperShotReleaseVFX(this.characterId, { x: 0, y: 0, z: 0 }, 1);
         this.projectileLifeSec = 0.55;
         this.previewProjectileMesh.position.set(0.35, 1.15, -0.2);
         this.previewProjectileMesh.isVisible = true;
@@ -295,6 +301,7 @@ export class CharacterPreviewScene {
       }
 
       glowRing.rotation.y += dt * 0.8;
+      this.vfxManager.syncProjectiles([], dt);
       this.scene.render();
     });
 
@@ -353,6 +360,7 @@ export class CharacterPreviewScene {
     if (this.isDisposed) return;
     this.isDisposed = true;
     window.removeEventListener('resize', this.boundResize);
+    this.vfxManager.dispose();
     this.currentRig?.dispose();
     this.scene.dispose();
     this.engine.dispose();
