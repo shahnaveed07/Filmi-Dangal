@@ -3,7 +3,7 @@ import { CHARACTER_LIST, CHARACTERS } from '../data/characters';
 import { Difficulty, FighterId } from '../types/fighter';
 import { GameBridge } from '../engine/GameBridge';
 import { AudioManager } from '../engine/AudioManager';
-import { ArrowLeft, Swords, Sparkles, Volume2 } from 'lucide-react';
+import { ArrowLeft, Swords, Sparkles } from 'lucide-react';
 
 interface CharacterSelectProps {
   onBack: () => void;
@@ -15,7 +15,14 @@ export const CharacterSelect: React.FC<CharacterSelectProps> = ({ onBack, onProc
   const audio = AudioManager.getInstance();
 
   const [p1Id, setP1Id] = useState<FighterId>(bridge.p1CharacterId);
-  const [p2Id, setP2Id] = useState<FighterId>(bridge.p2CharacterId);
+  const [p2Id, setP2Id] = useState<FighterId>(() => {
+    if (bridge.p2CharacterId === bridge.p1CharacterId) {
+      const alt = CHARACTER_LIST.find((c) => c.id !== bridge.p1CharacterId)!;
+      bridge.p2CharacterId = alt.id;
+      return alt.id;
+    }
+    return bridge.p2CharacterId;
+  });
   const [difficulty, setDifficulty] = useState<Difficulty>(bridge.difficulty);
   const [selectingFor, setSelectingFor] = useState<'p1' | 'p2'>('p1');
 
@@ -24,17 +31,31 @@ export const CharacterSelect: React.FC<CharacterSelectProps> = ({ onBack, onProc
   const handleSelectFighter = (id: FighterId) => {
     audio.playSound('click');
     if (selectingFor === 'p1') {
+      const prevP1 = p1Id;
       setP1Id(id);
       bridge.p1CharacterId = id;
-      // If P2 is same, pick next fighter automatically
+      // Enforce P1 and CPU cannot share the same character
       if (p2Id === id) {
-        const others = CHARACTER_LIST.filter((c) => c.id !== id);
-        setP2Id(others[0].id);
-        bridge.p2CharacterId = others[0].id;
+        const replacement =
+          prevP1 !== id
+            ? prevP1
+            : CHARACTER_LIST.find((c) => c.id !== id)!.id;
+        setP2Id(replacement);
+        bridge.p2CharacterId = replacement;
       }
     } else {
+      const prevP2 = p2Id;
       setP2Id(id);
       bridge.p2CharacterId = id;
+      // Enforce P1 and CPU cannot share the same character
+      if (p1Id === id) {
+        const replacement =
+          prevP2 !== id
+            ? prevP2
+            : CHARACTER_LIST.find((c) => c.id !== id)!.id;
+        setP1Id(replacement);
+        bridge.p1CharacterId = replacement;
+      }
     }
   };
 
@@ -168,7 +189,7 @@ export const CharacterSelect: React.FC<CharacterSelectProps> = ({ onBack, onProc
               <span className="uppercase">Match Regulations:</span>
             </div>
             <p className="font-mono text-[11px] leading-relaxed">
-              Health: 1000 HP · Best of 3 Rounds · 60s Round Timer · Authentic Combos & Frame Traps · Procedural Audio
+              Max HP: {selectedChar.stats.maxHealth} · Best of 3 Rounds · 60s Round Timer · Authentic Combos &amp; Frame Traps · Procedural Audio
             </p>
           </div>
         </div>
@@ -180,7 +201,7 @@ export const CharacterSelect: React.FC<CharacterSelectProps> = ({ onBack, onProc
             <div className="flex items-center justify-between border-b border-[#D6A447]/40 pb-2">
               <div>
                 <span className="text-[10px] font-['Cinzel'] font-bold text-[#D6A447] uppercase tracking-widest">
-                  FIGHTER DOSSIER
+                  FIGHTER DOSSIER ({selectedChar.stats.maxHealth} HP)
                 </span>
                 <h2 className="font-['Bungee'] text-2xl text-[#FEF08A]">{selectedChar.name}</h2>
               </div>
@@ -209,7 +230,7 @@ export const CharacterSelect: React.FC<CharacterSelectProps> = ({ onBack, onProc
               </div>
 
               <div className="flex items-center justify-between text-xs font-['Rajdhani'] font-bold text-[#D6A447]">
-                <span>SPEED & MOBILITY:</span>
+                <span>SPEED &amp; MOBILITY:</span>
                 <span className="font-mono text-white">{(selectedChar.stats.walkSpeed * 20).toFixed(0)}%</span>
               </div>
               <div className="w-full h-2 bg-black/60 rounded-full overflow-hidden border border-[#D6A447]/40">
@@ -220,7 +241,7 @@ export const CharacterSelect: React.FC<CharacterSelectProps> = ({ onBack, onProc
               </div>
 
               <div className="flex items-center justify-between text-xs font-['Rajdhani'] font-bold text-[#D6A447]">
-                <span>DEFENSE & ARMOR:</span>
+                <span>DEFENSE &amp; ARMOR:</span>
                 <span className="font-mono text-white">{(selectedChar.stats.defenseMultiplier * 100).toFixed(0)}%</span>
               </div>
               <div className="w-full h-2 bg-black/60 rounded-full overflow-hidden border border-[#D6A447]/40">

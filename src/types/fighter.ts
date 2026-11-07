@@ -42,6 +42,7 @@ export interface AttackFrameData {
   causesKnockdown?: boolean;
   isLow?: boolean;
   isHigh?: boolean;
+  maxHits?: number;
   meterGainOnHit: number;
   meterGainOnBlock: number;
   meterCost?: number;
@@ -122,4 +123,5 @@ export interface CombatHitEvent {
   hitY: number;
   attackType: AttackType;
   comboCount: number;
+  comboName?: string;
 }

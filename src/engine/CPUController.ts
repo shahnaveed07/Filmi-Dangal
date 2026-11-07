@@ -1,16 +1,18 @@
 import { AttackType, Difficulty } from '../types/fighter';
+import { ComboInputCommand } from './ComboSystem';
 import { Fighter } from './Fighter';
 
 export class CPUController {
   public difficulty: Difficulty;
+  public rng: () => number;
   private decisionTimer: number = 0;
-  private pendingCombo: AttackType[] = [];
-  private comboStepTimer: number = 0;
+  public pendingCombo: ComboInputCommand[] = [];
   private isBlockingIntent: boolean = false;
   private reactionTimer: number = 0;
 
-  constructor(difficulty: Difficulty = 'normal') {
+  constructor(difficulty: Difficulty = 'normal', rng: () => number = Math.random) {
     this.difficulty = difficulty;
+    this.rng = rng;
   }
 
   public setDifficulty(difficulty: Difficulty): void {
@@ -21,7 +23,6 @@ export class CPUController {
   public reset(): void {
     this.decisionTimer = 0;
     this.pendingCombo = [];
-    this.comboStepTimer = 0;
     this.isBlockingIntent = false;
     this.reactionTimer = 0;
   }
@@ -30,6 +31,44 @@ export class CPUController {
    * Main 60Hz update for the CPU AI
    */
   public update(cpu: Fighter, player: Fighter, currentFrame: number, groundY: number): void {
+    // 0. If stunned, knocked down, or in terminal state, clear pending combos and abort
+    if (
+      cpu.hitStun > 0 ||
+      cpu.blockStun > 0 ||
+      cpu.isKnockedDown() ||
+      cpu.state === 'victory' ||
+      cpu.state === 'defeat'
+    ) {
+      this.pendingCombo = [];
+      this.isBlockingIntent = false;
+      cpu.isHoldingBlock = false;
+      cpu.isHoldingBack = false;
+      cpu.isHoldingCrouch = false;
+      return;
+    }
+
+    // 1. Active Combo Chain Execution during Cancel Window
+    if (this.pendingCombo.length > 0 && cpu.isAttacking() && cpu.currentAttack) {
+      const move = cpu.character.moves[cpu.currentAttack];
+      // Wait until active frames have started
+      if (cpu.frameInState >= move.startupFrames) {
+        if (cpu.hasHitConnected) {
+          const nextCmd = this.pendingCombo[0];
+          const requestedAttack: AttackType =
+            nextCmd === 'down_kick' ? 'sweep' : (nextCmd as AttackType);
+          const triggered = cpu.triggerAttack(requestedAttack, currentFrame, nextCmd);
+          if (triggered) {
+            this.pendingCombo.shift();
+          }
+        } else if (cpu.frameInState >= move.startupFrames + move.activeFrames) {
+          // Attack whiffed or was blocked; abort follow-up combo string
+          this.pendingCombo = [];
+        }
+      }
+      return;
+    }
+
+    // If still mid-attack or airborne without a pending cancel, wait until actionable
     if (!cpu.canAct()) {
       return;
     }
@@ -37,35 +76,44 @@ export class CPUController {
     const distance = Math.abs(cpu.x - player.x);
     const playerAttacking = player.isAttacking();
 
-    // 1. Reactive Defense (Human-like reaction delay, no unfair instant input-reading)
-    if (playerAttacking && !this.isBlockingIntent && this.reactionTimer === 0) {
-      // Roll chance to react and defend
-      const reactionDelay = this.difficulty === 'easy' ? 24 : this.difficulty === 'normal' ? 14 : 7;
-      const blockChance = this.difficulty === 'easy' ? 0.35 : this.difficulty === 'normal' ? 0.70 : 0.90;
+    // 2. Reactive Defense (Human-like reaction delay, no unfair instant input-reading)
+    if (playerAttacking && distance < 170 && !this.isBlockingIntent && this.reactionTimer === 0) {
+      const reactionDelay =
+        this.difficulty === 'easy' ? 18 : this.difficulty === 'normal' ? 10 : 4;
+      const blockChance =
+        this.difficulty === 'easy' ? 0.35 : this.difficulty === 'normal' ? 0.70 : 0.90;
 
-      if (Math.random() < blockChance) {
+      if (this.rng() < blockChance) {
         this.reactionTimer = reactionDelay;
+      } else {
+        this.reactionTimer = -1; // Failed reaction roll for this attack
       }
     }
 
-    if (this.reactionTimer > 0) {
+    if (!playerAttacking) {
+      this.reactionTimer = 0;
+      if (this.isBlockingIntent) {
+        this.isBlockingIntent = false;
+        cpu.isHoldingBlock = false;
+        cpu.isHoldingBack = false;
+        cpu.isHoldingCrouch = false;
+      }
+    } else if (this.reactionTimer > 0) {
       this.reactionTimer--;
-      if (this.reactionTimer === 0 && playerAttacking) {
+      if (this.reactionTimer === 0) {
         this.isBlockingIntent = true;
       }
     }
 
-    // Release block if player is no longer attacking
-    if (!playerAttacking && this.isBlockingIntent) {
-      this.isBlockingIntent = false;
-      cpu.isHoldingBlock = false;
-      cpu.isHoldingCrouch = false;
-    }
-
-    if (this.isBlockingIntent) {
+    if (this.isBlockingIntent && playerAttacking) {
       cpu.isHoldingBlock = true;
-      // Match low sweep attacks if on Hard/Normal
-      if ((this.difficulty === 'hard' || (this.difficulty === 'normal' && Math.random() < 0.6)) && player.state === 'sweep') {
+      cpu.isHoldingBack = true;
+      // Match low sweep attacks on Hard/Normal
+      const shouldBlockLow =
+        player.state === 'sweep' &&
+        (this.difficulty === 'hard' || (this.difficulty === 'normal' && this.rng() < 0.65));
+
+      if (shouldBlockLow) {
         cpu.isHoldingCrouch = true;
         cpu.changeState('crouch_block');
       } else {
@@ -76,106 +124,129 @@ export class CPUController {
     }
 
     cpu.isHoldingBlock = false;
+    cpu.isHoldingBack = false;
     cpu.isHoldingCrouch = false;
 
-    // 2. Combo Execution
-    if (this.pendingCombo.length > 0) {
-      this.comboStepTimer++;
-      if (this.comboStepTimer >= 8) {
-        const nextAttack = this.pendingCombo.shift()!;
-        this.comboStepTimer = 0;
-        cpu.triggerAttack(nextAttack, currentFrame);
+    // 3. Recovery Punishment / Counter Opportunity (Hard & Normal)
+    if (
+      this.difficulty !== 'easy' &&
+      distance < 105 &&
+      player.isAttacking() &&
+      player.currentAttack
+    ) {
+      const pMove = player.character.moves[player.currentAttack];
+      const inRecovery = player.frameInState >= pMove.startupFrames + pMove.activeFrames;
+      if (inRecovery) {
+        const punishChance = this.difficulty === 'hard' ? 0.85 : 0.50;
+        if (this.rng() < punishChance) {
+          this.initiateCloseAttackOrCombo(cpu, currentFrame);
+          return;
+        }
       }
-      return;
     }
 
-    // 3. Strategic Decision Cycle
-    this.decisionTimer--;
+    // 4. Strategic Decision Cycle
     if (this.decisionTimer > 0) {
+      this.decisionTimer--;
       return;
     }
 
-    // Reset decision timer based on difficulty
-    const baseInterval = this.difficulty === 'easy' ? 26 : this.difficulty === 'normal' ? 14 : 8;
-    this.decisionTimer = baseInterval + Math.floor(Math.random() * 8);
+    const baseInterval =
+      this.difficulty === 'easy' ? 24 : this.difficulty === 'normal' ? 12 : 6;
+    this.decisionTimer = baseInterval + Math.floor(this.rng() * 6);
 
-    // Super Attack Opportunity (when meter is 100)
-    if (cpu.meter >= 100 && distance < 180) {
-      const superChance = this.difficulty === 'easy' ? 0.4 : this.difficulty === 'normal' ? 0.75 : 0.92;
-      if (Math.random() < superChance) {
-        cpu.triggerAttack('super', currentFrame);
+    // 5. Super Attack Opportunity (when meter is 100 and within range)
+    if (cpu.meter >= 100 && distance < 165 && !player.isInvulnerable()) {
+      const superChance =
+        this.difficulty === 'easy' ? 0.40 : this.difficulty === 'normal' ? 0.75 : 0.92;
+      if (this.rng() < superChance) {
+        if (cpu.triggerAttack('super', currentFrame, 'super')) {
+          return;
+        }
+      }
+    }
+
+    // 6. Anti-Air Response (when player is jumping in close)
+    if (player.isAirborne(groundY) && distance < 120) {
+      const antiAirChance =
+        this.difficulty === 'easy' ? 0.25 : this.difficulty === 'normal' ? 0.65 : 0.88;
+      if (this.rng() < antiAirChance) {
+        cpu.triggerAttack('forward_punch', currentFrame, 'forward_punch');
         return;
       }
     }
 
-    // Anti-Air check: if player is jumping in close
-    if (player.isAirborne(groundY) && distance < 110) {
-      if (this.difficulty !== 'easy' && Math.random() < 0.65) {
-        cpu.triggerAttack('forward_punch', currentFrame);
-        return;
-      }
-    }
-
-    // Distance-based Behaviors
+    // 7. Distance-Based Spacing & Offence
     if (distance > 220) {
-      // Far range: close the distance
-      const roll = Math.random();
-      if (roll < 0.70) {
+      // Far range: approach or jump in
+      const roll = this.rng();
+      if (roll < 0.72) {
         cpu.changeState('walk_forward');
       } else if (roll < 0.88) {
-        // Jump forward
         cpu.changeState('jump');
         cpu.vy = cpu.character.stats.jumpVelocity;
         cpu.vx = cpu.character.stats.walkSpeed * cpu.facing * 0.9;
       } else {
         cpu.changeState('idle');
       }
-    } else if (distance >= 75 && distance <= 220) {
-      // Mid range: spacing and poke strikes
-      const roll = Math.random();
-      if (roll < 0.35) {
+    } else if (distance >= 80 && distance <= 220) {
+      // Mid range: spacing, pokes, and footsies
+      const roll = this.rng();
+      if (roll < 0.38) {
         cpu.changeState('walk_forward');
-      } else if (roll < 0.55) {
-        cpu.triggerAttack('forward_punch', currentFrame);
-      } else if (roll < 0.75) {
-        cpu.triggerAttack('forward_kick', currentFrame);
-      } else if (roll < 0.88) {
+      } else if (roll < 0.58) {
+        cpu.triggerAttack('forward_punch', currentFrame, 'forward_punch');
+      } else if (roll < 0.78) {
+        cpu.triggerAttack('forward_kick', currentFrame, 'forward_kick');
+      } else if (roll < 0.90) {
         cpu.changeState('walk_backward');
       } else {
         cpu.changeState('idle');
       }
     } else {
-      // Close range (< 75px): combos, jabs, sweeps, grabs
-      const roll = Math.random();
+      // Close range (< 80px): combos, sweeps, grabs, or tactical retreat
+      this.initiateCloseAttackOrCombo(cpu, currentFrame, player.isBlocking());
+    }
+  }
 
-      if (roll < 0.28) {
-        // Light punch / initiate combo
-        cpu.triggerAttack('punch', currentFrame);
-
-        if (this.difficulty !== 'easy') {
-          // Queue up combo follow-ups
-          const comboChoice = Math.random();
-          if (comboChoice < 0.45) {
-            this.pendingCombo = ['punch', 'kick']; // J-J-K
-          } else if (comboChoice < 0.80) {
-            this.pendingCombo = ['kick', 'kick']; // J-K-K
-          } else {
-            this.pendingCombo = ['punch', 'punch']; // J-J-J
-          }
-        }
-      } else if (roll < 0.50) {
-        // Kick
-        cpu.triggerAttack('kick', currentFrame);
-      } else if (roll < 0.72) {
-        // Low sweep
-        cpu.triggerAttack('sweep', currentFrame);
-      } else if (roll < 0.88) {
-        // Grab / Throw
-        cpu.triggerAttack('grab', currentFrame);
-      } else {
-        // Step back for spacing
-        cpu.changeState('walk_backward');
+  private initiateCloseAttackOrCombo(
+    cpu: Fighter,
+    currentFrame: number,
+    opponentIsBlocking: boolean = false
+  ): void {
+    // If opponent is turtling/blocking at close range, prioritize Grab or Low Sweep
+    if (opponentIsBlocking && this.difficulty !== 'easy') {
+      const mixupRoll = this.rng();
+      if (mixupRoll < 0.55) {
+        cpu.triggerAttack('grab', currentFrame, 'grab');
+        return;
+      } else if (mixupRoll < 0.85) {
+        cpu.triggerAttack('sweep', currentFrame, 'sweep');
+        return;
       }
+    }
+
+    const roll = this.rng();
+    if (roll < 0.42) {
+      const started = cpu.triggerAttack('punch', currentFrame, 'punch');
+      if (started && this.difficulty !== 'easy') {
+        const comboRoll = this.rng();
+        if (comboRoll < 0.40) {
+          this.pendingCombo = ['punch', 'kick']; // J-J-K
+        } else if (comboRoll < 0.75) {
+          this.pendingCombo = ['kick', 'kick']; // J-K-K
+        } else {
+          this.pendingCombo = ['punch', 'punch']; // J-J-J
+        }
+      }
+    } else if (roll < 0.62) {
+      cpu.triggerAttack('kick', currentFrame, 'kick');
+    } else if (roll < 0.78) {
+      cpu.triggerAttack('sweep', currentFrame, 'sweep');
+    } else if (roll < 0.92) {
+      cpu.triggerAttack('grab', currentFrame, 'grab');
+    } else {
+      cpu.changeState('walk_backward');
     }
   }
 }

@@ -1,5 +1,6 @@
 import { AttackType, FighterId, FighterStateName } from '../types/fighter';
 import { Fighter } from './Fighter';
+import { HitboxSystem } from './HitboxSystem';
 
 export interface VisualEffect {
   x: number;
@@ -16,6 +17,10 @@ export interface VisualEffect {
 
 export class SpriteRenderer {
   public static effects: VisualEffect[] = [];
+
+  public static clearEffects(): void {
+    SpriteRenderer.effects.length = 0;
+  }
 
   public static addHitspark(x: number, y: number, isBlocked: boolean, isHeavy: boolean): void {
     if (isBlocked) {
@@ -141,6 +146,75 @@ export class SpriteRenderer {
       }
       ctx.restore();
     }
+  }
+
+  /**
+   * Render debug visualization for hurtboxes, active/startup/recovery hitboxes, origin, and facing
+   */
+  public static renderDebugOverlay(ctx: CanvasRenderingContext2D, fighter: Fighter): void {
+    ctx.save();
+
+    // 1. Hurtbox (Green when normal, Cyan when blocking, Gray when invulnerable)
+    const hurtbox = HitboxSystem.getHurtbox(fighter.x, fighter.y, fighter.state, fighter.facing);
+    if (fighter.isInvulnerable()) {
+      ctx.strokeStyle = 'rgba(148, 163, 184, 0.9)';
+      ctx.fillStyle = 'rgba(148, 163, 184, 0.2)';
+    } else if (fighter.isBlocking()) {
+      ctx.strokeStyle = 'rgba(56, 189, 248, 0.95)';
+      ctx.fillStyle = 'rgba(56, 189, 248, 0.22)';
+    } else {
+      ctx.strokeStyle = 'rgba(34, 197, 94, 0.95)';
+      ctx.fillStyle = 'rgba(34, 197, 94, 0.18)';
+    }
+    ctx.lineWidth = 2;
+    ctx.fillRect(hurtbox.x, hurtbox.y, hurtbox.w, hurtbox.h);
+    ctx.strokeRect(hurtbox.x, hurtbox.y, hurtbox.w, hurtbox.h);
+
+    // 2. Attack Hitbox (Red when active, Yellow during startup/recovery)
+    if (fighter.isAttacking() && fighter.currentAttack) {
+      const move = fighter.character.moves[fighter.currentAttack];
+      const hitbox = HitboxSystem.getAttackHitbox(
+        fighter.x,
+        fighter.y,
+        fighter.facing,
+        move.hitboxOffset
+      );
+      const isActive = fighter.isAttackActive();
+      ctx.strokeStyle = isActive ? 'rgba(239, 68, 68, 1)' : 'rgba(250, 204, 21, 0.85)';
+      ctx.fillStyle = isActive ? 'rgba(239, 68, 68, 0.35)' : 'rgba(250, 204, 21, 0.15)';
+      ctx.lineWidth = isActive ? 3 : 1.5;
+      ctx.fillRect(hitbox.x, hitbox.y, hitbox.w, hitbox.h);
+      ctx.strokeRect(hitbox.x, hitbox.y, hitbox.w, hitbox.h);
+    }
+
+    // 3. Fighter Origin Crosshair & Facing Vector
+    ctx.strokeStyle = '#FFFFFF';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(fighter.x - 8, fighter.y);
+    ctx.lineTo(fighter.x + 8, fighter.y);
+    ctx.moveTo(fighter.x, fighter.y - 8);
+    ctx.lineTo(fighter.x, fighter.y + 8);
+    ctx.stroke();
+
+    // Facing direction arrow
+    ctx.strokeStyle = '#F59E0B';
+    ctx.beginPath();
+    ctx.moveTo(fighter.x, fighter.y - 50);
+    ctx.lineTo(fighter.x + fighter.facing * 28, fighter.y - 50);
+    ctx.stroke();
+
+    // State & Frame Telemetry Label
+    ctx.font = '700 11px monospace';
+    ctx.fillStyle = '#FEF08A';
+    ctx.textAlign = 'center';
+    ctx.fillText(
+      `${fighter.state.toUpperCase()} [F:${fighter.frameInState}]`,
+      fighter.x,
+      hurtbox.y - 8
+    );
+
+    ctx.restore();
   }
 
   /**

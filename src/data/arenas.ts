@@ -23,7 +23,7 @@ export const ARENAS: Record<ArenaId, ArenaDef> = {
     subtitle: 'Studio Floor 7, Mumbai',
     description: 'A bustling Bollywood production set featuring high-tech crane cameras, boom microphones, scaffolding with halogen lights, and iconic vintage movie posters.',
     ambientColor: '#0F172A',
-    groundY: 580,
+    groundY: 568,
     stageWidth: 1280,
     themeFeatures: [
       'Articulated Crane Camera Rig',
