@@ -2,6 +2,7 @@ import React from 'react';
 import { GameBridge } from '../engine/GameBridge';
 import { CHARACTERS } from '../data/characters';
 import { AudioManager } from '../engine/AudioManager';
+import { getCharacterMonogram } from '../game3d/characters/CharacterRoster3D';
 import { Trophy, RefreshCw, Users, Home } from 'lucide-react';
 
 interface ResultsModalProps {
@@ -46,7 +47,14 @@ export const ResultsModal: React.FC<ResultsModalProps> = ({
         {/* WINNER QUOTE DOSSIER */}
         <div className="my-4 w-full bg-black/40 border border-[#D6A447]/40 rounded-lg p-3 text-left">
           <div className="flex items-center gap-2 text-xs font-['Cinzel'] font-black text-[#D6A447]">
-            <span>{winnerChar.visuals.avatarIcon}</span>
+            <span
+              className="w-6 h-6 rounded flex items-center justify-center font-['Bungee'] text-[10px] text-[#FEF08A] border border-[#FEF08A]/60"
+              style={{
+                background: `linear-gradient(135deg, ${winnerChar.visuals.primaryColor}, ${winnerChar.visuals.secondaryColor})`,
+              }}
+            >
+              {getCharacterMonogram(winnerChar.id)}
+            </span>
             <span>WINNER DIALOGUE:</span>
           </div>
           <p className="mt-1 text-sm font-semibold text-[#FEF08A] italic">

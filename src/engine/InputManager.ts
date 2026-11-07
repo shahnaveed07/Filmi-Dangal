@@ -1,6 +1,10 @@
+import { InputFrame } from '../types/fighter';
+
 export interface InputSnapshot {
   moveLeft: boolean;
   moveRight: boolean;
+  sidestepUpHeld: boolean;
+  sidestepDownHeld: boolean;
   jumpJustPressed: boolean;
   jumpHeld: boolean;
   crouchHeld: boolean;
@@ -8,11 +12,41 @@ export interface InputSnapshot {
   punchJustPressed: boolean;
   kickJustPressed: boolean;
   grabJustPressed: boolean;
+  superShotJustPressed: boolean;
+  superMoveJustPressed: boolean;
   superJustPressed: boolean;
   pauseJustPressed: boolean;
   muteJustPressed: boolean;
   debugJustPressed: boolean;
 }
+
+export const EMPTY_INPUT_FRAME: InputFrame = {
+  left: false,
+  right: false,
+  up: false,
+  down: false,
+  sidestepUp: false,
+  sidestepDown: false,
+  jump: false,
+  crouch: false,
+  block: false,
+  punch: false,
+  kick: false,
+  grab: false,
+  superShot: false,
+  superMove: false,
+  special: false,
+  pause: false,
+  upJustPressed: false,
+  jumpJustPressed: false,
+  punchJustPressed: false,
+  kickJustPressed: false,
+  grabJustPressed: false,
+  superShotJustPressed: false,
+  superMoveJustPressed: false,
+  specialJustPressed: false,
+  pauseJustPressed: false,
+};
 
 export class InputManager {
   private static instance: InputManager;
@@ -53,7 +87,6 @@ export class InputManager {
   }
 
   private handleKeyDown(e: KeyboardEvent): void {
-    // Prevent default browser scrolling on gameplay navigation keys
     if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(e.code)) {
       const activeTag =
         typeof document !== 'undefined' ? document.activeElement?.tagName.toLowerCase() : '';
@@ -62,7 +95,6 @@ export class InputManager {
       }
     }
 
-    // Ignore OS key auto-repeat for edge-triggered actions
     if (e.repeat) {
       return;
     }
@@ -95,9 +127,6 @@ export class InputManager {
     this.clearAll();
   }
 
-  /**
-   * Release all held and edge-triggered keyboard and touch inputs
-   */
   public clearAll(): void {
     this.heldKeys.clear();
     this.justPressedKeys.clear();
@@ -106,16 +135,11 @@ export class InputManager {
     this.activeTouchPointers.clear();
   }
 
-  /**
-   * Release only active touch inputs (e.g. when pausing or hiding mobile controls)
-   */
   public clearTouchInputs(): void {
     this.virtualHeld.clear();
     this.virtualJustPressed.clear();
     this.activeTouchPointers.clear();
   }
-
-  // --- PROGRAMMATIC KEY SIMULATION FOR DETERMINISTIC TESTS ---
 
   public simulateKeyDown(key: string, code: string = key): void {
     const k = key.toLowerCase();
@@ -133,11 +157,8 @@ export class InputManager {
     this.heldKeys.delete(code.toLowerCase());
   }
 
-  // --- MOBILE MULTITOUCH API ---
-
   public onVirtualPointerDown(pointerId: number, control: string): void {
     const normalized = control.toLowerCase();
-    // If this pointer was previously on another control, release that control first
     if (this.activeTouchPointers.has(pointerId)) {
       const prevControl = this.activeTouchPointers.get(pointerId)!;
       if (prevControl !== normalized) {
@@ -156,7 +177,6 @@ export class InputManager {
     const control = this.activeTouchPointers.get(pointerId);
     if (control) {
       this.activeTouchPointers.delete(pointerId);
-      // Only remove from virtualHeld if no other active pointer is holding this same control
       let stillHeld = false;
       for (const val of this.activeTouchPointers.values()) {
         if (val === control) {
@@ -179,7 +199,8 @@ export class InputManager {
   }
 
   /**
-   * Produce 60Hz input snapshot and clear one-shot justPressed flags
+   * Produce 60Hz input snapshot supporting both 3D controls (WASD 3D movement, SPACE jump,
+   * CTRL crouch, SHIFT block, J punch, K kick, I grab, U SuperShot, L SuperMove) and touch inputs.
    */
   public pollSnapshot(): InputSnapshot {
     const isHeld = (keys: string[]): boolean => {
@@ -190,26 +211,62 @@ export class InputManager {
       return keys.some((k) => this.justPressedKeys.has(k) || this.virtualJustPressed.has(k));
     };
 
+    const superMoveJust = isJust(['l', 'keyl', 'supermove', 'super_move', 'super']);
+    const superShotJust = isJust(['u', 'keyu', 'supershot', 'super_shot']);
+
     const snapshot: InputSnapshot = {
       moveLeft: isHeld(['a', 'keya', 'arrowleft', 'left']),
       moveRight: isHeld(['d', 'keyd', 'arrowright', 'right']),
-      jumpJustPressed: isJust(['w', 'keyw', 'arrowup', 'up', 'jump']),
-      jumpHeld: isHeld(['w', 'keyw', 'arrowup', 'up', 'jump']),
-      crouchHeld: isHeld(['s', 'keys', 'arrowdown', 'down', 'crouch']),
-      blockHeld: isHeld(['b', 'keyb', 'block']),
+      sidestepUpHeld: isHeld(['w', 'keyw', 'arrowup', 'sidestep_up', 'up']),
+      sidestepDownHeld: isHeld(['s', 'keys', 'arrowdown', 'sidestep_down', 'down']),
+      jumpJustPressed: isJust([' ', 'space', 'jump', 'up']),
+      jumpHeld: isHeld([' ', 'space', 'jump', 'up']),
+      crouchHeld: isHeld(['control', 'controlleft', 'controlright', 'ctrl', 'c', 'keyc', 'crouch']),
+      blockHeld: isHeld(['shift', 'shiftleft', 'shiftright', 'b', 'keyb', 'block']),
       punchJustPressed: isJust(['j', 'keyj', 'punch']),
       kickJustPressed: isJust(['k', 'keyk', 'kick']),
       grabJustPressed: isJust(['i', 'keyi', 'grab']),
-      superJustPressed: isJust(['l', 'keyl', ' ', 'space', 'super']),
+      superShotJustPressed: superShotJust,
+      superMoveJustPressed: superMoveJust,
+      superJustPressed: superMoveJust,
       pauseJustPressed: isJust(['escape', 'p', 'keyp', 'pause']),
       muteJustPressed: isJust(['m', 'keym', 'mute']),
       debugJustPressed: isJust(['f2', 'h', 'keyh', 'debug']),
     };
 
-    // Clear edge-triggered one-shot keys for next frame
     this.justPressedKeys.clear();
     this.virtualJustPressed.clear();
 
     return snapshot;
+  }
+
+  public snapshotToInputFrame(snap: InputSnapshot): InputFrame {
+    return {
+      left: snap.moveLeft,
+      right: snap.moveRight,
+      up: snap.sidestepUpHeld,
+      down: snap.sidestepDownHeld,
+      sidestepUp: snap.sidestepUpHeld,
+      sidestepDown: snap.sidestepDownHeld,
+      jump: snap.jumpHeld,
+      crouch: snap.crouchHeld,
+      block: snap.blockHeld,
+      punch: snap.punchJustPressed,
+      kick: snap.kickJustPressed,
+      grab: snap.grabJustPressed,
+      superShot: snap.superShotJustPressed,
+      superMove: snap.superMoveJustPressed,
+      special: snap.superMoveJustPressed,
+      pause: snap.pauseJustPressed,
+      upJustPressed: snap.jumpJustPressed,
+      jumpJustPressed: snap.jumpJustPressed,
+      punchJustPressed: snap.punchJustPressed,
+      kickJustPressed: snap.kickJustPressed,
+      grabJustPressed: snap.grabJustPressed,
+      superShotJustPressed: snap.superShotJustPressed,
+      superMoveJustPressed: snap.superMoveJustPressed,
+      specialJustPressed: snap.superMoveJustPressed,
+      pauseJustPressed: snap.pauseJustPressed,
+    };
   }
 }

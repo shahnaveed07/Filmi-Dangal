@@ -56,10 +56,10 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
       <div className="relative z-10 w-full max-w-5xl flex items-center justify-between">
         <div className="flex items-center gap-2">
           <span className="px-2.5 py-1 bg-[#BE123C] text-[#FEF08A] font-black text-xs uppercase tracking-widest rounded border border-[#D6A447]">
-            V1.0 ARCADE
+            V2.0 3D EDITION
           </span>
           <span className="text-xs text-[#D6A447] tracking-wider font-['Rajdhani'] font-bold hidden sm:inline">
-            ORIGINAL BOLLYWOOD 2D FIGHTER
+            BABYLON.JS 3D BOLLYWOOD ARCADE FIGHTER
           </span>
         </div>
 
@@ -91,7 +91,7 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
         <div className="flex items-center gap-2 mb-2">
           <span className="text-[#D6A447] text-base sm:text-xl">★ ★ ★</span>
           <span className="font-bold text-[#F1E7D0] tracking-widest text-sm sm:text-base font-['Cinzel']">
-            फ़िल्मी दंगल
+            फ़िल्मी दंगल 3D
           </span>
           <span className="text-[#D6A447] text-base sm:text-xl">★ ★ ★</span>
         </div>
@@ -110,7 +110,7 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
         </h2>
 
         <p className="mt-2 text-xs sm:text-sm text-[#F1E7D0]/70 max-w-lg font-['Rajdhani'] font-semibold">
-          Classic 90s fighting game engine meets the explosive action, romance, rhythm, and villainy of Indian cinema.
+          Full 3D cinematic fighting engine with articulated 3D superstars, 3D arenas, ranged SuperShots, and blockbuster SuperMoves.
         </p>
 
         {/* PRIMARY ACTIONS CTAS */}
@@ -125,7 +125,7 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
             className="w-full py-4 px-6 bg-gradient-to-r from-[#BE123C] via-[#DC2626] to-[#D97706] hover:brightness-110 text-white font-['Bungee'] text-base sm:text-lg tracking-wider rounded border-2 border-[#FEF08A] shadow-[0_0_24px_rgba(220,38,38,0.6)] active:scale-98 transition-all flex items-center justify-center gap-2 cursor-pointer"
           >
             <Swords size={22} className="text-[#FEF08A]" />
-            <span>START ARCADE</span>
+            <span>START 3D ARCADE</span>
           </button>
 
           {/* VERSUS CPU CTA */}
@@ -151,7 +151,7 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
             className="flex items-center gap-1.5 hover:text-[#FEF08A] transition-colors py-1 px-2.5 rounded bg-black/40 border border-transparent hover:border-[#D6A447]/40 cursor-pointer"
           >
             <BookOpen size={14} />
-            <span>MOVE LIST & COMBOS</span>
+            <span>MOVE LIST &amp; COMBOS</span>
           </button>
 
           <button
@@ -170,7 +170,7 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
       {/* BOTTOM SAFE MARGIN: CLEAN FLAT CONTROL HINT LINE */}
       <div className="relative z-10 w-full text-center py-2 border-t border-[#D6A447]/20">
         <p className="font-mono text-xs sm:text-sm text-[#F1E7D0]/60 tracking-wider">
-          <span className="text-[#FDE047] font-bold">WASD</span> Move · <span className="text-[#FDE047] font-bold">J</span> Punch · <span className="text-[#FDE047] font-bold">K</span> Kick · <span className="text-[#FDE047] font-bold">I</span> Grab · <span className="text-[#FDE047] font-bold">Space/L</span> Super · <span className="text-[#FDE047] font-bold">Esc</span> Pause
+          <span className="text-[#FDE047] font-bold">WASD</span> 3D Move · <span className="text-[#FDE047] font-bold">Space</span> Jump · <span className="text-[#FDE047] font-bold">Ctrl</span> Crouch · <span className="text-[#FDE047] font-bold">Shift</span> Block · <span className="text-[#FDE047] font-bold">J/K/I</span> Attack · <span className="text-[#38BDF8] font-bold">U</span> SuperShot · <span className="text-[#FDE047] font-bold">L</span> SuperMove
         </p>
       </div>
     </div>

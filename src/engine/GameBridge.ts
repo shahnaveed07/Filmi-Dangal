@@ -40,6 +40,11 @@ export interface GameHUDState {
   isPaused: boolean;
   isMuted: boolean;
   debugHitboxes?: boolean;
+  p1SuperShotCooldown?: number;
+  p2SuperShotCooldown?: number;
+  p1SuperMoveName?: string;
+  p1SuperShotName?: string;
+  activeSpecialCallout?: string;
 }
 
 export type StateListener = (state: GameHUDState) => void;

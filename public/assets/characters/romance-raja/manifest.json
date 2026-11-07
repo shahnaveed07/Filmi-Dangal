@@ -1,0 +1,92 @@
+{
+  "characterId": "romance_raja",
+  "characterName": "ROMANCE RAJA",
+  "inspiration": "Shah Rukh Khan-inspired (Configurable Parody Persona)",
+  "productionStatus": "STAGE_2_INTEGRATED",
+  "format": "glTF 2.0 Binary (.glb)",
+  "modelFile": "/assets/characters/romance-raja/model.glb",
+  "groundOrigin": [
+    0,
+    0,
+    0
+  ],
+  "forwardOrientation": "+Z",
+  "skeletonStandard": "FilmiDangal_SharedHumanoid_26",
+  "bones": [
+    "Root",
+    "Hips",
+    "Spine",
+    "Chest",
+    "Neck",
+    "Head",
+    "Hair",
+    "Jaw",
+    "LeftBrow",
+    "RightBrow",
+    "LeftEyelid",
+    "RightEyelid",
+    "LeftShoulder",
+    "LeftUpperArm",
+    "LeftForeArm",
+    "LeftHand",
+    "RightShoulder",
+    "RightUpperArm",
+    "RightForeArm",
+    "RightHand",
+    "LeftUpLeg",
+    "LeftLeg",
+    "LeftFoot",
+    "RightUpLeg",
+    "RightLeg",
+    "RightFoot"
+  ],
+  "facialRigNodes": [
+    "Jaw",
+    "LeftBrow",
+    "RightBrow",
+    "LeftEyelid",
+    "RightEyelid"
+  ],
+  "lodLevels": [
+    "LOD0_High",
+    "LOD1_Medium",
+    "LOD2_Low"
+  ],
+  "materials": [
+    "romance_raja_Pants_PBR",
+    "romance_raja_Costume_Primary_PBR",
+    "romance_raja_Skin_Subsurface_PBR",
+    "romance_raja_Hair_And_Boots_PBR",
+    "romance_raja_Signature_Accessory_PBR"
+  ],
+  "specialAttacks": {
+    "superShot": {
+      "name": "DIL SE PULSE",
+      "animationClip": "Anim_RR_SuperShot_DilSePulse"
+    },
+    "superMove": {
+      "name": "BAADSHAH'S GRAND GESTURE",
+      "animationClip": "Anim_RR_SuperMove_BaadshahGrandGesture"
+    }
+  },
+  "documentedAnimations": [
+    "Idle",
+    "Walk",
+    "Run",
+    "Sidestep",
+    "Jump",
+    "Crouch",
+    "Block",
+    "Punch",
+    "Kick",
+    "Grab",
+    "HitReaction",
+    "Knockback",
+    "Knockdown",
+    "Recovery",
+    "Victory",
+    "Defeat",
+    "Anim_RR_SuperShot_DilSePulse",
+    "Anim_RR_SuperMove_BaadshahGrandGesture"
+  ]
+}

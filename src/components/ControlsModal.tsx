@@ -18,7 +18,7 @@ export const ControlsModal: React.FC<ControlsModalProps> = ({ onClose }) => {
           <div className="flex items-center gap-2">
             <Swords size={22} className="text-[#F59E0B]" />
             <h2 className="font-['Bungee'] text-xl sm:text-2xl text-[#FEF08A] tracking-wider">
-              HOW TO PLAY & COMBOS
+              3D CONTROLS &amp; COMBAT SYSTEM
             </h2>
           </div>
           <button
@@ -39,20 +39,24 @@ export const ControlsModal: React.FC<ControlsModalProps> = ({ onClose }) => {
           <div className="bg-black/40 border border-[#D6A447]/30 rounded-lg p-3.5">
             <div className="flex items-center gap-2 text-xs font-['Cinzel'] font-black text-[#D6A447] mb-2 uppercase">
               <Keyboard size={16} />
-              <span>KEYBOARD CONTROLS</span>
+              <span>DESKTOP 3D CONTROLS</span>
             </div>
             <div className="space-y-1.5 text-xs font-mono text-[#F1E7D0]">
               <div className="flex justify-between border-b border-white/10 pb-1">
-                <span>MOVE / WALK</span>
-                <span className="font-bold text-[#FDE047]">A / D or LEFT / RIGHT</span>
+                <span>3D MOVEMENT &amp; SIDESTEP</span>
+                <span className="font-bold text-[#FDE047]">W / A / S / D</span>
               </div>
               <div className="flex justify-between border-b border-white/10 pb-1">
                 <span>JUMP</span>
-                <span className="font-bold text-[#FDE047]">W or UP</span>
+                <span className="font-bold text-[#FDE047]">SPACE</span>
               </div>
               <div className="flex justify-between border-b border-white/10 pb-1">
                 <span>CROUCH</span>
-                <span className="font-bold text-[#FDE047]">S or DOWN</span>
+                <span className="font-bold text-[#FDE047]">CTRL or C</span>
+              </div>
+              <div className="flex justify-between border-b border-white/10 pb-1">
+                <span>BLOCK / GUARD</span>
+                <span className="font-bold text-[#FDE047]">SHIFT or B</span>
               </div>
               <div className="flex justify-between border-b border-white/10 pb-1">
                 <span>PUNCH</span>
@@ -63,43 +67,43 @@ export const ControlsModal: React.FC<ControlsModalProps> = ({ onClose }) => {
                 <span className="font-bold text-[#FDE047]">K</span>
               </div>
               <div className="flex justify-between border-b border-white/10 pb-1">
-                <span>GRAB / THROW</span>
+                <span>GRAB (BREAKS GUARD)</span>
                 <span className="font-bold text-[#FDE047]">I</span>
               </div>
               <div className="flex justify-between border-b border-white/10 pb-1">
-                <span>SUPER ATTACK</span>
-                <span className="font-bold text-[#FDE047]">SPACE or L (100 Meter)</span>
+                <span>SUPERSHOT (RANGED)</span>
+                <span className="font-bold text-[#38BDF8]">U (25% Meter)</span>
               </div>
               <div className="flex justify-between border-b border-white/10 pb-1">
-                <span>BLOCK / GUARD</span>
-                <span className="font-bold text-[#FDE047]">HOLD AWAY or B</span>
+                <span>SUPERMOVE (FINISHER)</span>
+                <span className="font-bold text-[#FDE047]">L (100% Meter)</span>
               </div>
               <div className="flex justify-between">
-                <span>PAUSE / MUTE</span>
-                <span className="font-bold text-[#FDE047]">ESC or P / M</span>
+                <span>PAUSE / DEBUG HITBOXES</span>
+                <span className="font-bold text-[#FDE047]">ESC / F2</span>
               </div>
             </div>
           </div>
 
-          {/* MOBILE MULTITOUCH & TACTICS */}
+          {/* MOBILE MULTITOUCH & 3D TACTICS */}
           <div className="bg-black/40 border border-[#D6A447]/30 rounded-lg p-3.5 flex flex-col justify-between">
             <div>
               <div className="flex items-center gap-2 text-xs font-['Cinzel'] font-black text-[#D6A447] mb-2 uppercase">
                 <Smartphone size={16} />
-                <span>MOBILE MULTITOUCH</span>
+                <span>3D ARENA &amp; MOBILE TOUCH</span>
               </div>
               <p className="text-xs text-[#F1E7D0]/80 leading-relaxed mb-3">
-                Seamless on-screen virtual controls. Left side provides full 4-directional movement, while right side exposes snappy Arcade Buttons with independent Pointer tracking for simultaneous multi-finger inputs!
+                Use W/S or Step In/Out on mobile to sidestep along the Z-axis and evade incoming 3D SuperShot projectiles or linear charges!
               </p>
             </div>
 
             <div className="p-2.5 bg-[#BE123C]/20 border border-[#BE123C] rounded text-xs space-y-1">
               <div className="flex items-center gap-1.5 font-bold text-[#FEF08A]">
                 <Shield size={14} />
-                <span>BLOCKING MECHANICS</span>
+                <span>3D GUARD &amp; SIGNATURE MOVES</span>
               </div>
               <p className="text-[11px] text-white/80">
-                Hold AWAY from opponent or tap GUARD. Standing block stops High/Mid strikes. Crouch block stops Low Sweeps. Grabs bypass regular standing guard!
+                Hold SHIFT or GUARD to block high/mid attacks and projectiles. Press U for your ranged SuperShot (25% meter) and L at 100% meter to trigger your cinematic SuperMove finisher!
               </p>
             </div>
           </div>

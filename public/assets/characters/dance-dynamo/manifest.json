@@ -1,0 +1,92 @@
+{
+  "characterId": "dance_dynamo",
+  "characterName": "DANCE DYNAMO",
+  "inspiration": "Hrithik Roshan-inspired (Configurable Parody Persona)",
+  "productionStatus": "STAGE_2_INTEGRATED",
+  "format": "glTF 2.0 Binary (.glb)",
+  "modelFile": "/assets/characters/dance-dynamo/model.glb",
+  "groundOrigin": [
+    0,
+    0,
+    0
+  ],
+  "forwardOrientation": "+Z",
+  "skeletonStandard": "FilmiDangal_SharedHumanoid_26",
+  "bones": [
+    "Root",
+    "Hips",
+    "Spine",
+    "Chest",
+    "Neck",
+    "Head",
+    "Hair",
+    "Jaw",
+    "LeftBrow",
+    "RightBrow",
+    "LeftEyelid",
+    "RightEyelid",
+    "LeftShoulder",
+    "LeftUpperArm",
+    "LeftForeArm",
+    "LeftHand",
+    "RightShoulder",
+    "RightUpperArm",
+    "RightForeArm",
+    "RightHand",
+    "LeftUpLeg",
+    "LeftLeg",
+    "LeftFoot",
+    "RightUpLeg",
+    "RightLeg",
+    "RightFoot"
+  ],
+  "facialRigNodes": [
+    "Jaw",
+    "LeftBrow",
+    "RightBrow",
+    "LeftEyelid",
+    "RightEyelid"
+  ],
+  "lodLevels": [
+    "LOD0_High",
+    "LOD1_Medium",
+    "LOD2_Low"
+  ],
+  "materials": [
+    "dance_dynamo_Pants_PBR",
+    "dance_dynamo_Costume_Primary_PBR",
+    "dance_dynamo_Skin_Subsurface_PBR",
+    "dance_dynamo_Hair_And_Boots_PBR",
+    "dance_dynamo_Signature_Accessory_PBR"
+  ],
+  "specialAttacks": {
+    "superShot": {
+      "name": "BEAT DROP",
+      "animationClip": "Anim_DD_SuperShot_BeatDrop"
+    },
+    "superMove": {
+      "name": "RHYTHM OVERDRIVE",
+      "animationClip": "Anim_DD_SuperMove_RhythmOverdrive"
+    }
+  },
+  "documentedAnimations": [
+    "Idle",
+    "Walk",
+    "Run",
+    "Sidestep",
+    "Jump",
+    "Crouch",
+    "Block",
+    "Punch",
+    "Kick",
+    "Grab",
+    "HitReaction",
+    "Knockback",
+    "Knockdown",
+    "Recovery",
+    "Victory",
+    "Defeat",
+    "Anim_DD_SuperShot_BeatDrop",
+    "Anim_DD_SuperMove_RhythmOverdrive"
+  ]
+}

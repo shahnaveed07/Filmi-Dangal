@@ -3,7 +3,9 @@ import { CHARACTER_LIST, CHARACTERS } from '../data/characters';
 import { Difficulty, FighterId } from '../types/fighter';
 import { GameBridge } from '../engine/GameBridge';
 import { AudioManager } from '../engine/AudioManager';
-import { ArrowLeft, Swords, Sparkles } from 'lucide-react';
+import { CharacterPreview3D } from '../game3d/scenes/CharacterPreview3D';
+import { getCharacterMonogram } from '../game3d/characters/CharacterRoster3D';
+import { ArrowLeft, Swords, Sparkles, Crosshair, Flame } from 'lucide-react';
 
 interface CharacterSelectProps {
   onBack: () => void;
@@ -34,7 +36,6 @@ export const CharacterSelect: React.FC<CharacterSelectProps> = ({ onBack, onProc
       const prevP1 = p1Id;
       setP1Id(id);
       bridge.p1CharacterId = id;
-      // Enforce P1 and CPU cannot share the same character
       if (p2Id === id) {
         const replacement =
           prevP1 !== id
@@ -47,7 +48,6 @@ export const CharacterSelect: React.FC<CharacterSelectProps> = ({ onBack, onProc
       const prevP2 = p2Id;
       setP2Id(id);
       bridge.p2CharacterId = id;
-      // Enforce P1 and CPU cannot share the same character
       if (p1Id === id) {
         const replacement =
           prevP2 !== id
@@ -66,9 +66,9 @@ export const CharacterSelect: React.FC<CharacterSelectProps> = ({ onBack, onProc
   };
 
   return (
-    <div className="relative w-full h-full min-h-screen bg-[#10111B] flex flex-col justify-between p-4 sm:p-6 select-none overflow-y-auto">
+    <div className="relative w-full h-full min-h-screen bg-[#10111B] flex flex-col justify-between p-3 sm:p-5 select-none overflow-y-auto">
       {/* TOP HEADER */}
-      <div className="w-full max-w-6xl mx-auto flex items-center justify-between border-b border-[#D6A447]/30 pb-3">
+      <div className="w-full max-w-6xl mx-auto flex items-center justify-between border-b border-[#D6A447]/30 pb-2.5">
         <button
           onClick={() => {
             audio.playSound('click');
@@ -80,8 +80,8 @@ export const CharacterSelect: React.FC<CharacterSelectProps> = ({ onBack, onProc
           <span>RETURN TO TITLE</span>
         </button>
 
-        <h1 className="font-['Bungee'] text-xl sm:text-3xl text-transparent bg-clip-text bg-gradient-to-r from-[#FEF08A] to-[#D6A447] tracking-wider text-center">
-          CHOOSE YOUR FIGHTER
+        <h1 className="font-['Bungee'] text-lg sm:text-2xl text-transparent bg-clip-text bg-gradient-to-r from-[#FEF08A] to-[#D6A447] tracking-wider text-center">
+          CHOOSE YOUR 3D FIGHTER
         </h1>
 
         {/* DIFFICULTY SELECTOR */}
@@ -101,14 +101,14 @@ export const CharacterSelect: React.FC<CharacterSelectProps> = ({ onBack, onProc
       </div>
 
       {/* MAIN SELECTION ARENA CONTAINER */}
-      <div className="w-full max-w-6xl mx-auto my-auto grid grid-cols-1 lg:grid-cols-12 gap-5 py-4">
+      <div className="w-full max-w-6xl mx-auto my-auto grid grid-cols-1 lg:grid-cols-12 gap-4 py-3">
         {/* LEFT / CENTER: ROSTER GRID & TOGGLES */}
-        <div className="lg:col-span-7 flex flex-col gap-4">
+        <div className="lg:col-span-6 flex flex-col gap-3">
           {/* PLAYER 1 vs OPPONENT SELECTOR TOGGLE */}
           <div className="flex gap-2">
             <button
               onClick={() => setSelectingFor('p1')}
-              className={`flex-1 py-2 px-3 rounded font-['Rajdhani'] font-black text-sm tracking-wider uppercase border-2 transition-all cursor-pointer ${
+              className={`flex-1 py-2 px-3 rounded font-['Rajdhani'] font-black text-xs sm:text-sm tracking-wider uppercase border-2 transition-all cursor-pointer ${
                 selectingFor === 'p1'
                   ? 'bg-[#BE123C] border-[#FEF08A] text-white shadow-[0_0_12px_rgba(190,18,60,0.6)]'
                   : 'bg-[#1A1829] border-[#D6A447]/40 text-[#D6A447] opacity-75'
@@ -119,7 +119,7 @@ export const CharacterSelect: React.FC<CharacterSelectProps> = ({ onBack, onProc
 
             <button
               onClick={() => setSelectingFor('p2')}
-              className={`flex-1 py-2 px-3 rounded font-['Rajdhani'] font-black text-sm tracking-wider uppercase border-2 transition-all cursor-pointer ${
+              className={`flex-1 py-2 px-3 rounded font-['Rajdhani'] font-black text-xs sm:text-sm tracking-wider uppercase border-2 transition-all cursor-pointer ${
                 selectingFor === 'p2'
                   ? 'bg-[#BE123C] border-[#FEF08A] text-white shadow-[0_0_12px_rgba(190,18,60,0.6)]'
                   : 'bg-[#1A1829] border-[#D6A447]/40 text-[#D6A447] opacity-75'
@@ -130,7 +130,7 @@ export const CharacterSelect: React.FC<CharacterSelectProps> = ({ onBack, onProc
           </div>
 
           {/* 4 FIGHTER ROSTER CARDS */}
-          <div className="grid grid-cols-2 gap-3.5">
+          <div className="grid grid-cols-2 gap-3">
             {CHARACTER_LIST.map((char) => {
               const isP1 = char.id === p1Id;
               const isP2 = char.id === p2Id;
@@ -142,7 +142,7 @@ export const CharacterSelect: React.FC<CharacterSelectProps> = ({ onBack, onProc
                   onClick={() => handleSelectFighter(char.id)}
                   className={`relative p-3 rounded-lg border-2 text-left transition-all cursor-pointer overflow-hidden group ${
                     isCurrent
-                      ? 'border-[#FEF08A] bg-gradient-to-br from-[#2D1B36] to-[#161424] shadow-[0_0_16px_rgba(214,164,71,0.5)] scale-[1.02]'
+                      ? 'border-[#FEF08A] bg-gradient-to-br from-[#2D1B36] to-[#161424] shadow-[0_0_16px_rgba(214,164,71,0.5)] scale-[1.01]'
                       : 'border-[#D6A447]/40 bg-[#161424]/90 hover:border-[#D6A447] hover:bg-[#1E1B32]'
                   }`}
                 >
@@ -160,10 +160,15 @@ export const CharacterSelect: React.FC<CharacterSelectProps> = ({ onBack, onProc
                     )}
                   </div>
 
-                  <div className="flex items-center gap-3">
-                    <span className="text-3xl p-1 bg-black/40 rounded border border-[#D6A447]/30">
-                      {char.visuals.avatarIcon}
-                    </span>
+                  <div className="flex items-center gap-2.5">
+                    <div
+                      className="w-11 h-11 rounded-md flex items-center justify-center font-['Bungee'] text-sm text-[#FEF08A] border border-[#D6A447]/60 shrink-0 shadow-md"
+                      style={{
+                        background: `linear-gradient(135deg, ${char.visuals.primaryColor}, ${char.visuals.secondaryColor})`,
+                      }}
+                    >
+                      {getCharacterMonogram(char.id)}
+                    </div>
                     <div>
                       <h3 className="font-['Bungee'] text-sm sm:text-base text-[#F1E7D0] group-hover:text-[#FEF08A] transition-colors leading-tight">
                         {char.name}
@@ -174,95 +179,132 @@ export const CharacterSelect: React.FC<CharacterSelectProps> = ({ onBack, onProc
                     </div>
                   </div>
 
-                  <p className="mt-2 text-[10px] text-white/60 line-clamp-1 italic font-serif">
-                    &quot;{char.dialogues.intro}&quot;
+                  <p className="mt-2 text-[10px] text-white/75 line-clamp-2 leading-snug">
+                    {char.bio}
                   </p>
                 </button>
               );
             })}
           </div>
 
-          {/* COMBAT SYSTEM SPECS PREVIEW */}
-          <div className="p-3 bg-black/40 rounded border border-[#D6A447]/30 text-xs text-[#F1E7D0]/80">
-            <div className="flex items-center gap-1.5 text-[#D6A447] font-bold font-['Rajdhani'] mb-1">
-              <Sparkles size={14} />
-              <span className="uppercase">Match Regulations:</span>
+          {/* 3D COMBAT SYSTEM SPECS PREVIEW */}
+          <div className="p-2.5 bg-black/40 rounded border border-[#D6A447]/30 text-xs text-[#F1E7D0]/80">
+            <div className="flex items-center justify-between text-[#D6A447] font-bold font-['Rajdhani'] mb-1">
+              <div className="flex items-center gap-1.5">
+                <Sparkles size={14} />
+                <span className="uppercase">3D Costume &amp; Likeness Profile:</span>
+              </div>
+              <span className="text-[10px] font-mono text-amber-300">
+                {selectedChar.visuals.actorInspiration}
+              </span>
             </div>
-            <p className="font-mono text-[11px] leading-relaxed">
-              Max HP: {selectedChar.stats.maxHealth} · Best of 3 Rounds · 60s Round Timer · Authentic Combos &amp; Frame Traps · Procedural Audio
+            <p className="font-mono text-[11px] leading-relaxed text-white/80">
+              {selectedChar.visuals.attireDescription}
             </p>
           </div>
         </div>
 
-        {/* RIGHT: SELECTED FIGHTER DETAILS DOSSIER */}
-        <div className="lg:col-span-5 bg-[#161424] border-2 border-[#D6A447] rounded-xl p-4 sm:p-5 flex flex-col justify-between shadow-2xl relative overflow-hidden">
-          {/* Top Info */}
+        {/* RIGHT: REAL-TIME 3D PREVIEW + SIGNATURE ABILITIES DOSSIER */}
+        <div className="lg:col-span-6 bg-[#161424] border-2 border-[#D6A447] rounded-xl p-3.5 sm:p-4 flex flex-col justify-between shadow-2xl relative overflow-hidden">
           <div>
-            <div className="flex items-center justify-between border-b border-[#D6A447]/40 pb-2">
+            <div className="flex items-center justify-between border-b border-[#D6A447]/40 pb-2 mb-2.5">
               <div>
                 <span className="text-[10px] font-['Cinzel'] font-bold text-[#D6A447] uppercase tracking-widest">
-                  FIGHTER DOSSIER ({selectedChar.stats.maxHealth} HP)
+                  3D FIGHTER DOSSIER ({selectedChar.stats.maxHealth} HP)
                 </span>
-                <h2 className="font-['Bungee'] text-2xl text-[#FEF08A]">{selectedChar.name}</h2>
+                <h2 className="font-['Bungee'] text-xl sm:text-2xl text-[#FEF08A] leading-tight">
+                  {selectedChar.name}
+                </h2>
+                <p className="text-xs font-['Rajdhani'] font-bold tracking-wide text-amber-200">
+                  {selectedChar.title}
+                </p>
               </div>
-              <span className="text-4xl">{selectedChar.visuals.avatarIcon}</span>
+              <div
+                className="w-12 h-12 rounded-lg flex items-center justify-center font-['Bungee'] text-lg text-[#FEF08A] border-2 border-[#FEF08A]/70 shadow-lg"
+                style={{
+                  background: `linear-gradient(135deg, ${selectedChar.visuals.primaryColor}, ${selectedChar.visuals.secondaryColor})`,
+                }}
+              >
+                {getCharacterMonogram(selectedChar.id)}
+              </div>
             </div>
 
-            <p className="text-xs text-[#F1E7D0] font-['Rajdhani'] font-bold tracking-wide mt-1 text-amber-200">
-              {selectedChar.title}
-            </p>
-
-            <div className="mt-1 text-[11px] text-white/70 italic bg-black/30 p-2 rounded border border-[#D6A447]/20">
-              &quot;{selectedChar.dialogues.introHindi}&quot;
-            </div>
+            {/* LIVE BABYLON.JS 3D CHARACTER PREVIEW */}
+            <CharacterPreview3D characterId={selectedChar.id} />
 
             {/* STATS BARS */}
-            <div className="mt-4 space-y-2">
-              <div className="flex items-center justify-between text-xs font-['Rajdhani'] font-bold text-[#D6A447]">
-                <span>POWER / DAMAGE:</span>
-                <span className="font-mono text-white">{(selectedChar.stats.powerMultiplier * 100).toFixed(0)}%</span>
-              </div>
-              <div className="w-full h-2 bg-black/60 rounded-full overflow-hidden border border-[#D6A447]/40">
-                <div
-                  className="h-full bg-gradient-to-r from-[#F59E0B] to-[#EF4444]"
-                  style={{ width: `${selectedChar.stats.powerMultiplier * 75}%` }}
-                />
-              </div>
-
-              <div className="flex items-center justify-between text-xs font-['Rajdhani'] font-bold text-[#D6A447]">
-                <span>SPEED &amp; MOBILITY:</span>
-                <span className="font-mono text-white">{(selectedChar.stats.walkSpeed * 20).toFixed(0)}%</span>
-              </div>
-              <div className="w-full h-2 bg-black/60 rounded-full overflow-hidden border border-[#D6A447]/40">
-                <div
-                  className="h-full bg-gradient-to-r from-[#38BDF8] to-[#0284C7]"
-                  style={{ width: `${selectedChar.stats.walkSpeed * 18}%` }}
-                />
+            <div className="mt-2.5 grid grid-cols-3 gap-2">
+              <div className="bg-black/40 p-2 rounded border border-[#D6A447]/30">
+                <div className="flex justify-between text-[10px] font-['Rajdhani'] font-bold text-[#D6A447]">
+                  <span>POWER</span>
+                  <span className="font-mono text-white">
+                    {(selectedChar.stats.powerMultiplier * 100).toFixed(0)}%
+                  </span>
+                </div>
+                <div className="w-full h-1.5 mt-1 bg-black/60 rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-gradient-to-r from-[#F59E0B] to-[#EF4444]"
+                    style={{ width: `${selectedChar.stats.powerMultiplier * 75}%` }}
+                  />
+                </div>
               </div>
 
-              <div className="flex items-center justify-between text-xs font-['Rajdhani'] font-bold text-[#D6A447]">
-                <span>DEFENSE &amp; ARMOR:</span>
-                <span className="font-mono text-white">{(selectedChar.stats.defenseMultiplier * 100).toFixed(0)}%</span>
+              <div className="bg-black/40 p-2 rounded border border-[#D6A447]/30">
+                <div className="flex justify-between text-[10px] font-['Rajdhani'] font-bold text-[#D6A447]">
+                  <span>SPEED</span>
+                  <span className="font-mono text-white">
+                    {(selectedChar.stats.walkSpeed * 20).toFixed(0)}%
+                  </span>
+                </div>
+                <div className="w-full h-1.5 mt-1 bg-black/60 rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-gradient-to-r from-[#38BDF8] to-[#0284C7]"
+                    style={{ width: `${selectedChar.stats.walkSpeed * 18}%` }}
+                  />
+                </div>
               </div>
-              <div className="w-full h-2 bg-black/60 rounded-full overflow-hidden border border-[#D6A447]/40">
-                <div
-                  className="h-full bg-gradient-to-r from-[#10B981] to-[#059669]"
-                  style={{ width: `${selectedChar.stats.defenseMultiplier * 80}%` }}
-                />
+
+              <div className="bg-black/40 p-2 rounded border border-[#D6A447]/30">
+                <div className="flex justify-between text-[10px] font-['Rajdhani'] font-bold text-[#D6A447]">
+                  <span>DEFENSE</span>
+                  <span className="font-mono text-white">
+                    {(selectedChar.stats.defenseMultiplier * 100).toFixed(0)}%
+                  </span>
+                </div>
+                <div className="w-full h-1.5 mt-1 bg-black/60 rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-gradient-to-r from-[#10B981] to-[#059669]"
+                    style={{ width: `${selectedChar.stats.defenseMultiplier * 80}%` }}
+                  />
+                </div>
               </div>
             </div>
 
-            {/* SIGNATURE SUPER ATTACK */}
-            <div className="mt-4 p-3 bg-gradient-to-r from-[#BE123C]/30 to-[#9E1B32]/10 border border-[#BE123C] rounded">
-              <div className="flex items-center justify-between">
-                <span className="text-[10px] font-['Cinzel'] font-black text-[#FEF08A] uppercase tracking-wider">
-                  SUPER MOVE: {selectedChar.specialMoveName}
-                </span>
-                <span className="text-xs text-[#D6A447] font-bold">{selectedChar.specialMoveHindi}</span>
+            {/* DUAL SIGNATURE ABILITIES: SUPERSHOT [U] & SUPERMOVE [L] */}
+            <div className="mt-2.5 grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <div className="p-2.5 bg-[#0284C7]/20 border border-[#38BDF8]/60 rounded">
+                <div className="flex items-center justify-between">
+                  <span className="flex items-center gap-1 text-[10px] font-['Cinzel'] font-black text-[#38BDF8] uppercase">
+                    <Crosshair size={12} />
+                    <span>SUPERSHOT [U]: {selectedChar.superShotInfo.name}</span>
+                  </span>
+                </div>
+                <p className="mt-1 text-[10px] text-white/80 leading-snug">
+                  {selectedChar.superShotInfo.description}
+                </p>
               </div>
-              <p className="mt-1 text-[11px] text-white/80 leading-snug">
-                {selectedChar.specialDescription}
-              </p>
+
+              <div className="p-2.5 bg-[#BE123C]/25 border border-[#BE123C] rounded">
+                <div className="flex items-center justify-between">
+                  <span className="flex items-center gap-1 text-[10px] font-['Cinzel'] font-black text-[#FEF08A] uppercase">
+                    <Flame size={12} />
+                    <span>SUPERMOVE [L]: {selectedChar.superMoveInfo.name}</span>
+                  </span>
+                </div>
+                <p className="mt-1 text-[10px] text-white/80 leading-snug">
+                  {selectedChar.superMoveInfo.description}
+                </p>
+              </div>
             </div>
           </div>
 
@@ -272,10 +314,10 @@ export const CharacterSelect: React.FC<CharacterSelectProps> = ({ onBack, onProc
               audio.playSound('click');
               onProceed();
             }}
-            className="mt-5 w-full py-3.5 bg-gradient-to-r from-[#D97706] to-[#BE123C] hover:brightness-110 text-white font-['Bungee'] text-sm tracking-wider rounded border border-[#FEF08A] shadow-[0_0_16px_rgba(214,164,71,0.5)] active:scale-98 transition-all flex items-center justify-center gap-2 cursor-pointer"
+            className="mt-3 w-full py-3 bg-gradient-to-r from-[#D97706] to-[#BE123C] hover:brightness-110 text-white font-['Bungee'] text-sm tracking-wider rounded border border-[#FEF08A] shadow-[0_0_16px_rgba(214,164,71,0.5)] active:scale-98 transition-all flex items-center justify-center gap-2 cursor-pointer"
           >
             <Swords size={18} />
-            <span>SELECT ARENA &rarr;</span>
+            <span>SELECT 3D ARENA &rarr;</span>
           </button>
         </div>
       </div>
