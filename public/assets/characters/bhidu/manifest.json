@@ -2,10 +2,15 @@
   "characterId": "bhidu",
   "characterName": "BHIDU",
   "inspiration": "Jackie Shroff-inspired (Configurable Parody Persona)",
-  "productionStatus": "STAGE_2_INTEGRATED",
+  "isPlaceholder": true,
+  "productionStatus": "PLACEHOLDER",
   "format": "glTF 2.0 Binary (.glb)",
   "modelFile": "/assets/characters/bhidu/model.glb",
-  "groundOrigin": [0, 0, 0],
+  "groundOrigin": [
+    0,
+    0,
+    0
+  ],
   "forwardOrientation": "+Z",
   "skeletonStandard": "FilmiDangal_SharedHumanoid_26",
   "bones": [
@@ -36,8 +41,18 @@
     "RightLeg",
     "RightFoot"
   ],
-  "facialRigNodes": ["Jaw", "LeftBrow", "RightBrow", "LeftEyelid", "RightEyelid"],
-  "lodLevels": ["LOD0_High", "LOD1_Medium", "LOD2_Low"],
+  "facialRigNodes": [
+    "Jaw",
+    "LeftBrow",
+    "RightBrow",
+    "LeftEyelid",
+    "RightEyelid"
+  ],
+  "lodLevels": [
+    "LOD0_High",
+    "LOD1_Medium",
+    "LOD2_Low"
+  ],
   "materials": [
     "bhidu_Pants_PBR",
     "bhidu_Costume_Primary_PBR",

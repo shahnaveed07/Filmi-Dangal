@@ -16,6 +16,7 @@ import { FighterId, FighterStateName } from '../../types/fighter';
 import { CharacterAnimationController } from '../animation/CharacterAnimationController';
 import { FighterAnimationEventPayload } from '../animation/FighterAnimationEvents';
 import { CharacterAssetValidationReport } from '../assets/CharacterAssetValidator';
+import { CharacterAssetLoadDiagnostics } from '../assets/CharacterAssetLoader';
 import { CharacterRig3D, loadCharacterRig3D } from '../assets/AssetLoader3D';
 import { detectSoftwareWebGL } from '../engine/BabylonFightEngine';
 import { VFXManager3D } from '../vfx/VFXManager3D';
@@ -25,16 +26,23 @@ import { VFXManager3D } from '../vfx/VFXManager3D';
  *
  * Dedicated Babylon.js 3D Character Preview & Vertical Slice Verification Scene.
  * - Loads GLB 2.0 character assets via CharacterAssetLoader & validates via CharacterAssetValidator
+ * - Protects against rapid character switching via async load tokens
  * - Plays back Idle, Walk, Punch, Kick, Block, Jump, SuperShot, and SuperMove animations
  * - Renders live bone-attached 3D active hitbox spheres, 3D SuperShot projectile VFX,
  *   and 3D SuperMove shockwave VFX triggered by FighterAnimationEvents
- * - Supports toggling Stylized 3D Mesh vs Labeled Graybox Proxy and LOD0 / LOD1 / LOD2
  */
 
 export interface PreviewTelemetrySnapshot {
   characterId: FighterId;
+  isLoading: boolean;
   glbLoaded: boolean;
+  glbFileValid: boolean;
+  productionRigValid: boolean;
+  animationValid: boolean;
+  isPlaceholderAsset: boolean;
   validationReport: CharacterAssetValidationReport | null;
+  diagnostics: CharacterAssetLoadDiagnostics | null;
+  loadError: string | null;
   activeState: FighterStateName;
   activeClipName: string;
   phase: 'IDLE_LOOP' | 'STARTUP' | 'ACTIVE' | 'RECOVERY';
@@ -54,6 +62,9 @@ export class CharacterPreviewScene {
   private vfxManager: VFXManager3D;
   private currentRig: CharacterRig3D | null = null;
   private validationReport: CharacterAssetValidationReport | null = null;
+  private loadToken = 0;
+  private isLoading = false;
+  private loadError: string | null = null;
 
   private characterId: FighterId;
   private activeState: FighterStateName = 'idle';
@@ -65,41 +76,51 @@ export class CharacterPreviewScene {
   private activeHitboxSphere: Mesh;
   private previewProjectileMesh: Mesh;
   private previewShockwaveRing: Mesh;
+  private ringMat: PBRMaterial;
+  private projMat: PBRMaterial;
+  private shockMat: PBRMaterial;
   private projectileLifeSec = 0;
   private shockwaveLifeSec = 0;
 
   private isDisposed = false;
   private onTelemetryUpdate?: (snap: PreviewTelemetrySnapshot) => void;
   private boundResize: () => void;
+  private resizeObserver: ResizeObserver | null = null;
 
   constructor(
     canvas: HTMLCanvasElement,
     initialCharacterId: FighterId,
-    onTelemetryUpdate?: (snap: PreviewTelemetrySnapshot) => void
+    onTelemetryUpdate?: (snap: PreviewTelemetrySnapshot) => void,
+    existingEngine?: Engine
   ) {
     this.characterId = initialCharacterId;
     this.onTelemetryUpdate = onTelemetryUpdate;
 
-    const isSoftwareGL = detectSoftwareWebGL(canvas);
-    this.engine = new Engine(canvas, !isSoftwareGL, {
-      preserveDrawingBuffer: true,
-      stencil: true,
-    });
-    if (isSoftwareGL) {
-      this.engine.setHardwareScalingLevel(1);
+    if (existingEngine) {
+      this.engine = existingEngine;
+    } else {
+      const isSoftwareGL = detectSoftwareWebGL(canvas);
+      this.engine = new Engine(canvas, !isSoftwareGL, {
+        preserveDrawingBuffer: true,
+        stencil: true,
+      });
+      if (isSoftwareGL) {
+        this.engine.setHardwareScalingLevel(1);
+      }
     }
 
     this.scene = new Scene(this.engine);
     this.scene.clearColor = new Color4(0.06, 0.05, 0.11, 1);
     this.vfxManager = new VFXManager3D(this.scene);
 
+    // Centered full-body framing that prevents clipping head (Y~2.1) or pedestal feet (Y~-0.14)
     this.camera = new UniversalCamera(
       'previewCam',
-      new Vector3(0, 1.4, -3.5),
+      new Vector3(0, 1.15, -3.85),
       this.scene
     );
-    this.camera.fov = 0.62;
-    this.camera.setTarget(new Vector3(0, 1.1, 0));
+    this.camera.fov = 0.64;
+    this.camera.setTarget(new Vector3(0, 1.02, 0));
 
     const hemi = new HemisphericLight('prevHemi', new Vector3(0, 1, 0), this.scene);
     hemi.intensity = 0.98;
@@ -121,11 +142,11 @@ export class CharacterPreviewScene {
     pedMat.metallic = 0.55;
     pedMat.roughness = 0.25;
 
-    const ringMat = new PBRMaterial('ringMat', this.scene);
-    ringMat.albedoColor = Color3.FromHexString(charDef.visuals.primaryColor);
-    ringMat.emissiveColor = Color3.FromHexString(charDef.visuals.primaryColor).scale(0.6);
-    ringMat.metallic = 0.7;
-    ringMat.roughness = 0.2;
+    this.ringMat = new PBRMaterial('ringMat', this.scene);
+    this.ringMat.albedoColor = Color3.FromHexString(charDef.visuals.primaryColor);
+    this.ringMat.emissiveColor = Color3.FromHexString(charDef.visuals.primaryColor).scale(0.6);
+    this.ringMat.metallic = 0.7;
+    this.ringMat.roughness = 0.2;
 
     const pedestal = MeshBuilder.CreateCylinder(
       'previewPedestal',
@@ -141,7 +162,7 @@ export class CharacterPreviewScene {
       this.scene
     );
     glowRing.position.y = 0.01;
-    glowRing.material = ringMat;
+    glowRing.material = this.ringMat;
 
     // Live 3D Hitbox Indicator Sphere (shown during ACTIVE attack frames)
     const hbMat = new PBRMaterial('hbMat', this.scene);
@@ -158,35 +179,36 @@ export class CharacterPreviewScene {
     this.activeHitboxSphere.isVisible = false;
 
     // Live 3D SuperShot Projectile Preview Mesh
-    const projMat = new PBRMaterial('projPreviewMat', this.scene);
-    projMat.albedoColor = Color3.FromHexString(charDef.visuals.secondaryColor);
-    projMat.emissiveColor = Color3.FromHexString(charDef.visuals.primaryColor).scale(0.95);
-    projMat.roughness = 0.15;
+    this.projMat = new PBRMaterial('projPreviewMat', this.scene);
+    this.projMat.albedoColor = Color3.FromHexString(charDef.visuals.secondaryColor);
+    this.projMat.emissiveColor = Color3.FromHexString(charDef.visuals.primaryColor).scale(0.95);
+    this.projMat.roughness = 0.15;
     this.previewProjectileMesh = MeshBuilder.CreateTorus(
       'previewProjectile',
       { diameter: 0.48, thickness: 0.12, tessellation: 18 },
       this.scene
     );
     this.previewProjectileMesh.rotation.z = Math.PI * 0.5;
-    this.previewProjectileMesh.material = projMat;
+    this.previewProjectileMesh.material = this.projMat;
     this.previewProjectileMesh.isVisible = false;
 
     // Live 3D SuperMove Shockwave Ring Preview Mesh
-    const shockMat = new PBRMaterial('shockPreviewMat', this.scene);
-    shockMat.albedoColor = Color3.FromHexString('#FEF08A');
-    shockMat.emissiveColor = Color3.FromHexString(charDef.visuals.primaryColor).scale(0.95);
-    shockMat.alpha = 0.75;
+    this.shockMat = new PBRMaterial('shockPreviewMat', this.scene);
+    this.shockMat.albedoColor = Color3.FromHexString('#FEF08A');
+    this.shockMat.emissiveColor = Color3.FromHexString(charDef.visuals.primaryColor).scale(0.95);
+    this.shockMat.alpha = 0.75;
     this.previewShockwaveRing = MeshBuilder.CreateTorus(
       'previewShockwave',
       { diameter: 0.9, thickness: 0.08, tessellation: 24 },
       this.scene
     );
     this.previewShockwaveRing.position.y = 0.06;
-    this.previewShockwaveRing.material = shockMat;
+    this.previewShockwaveRing.material = this.shockMat;
     this.previewShockwaveRing.isVisible = false;
 
     // Subscribe to FighterAnimationEvents for character-specific SuperShot & SuperMove VFX triggers
     this.animController.getEventsDispatcher().onEvent((evt) => {
+      if (this.isDisposed) return;
       if (evt.type === 'ON_CHARGE_START' && evt.state === 'super_shot') {
         this.vfxManager.spawnSuperShotChargeVFX(this.characterId, { x: 0, y: 0, z: 0 }, 1);
       } else if (evt.type === 'ON_PROJECTILE_RELEASE' && evt.state === 'super_shot') {
@@ -204,7 +226,7 @@ export class CharacterPreviewScene {
       }
     });
 
-    this.loadCharacterAsset(initialCharacterId);
+    void this.loadCharacterAsset(initialCharacterId);
 
     let lastTime = performance.now();
     let turntableAngle = 0;
@@ -223,10 +245,10 @@ export class CharacterPreviewScene {
       }
 
       if (this.currentRig) {
-        // Jump vertical arc in preview
+        // Bounded jump vertical arc in preview so head never clips top of viewport
         if (this.activeState === 'jump') {
           const jumpProgress = Math.min(1, this.stateElapsedSec / Math.max(0.01, this.stateDurationSec));
-          this.currentRig.rootNode.position.y = Math.sin(jumpProgress * Math.PI) * 0.58;
+          this.currentRig.rootNode.position.y = Math.sin(jumpProgress * Math.PI) * 0.42;
         } else {
           this.currentRig.rootNode.position.y = 0;
         }
@@ -265,8 +287,15 @@ export class CharacterPreviewScene {
 
         this.onTelemetryUpdate?.({
           characterId: this.characterId,
+          isLoading: this.isLoading,
           glbLoaded: this.currentRig.glbLoaded,
+          glbFileValid: this.currentRig.glbFileValid,
+          productionRigValid: this.currentRig.productionRigValid,
+          animationValid: this.currentRig.animationValid,
+          isPlaceholderAsset: this.currentRig.isPlaceholderAsset,
           validationReport: this.validationReport,
+          diagnostics: this.currentRig.diagnostics ?? null,
+          loadError: this.loadError,
           activeState: this.activeState,
           activeClipName: evtPayload.clipName,
           phase: evtPayload.phase,
@@ -308,21 +337,64 @@ export class CharacterPreviewScene {
     this.boundResize = () => {
       if (!this.isDisposed) this.engine.resize();
     };
-    window.addEventListener('resize', this.boundResize);
+    if (typeof window !== 'undefined') {
+      window.addEventListener('resize', this.boundResize);
+    }
+    if (typeof ResizeObserver !== 'undefined' && canvas) {
+      this.resizeObserver = new ResizeObserver(() => {
+        if (!this.isDisposed) {
+          this.engine.resize();
+        }
+      });
+      this.resizeObserver.observe(canvas);
+    }
   }
 
-  public async loadCharacterAsset(characterId: FighterId): Promise<void> {
+  public async loadCharacterAsset(characterId: FighterId): Promise<CharacterRig3D | null> {
+    const token = ++this.loadToken;
     this.characterId = characterId;
+    this.isLoading = true;
+    this.loadError = null;
+
     const charDef = CHARACTERS[characterId] || CHARACTERS.action_sultan;
-    const rig = await loadCharacterRig3D(this.scene, charDef, 'preview', null);
-    if (this.isDisposed) {
-      rig.dispose();
-      return;
+
+    // Update accent colors on pedestal ring & preview VFX for the newly selected character
+    this.ringMat.albedoColor = Color3.FromHexString(charDef.visuals.primaryColor);
+    this.ringMat.emissiveColor = Color3.FromHexString(charDef.visuals.primaryColor).scale(0.6);
+    this.projMat.albedoColor = Color3.FromHexString(charDef.visuals.secondaryColor);
+    this.projMat.emissiveColor = Color3.FromHexString(charDef.visuals.primaryColor).scale(0.95);
+    this.shockMat.emissiveColor = Color3.FromHexString(charDef.visuals.primaryColor).scale(0.95);
+
+    try {
+      const rig = await loadCharacterRig3D(this.scene, charDef, `preview_${token}`, null);
+      if (this.isDisposed || token !== this.loadToken) {
+        rig.dispose();
+        return null;
+      }
+      this.currentRig?.dispose();
+      this.currentRig = rig;
+      this.currentRig.setRenderMode(this.renderMode);
+      this.currentRig.setLODLevel(this.lodLevel);
+      this.activeState = 'idle';
+      this.stateElapsedSec = 0;
+      this.stateDurationSec = 0;
+      this.isLoading = false;
+      return rig;
+    } catch (err) {
+      if (!this.isDisposed && token === this.loadToken) {
+        this.loadError = err instanceof Error ? err.message : String(err);
+        this.isLoading = false;
+      }
+      return null;
     }
-    this.currentRig?.dispose();
-    this.currentRig = rig;
-    this.currentRig.setRenderMode(this.renderMode);
-    this.currentRig.setLODLevel(this.lodLevel);
+  }
+
+  public getCurrentRig(): CharacterRig3D | null {
+    return this.currentRig;
+  }
+
+  public getLoadToken(): number {
+    return this.loadToken;
   }
 
   public triggerAnimationState(state: FighterStateName): void {
@@ -359,9 +431,15 @@ export class CharacterPreviewScene {
   public dispose(): void {
     if (this.isDisposed) return;
     this.isDisposed = true;
-    window.removeEventListener('resize', this.boundResize);
+    this.loadToken++;
+    if (typeof window !== 'undefined') {
+      window.removeEventListener('resize', this.boundResize);
+    }
+    this.resizeObserver?.disconnect();
+    this.resizeObserver = null;
     this.vfxManager.dispose();
     this.currentRig?.dispose();
+    this.currentRig = null;
     this.scene.dispose();
     this.engine.dispose();
   }

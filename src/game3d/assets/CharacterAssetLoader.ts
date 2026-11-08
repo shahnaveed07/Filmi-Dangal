@@ -1,53 +1,93 @@
 import {
+  AbstractMesh,
   AnimationGroup,
   Color3,
+  Material,
   Mesh,
   MeshBuilder,
+  Node,
   PBRMaterial,
   Scene,
   SceneLoader,
   ShadowGenerator,
+  Skeleton,
   TransformNode,
   Vector3,
+  VertexBuffer,
 } from '@babylonjs/core';
 import '@babylonjs/loaders/glTF';
 import {
   ALL_STANDARD_ANIMATION_CLIP_IDS,
   CHARACTER_ASSET_MANIFEST,
   CharacterAssetConfig,
+  DEFAULT_HUMANOID_BONE_ALIASES,
   getCharacterAssetConfig,
-  resolveAliasedBoneNode,
   resolveCharacterAnimationClip,
   StandardAnimationClipId,
   validateCharacterAssetManifestConfig,
 } from '../../config/characterAssets';
 import { BoneAttachmentName, CharacterDef, FighterId } from '../../types/fighter';
 import { REQUIRED_HUMANOID_BONES } from './AssetLoader3D';
+import {
+  FACIAL_EXPRESSION_RIG_BONES,
+  stripBoneNamespacePrefix,
+} from './CharacterAssetValidator';
 
 export interface LoadedGLBAnimationController {
   availableClipNames: string[];
   activeClipId: StandardAnimationClipId | null;
-  playClip: (clipId: StandardAnimationClipId, speedMultiplier?: number) => boolean;
+  activeClipName: string | null;
+  hasClip: (clipId: StandardAnimationClipId) => boolean;
+  playClip: (
+    clipId: StandardAnimationClipId,
+    speedMultiplier?: number,
+    forceRestart?: boolean
+  ) => boolean;
   stopAll: () => void;
+}
+
+export interface CharacterModelDimensions {
+  width: number;
+  height: number;
+  depth: number;
+  minY: number;
+  maxY: number;
+  plausibleBounds: boolean;
 }
 
 export interface CharacterAssetLoadDiagnostics {
   characterId: FighterId;
+  requestedModelPath: string;
   attemptedPaths: string[];
   loadedFromPath: string | null;
+  glbLoaded: boolean;
   usedTemporaryPlaceholder: boolean;
+  importedMeshCount: number;
+  importedTransformNodeCount: number;
+  skeletonCount: number;
+  resolvedBoneCount: number;
+  resolvedBones: string[];
+  missingBones: string[];
+  missingFacialBones: string[];
   hasEmbeddedAnimations: boolean;
   availableAnimationClips: string[];
   missingStandardClips: StandardAnimationClipId[];
-  resolvedBones: string[];
-  missingBones: string[];
+  skinningValid: boolean;
+  productionRigEligible: boolean;
+  productionEligibilityReasons: string[];
+  modelDimensions: CharacterModelDimensions;
+  scale: number;
+  groundOffset: number;
+  materialCount: number;
+  textureLoadingStatus: 'READY' | 'NO_TEXTURES' | 'PENDING_OR_FAILED';
+  errors: string[];
   warnings: string[];
 }
 
 const loggedAssetWarnings = new Set<string>();
 
-function emitOnceWarning(warning: string, collector?: string[]): void {
-  if (collector) {
+export function emitOnceAssetWarning(warning: string, collector?: string[]): void {
+  if (collector && !collector.includes(warning)) {
     collector.push(warning);
   }
   if (!loggedAssetWarnings.has(warning)) {
@@ -75,17 +115,461 @@ function createPlaceholderPBR(
 }
 
 /**
- * Isolated Temporary Placeholder Rig Builder (Section 3.2).
- * Separated from production GLB loading so temporary geometry is only constructed when
- * a character is explicitly marked `isTemporaryPlaceholder: true` or when a production GLB
- * is not yet present on disk.
+ * Checks whether `node` has `ancestor` anywhere in its parent chain.
+ */
+export function isNodeDescendantOf(node: Node, ancestor: Node): boolean {
+  let curr: Node | null = node.parent;
+  const visited = new Set<Node>();
+  while (curr) {
+    if (curr === ancestor) return true;
+    if (visited.has(curr)) break;
+    visited.add(curr);
+    curr = curr.parent;
+  }
+  return false;
+}
+
+/**
+ * Section 3: Explicit Imported-Root Discovery & Attachment Procedure.
+ *
+ * Inspects all imported `meshes` and `transformNodes` from `SceneLoader.ImportMeshAsync`,
+ * identifies every top-level imported root (whose `parent` is `null` or outside the imported set),
+ * and attaches each top-level root **once** beneath `targetParentNode` (e.g., `modelTransformNode` under `facingNode`).
+ *
+ * Preserves all internal parent-child relationships, local transforms, skeleton bindings,
+ * materials, and animation targets without blindly reparenting child meshes.
+ */
+export function attachImportedGLBHierarchyToFacingNode(
+  targetParentNode: TransformNode,
+  importedMeshes: AbstractMesh[],
+  importedTransformNodes: TransformNode[]
+): {
+  importedRoots: TransformNode[];
+  hierarchyValid: boolean;
+  totalAttachedNodes: number;
+} {
+  const allImportedNodes: TransformNode[] = [];
+  const importedNodeSet = new Set<Node>();
+
+  for (const tn of importedTransformNodes) {
+    if (tn && tn !== targetParentNode && !importedNodeSet.has(tn)) {
+      importedNodeSet.add(tn);
+      allImportedNodes.push(tn);
+    }
+  }
+  for (const m of importedMeshes) {
+    if (m && m !== targetParentNode && !importedNodeSet.has(m)) {
+      importedNodeSet.add(m);
+      allImportedNodes.push(m);
+    }
+  }
+
+  // Also include any ancestor TransformNodes that were created by the glTF loader above imported meshes/nodes
+  for (const node of [...allImportedNodes]) {
+    let curr = node.parent;
+    while (curr && curr instanceof TransformNode && curr !== targetParentNode) {
+      if (!importedNodeSet.has(curr)) {
+        importedNodeSet.add(curr);
+        allImportedNodes.push(curr);
+      }
+      curr = curr.parent;
+    }
+  }
+
+  const importedRoots: TransformNode[] = [];
+  const seenRoots = new Set<TransformNode>();
+
+  for (const node of allImportedNodes) {
+    const parent = node.parent;
+    const isTopLevelImportedRoot =
+      parent === null ||
+      parent === targetParentNode ||
+      !importedNodeSet.has(parent);
+
+    if (isTopLevelImportedRoot && !seenRoots.has(node)) {
+      seenRoots.add(node);
+      if (node.parent !== targetParentNode) {
+        node.parent = targetParentNode;
+      }
+      importedRoots.push(node);
+    }
+  }
+
+  // Validate that every imported node is now a descendant of targetParentNode
+  let hierarchyValid = importedRoots.length > 0 || allImportedNodes.length === 0;
+  for (const node of allImportedNodes) {
+    if (!isNodeDescendantOf(node, targetParentNode)) {
+      hierarchyValid = false;
+      break;
+    }
+  }
+
+  return {
+    importedRoots,
+    hierarchyValid,
+    totalAttachedNodes: allImportedNodes.length,
+  };
+}
+
+/**
+ * Section 4: Robust Skeleton & Bone Resolution.
+ *
+ * Inspects imported TransformNodes, Mesh skeleton references, and Skeleton bones.
+ * Builds a non-destructive mapping layer for all 20 required humanoid bones and
+ * 5 facial expression nodes using manifest aliases, glTF humanoid, Mixamo, and Rigify conventions.
+ * Never renames or destroys the imported skeleton, and never maps a missing bone to an unrelated node.
+ */
+export function resolveHumanoidSkeletonAndBones(
+  characterId: FighterId,
+  importedTransformNodes: TransformNode[],
+  importedMeshes: AbstractMesh[],
+  importedSkeletons: Skeleton[],
+  scene: Scene,
+  fallbackParent: TransformNode,
+  instancePrefix: string
+): {
+  rawNodeLookup: Record<string, TransformNode>;
+  resolvedBoneMap: Record<string, TransformNode>;
+  resolvedBones: string[];
+  missingBones: string[];
+  missingFacialBones: string[];
+  createdProxyNodes: TransformNode[];
+  allSkeletons: Skeleton[];
+} {
+  const rawNodeLookup: Record<string, TransformNode> = {};
+  const strippedNameLookup: Record<string, TransformNode> = {};
+  const lowerCaseLookup: Record<string, TransformNode> = {};
+  const createdProxyNodes: TransformNode[] = [];
+
+  const registerCandidateNode = (name: string, node: TransformNode) => {
+    if (!name) return;
+    if (!rawNodeLookup[name]) {
+      rawNodeLookup[name] = node;
+    }
+    const stripped = stripBoneNamespacePrefix(name);
+    if (stripped && !strippedNameLookup[stripped]) {
+      strippedNameLookup[stripped] = node;
+    }
+    const lower = stripped.toLowerCase();
+    if (lower && !lowerCaseLookup[lower]) {
+      lowerCaseLookup[lower] = node;
+    }
+  };
+
+  for (const tn of importedTransformNodes) {
+    if (tn && tn.name) {
+      registerCandidateNode(tn.name, tn);
+    }
+  }
+
+  // Collect all unique Skeletons from both result.skeletons and mesh.skeleton
+  const skeletonSet = new Set<Skeleton>(importedSkeletons);
+  for (const m of importedMeshes) {
+    if (m.skeleton) {
+      skeletonSet.add(m.skeleton);
+    }
+  }
+  const allSkeletons = Array.from(skeletonSet);
+
+  // Inspect Skeleton bones and their linked TransformNodes
+  const boneProxyMap = new Map<string, TransformNode>();
+  for (const skeleton of allSkeletons) {
+    for (const bone of skeleton.bones) {
+      if (!bone || !bone.name) continue;
+      const linkedTn = bone.getTransformNode();
+      if (linkedTn) {
+        registerCandidateNode(bone.name, linkedTn);
+      } else if (!rawNodeLookup[bone.name] && !strippedNameLookup[stripBoneNamespacePrefix(bone.name)]) {
+        // Create a non-destructive mapping TransformNode linked to the Bone without altering bone.name
+        const parentBone = bone.getParent();
+        const parentTn =
+          (parentBone &&
+            (parentBone.getTransformNode() || boneProxyMap.get(parentBone.name))) ||
+          fallbackParent;
+        const proxyTn = new TransformNode(
+          `${instancePrefix}_boneProxy_${bone.name}`,
+          scene
+        );
+        proxyTn.parent = parentTn;
+        const localPos = bone.getPosition();
+        if (localPos) {
+          proxyTn.position.copyFrom(localPos);
+        }
+        bone.linkTransformNode(proxyTn);
+        boneProxyMap.set(bone.name, proxyTn);
+        createdProxyNodes.push(proxyTn);
+        registerCandidateNode(bone.name, proxyTn);
+      }
+    }
+  }
+
+  const manifest = getCharacterAssetConfig(characterId);
+  const findBoneNode = (canonicalBone: string): TransformNode | undefined => {
+    const aliases =
+      manifest.boneAliases[canonicalBone] ||
+      DEFAULT_HUMANOID_BONE_ALIASES[canonicalBone] ||
+      [canonicalBone];
+
+    for (const candidate of [canonicalBone, ...aliases]) {
+      if (rawNodeLookup[candidate]) {
+        return rawNodeLookup[candidate];
+      }
+      const stripped = stripBoneNamespacePrefix(candidate);
+      if (strippedNameLookup[stripped]) {
+        return strippedNameLookup[stripped];
+      }
+      const lower = stripped.toLowerCase();
+      if (lowerCaseLookup[lower]) {
+        return lowerCaseLookup[lower];
+      }
+    }
+    return undefined;
+  };
+
+  const resolvedBoneMap: Record<string, TransformNode> = {};
+  const resolvedBones: string[] = [];
+  const missingBones: string[] = [];
+  const missingFacialBones: string[] = [];
+
+  for (const reqBone of REQUIRED_HUMANOID_BONES) {
+    const found = findBoneNode(reqBone);
+    if (found) {
+      resolvedBoneMap[reqBone] = found;
+      resolvedBones.push(reqBone);
+    } else {
+      missingBones.push(reqBone);
+    }
+  }
+
+  for (const facialBone of FACIAL_EXPRESSION_RIG_BONES) {
+    const found = findBoneNode(facialBone);
+    if (found) {
+      resolvedBoneMap[facialBone] = found;
+      resolvedBones.push(facialBone);
+    } else {
+      missingFacialBones.push(facialBone);
+    }
+  }
+
+  // Populate secondary procedural limb aliases when canonical bones are resolved
+  if (resolvedBoneMap.LeftForeArm && !resolvedBoneMap.LeftLowerArm) {
+    resolvedBoneMap.LeftLowerArm = resolvedBoneMap.LeftForeArm;
+  }
+  if (resolvedBoneMap.RightForeArm && !resolvedBoneMap.RightLowerArm) {
+    resolvedBoneMap.RightLowerArm = resolvedBoneMap.RightForeArm;
+  }
+  if (resolvedBoneMap.LeftUpLeg && !resolvedBoneMap.LeftUpperLeg) {
+    resolvedBoneMap.LeftUpperLeg = resolvedBoneMap.LeftUpLeg;
+  }
+  if (resolvedBoneMap.LeftLeg && !resolvedBoneMap.LeftLowerLeg) {
+    resolvedBoneMap.LeftLowerLeg = resolvedBoneMap.LeftLeg;
+  }
+  if (resolvedBoneMap.RightUpLeg && !resolvedBoneMap.RightUpperLeg) {
+    resolvedBoneMap.RightUpperLeg = resolvedBoneMap.RightUpLeg;
+  }
+  if (resolvedBoneMap.RightLeg && !resolvedBoneMap.RightLowerLeg) {
+    resolvedBoneMap.RightLowerLeg = resolvedBoneMap.RightLeg;
+  }
+
+  return {
+    rawNodeLookup,
+    resolvedBoneMap,
+    resolvedBones,
+    missingBones,
+    missingFacialBones,
+    createdProxyNodes,
+    allSkeletons,
+  };
+}
+
+/**
+ * Section 8: Computes world-space bounding box dimensions for a character rig.
+ */
+export function computeRigWorldBounds(
+  rootNode: TransformNode,
+  meshes: AbstractMesh[]
+): CharacterModelDimensions {
+  rootNode.computeWorldMatrix(true);
+
+  let minX = Infinity,
+    minY = Infinity,
+    minZ = Infinity;
+  let maxX = -Infinity,
+    maxY = -Infinity,
+    maxZ = -Infinity;
+  let validMeshFound = false;
+
+  for (const m of meshes) {
+    if (!m || m.isDisposed() || m.getTotalVertices() === 0) continue;
+    m.computeWorldMatrix(true);
+    m.refreshBoundingInfo({ applySkeleton: true });
+    const bbox = m.getBoundingInfo()?.boundingBox;
+    if (!bbox) continue;
+    const bMin = bbox.minimumWorld;
+    const bMax = bbox.maximumWorld;
+    if (
+      Number.isFinite(bMin.x) &&
+      Number.isFinite(bMin.y) &&
+      Number.isFinite(bMin.z) &&
+      Number.isFinite(bMax.x) &&
+      Number.isFinite(bMax.y) &&
+      Number.isFinite(bMax.z)
+    ) {
+      validMeshFound = true;
+      minX = Math.min(minX, bMin.x);
+      minY = Math.min(minY, bMin.y);
+      minZ = Math.min(minZ, bMin.z);
+      maxX = Math.max(maxX, bMax.x);
+      maxY = Math.max(maxY, bMax.y);
+      maxZ = Math.max(maxZ, bMax.z);
+    }
+  }
+
+  if (!validMeshFound) {
+    return {
+      width: 0,
+      height: 0,
+      depth: 0,
+      minY: 0,
+      maxY: 0,
+      plausibleBounds: false,
+    };
+  }
+
+  const width = Math.max(0, maxX - minX);
+  const height = Math.max(0, maxY - minY);
+  const depth = Math.max(0, maxZ - minZ);
+  const rootY = rootNode.getAbsolutePosition().y;
+  const groundDelta = Math.abs(minY - rootY);
+
+  const plausibleBounds =
+    width >= 0.15 &&
+    width <= 4.0 &&
+    height >= 0.5 &&
+    height <= 4.5 &&
+    depth >= 0.08 &&
+    groundDelta <= 0.65;
+
+  return {
+    width: Number(width.toFixed(3)),
+    height: Number(height.toFixed(3)),
+    depth: Number(depth.toFixed(3)),
+    minY: Number(minY.toFixed(3)),
+    maxY: Number(maxY.toFixed(3)),
+    plausibleBounds,
+  };
+}
+
+/**
+ * Section 5: Runtime Production Character Eligibility Check.
+ * Separates structural GLB loading from genuine skinned production character readiness.
+ */
+export function evaluateRuntimeProductionRigEligibility(params: {
+  manifest: CharacterAssetConfig;
+  glbLoaded: boolean;
+  importedMeshes: Mesh[];
+  allSkeletons: Skeleton[];
+  missingHumanoidBones: string[];
+  dimensions: CharacterModelDimensions;
+}): {
+  skinningValid: boolean;
+  isProductionReady: boolean;
+  reasons: string[];
+} {
+  const {
+    manifest,
+    glbLoaded,
+    importedMeshes,
+    allSkeletons,
+    missingHumanoidBones,
+    dimensions,
+  } = params;
+  const reasons: string[] = [];
+
+  if (!glbLoaded) {
+    reasons.push('GLB asset failed to load');
+  }
+
+  if (manifest.isTemporaryPlaceholder) {
+    reasons.push(
+      `Manifest marks character "${manifest.id}" as temporary placeholder (isTemporaryPlaceholder: true)`
+    );
+  }
+
+  const meshesWithGeometry = importedMeshes.filter((m) => m.getTotalVertices() > 0);
+  if (meshesWithGeometry.length === 0) {
+    reasons.push('Imported GLB contains zero meshes with vertex geometry');
+  }
+
+  const hasValidMaterials = meshesWithGeometry.some((m) => m.material !== null);
+  if (!hasValidMaterials && meshesWithGeometry.length > 0) {
+    reasons.push('Imported meshes have no assigned materials');
+  }
+
+  // Check for genuine vertex skinning (JOINTS_0 / MatricesIndicesKind and WEIGHTS_0 / MatricesWeightsKind)
+  const hasSkinnedMeshVertices = meshesWithGeometry.some((m) => {
+    const hasJoints = m.isVerticesDataPresent(VertexBuffer.MatricesIndicesKind);
+    const hasWeights = m.isVerticesDataPresent(VertexBuffer.MatricesWeightsKind);
+    if (!hasJoints || !hasWeights) return false;
+    const weightsData = m.getVerticesData(VertexBuffer.MatricesWeightsKind);
+    if (!weightsData || weightsData.length < 4) return false;
+    for (let i = 0; i < Math.min(weightsData.length, 64); i += 4) {
+      const sum =
+        (weightsData[i] || 0) +
+        (weightsData[i + 1] || 0) +
+        (weightsData[i + 2] || 0) +
+        (weightsData[i + 3] || 0);
+      if (sum > 0.01 && Number.isFinite(sum)) {
+        return true;
+      }
+    }
+    return false;
+  });
+
+  const hasValidSkeleton =
+    allSkeletons.length > 0 &&
+    allSkeletons.some((s) => Array.isArray(s.bones) && s.bones.length >= 15);
+
+  const skinningValid = hasSkinnedMeshVertices && hasValidSkeleton;
+  if (!hasValidSkeleton) {
+    reasons.push('Imported GLB lacks a valid humanoid Skeleton (>= 15 bones)');
+  }
+  if (!hasSkinnedMeshVertices) {
+    reasons.push(
+      'Imported meshes lack usable skinning vertex attributes (JOINTS_0 / WEIGHTS_0)'
+    );
+  }
+
+  if (missingHumanoidBones.length > 0) {
+    reasons.push(
+      `Missing required humanoid bones: ${missingHumanoidBones.join(', ')}`
+    );
+  }
+
+  if (meshesWithGeometry.length > 0 && !dimensions.plausibleBounds) {
+    reasons.push(
+      `Imported model bounds (${dimensions.width}x${dimensions.height}x${dimensions.depth}) are outside plausible humanoid range`
+    );
+  }
+
+  return {
+    skinningValid,
+    isProductionReady: reasons.length === 0,
+    reasons,
+  };
+}
+
+/**
+ * Isolated Temporary Placeholder Rig Builder (Section 6 — Path A).
+ * Builds the articulated temporary character rig under `modelTransformNode`
+ * where `manifest.scale` and `manifest.groundOffset` are already applied once on `modelTransformNode`.
  */
 export function buildTemporaryPlaceholderHumanoidRig(
   scene: Scene,
   charDef: CharacterDef,
-  manifest: CharacterAssetConfig,
+  _manifest: CharacterAssetConfig,
   instancePrefix: string,
-  facingNode: TransformNode,
+  modelTransformNode: TransformNode,
   existingBones: Record<string, TransformNode>,
   shadowGenerator?: ShadowGenerator | null
 ): {
@@ -102,13 +586,18 @@ export function buildTemporaryPlaceholderHumanoidRig(
 
   const v = charDef.visuals;
   const p = v.proportions;
-  const heightScale = p.heightScale * (manifest.scale / 1.02);
+  // Note: manifest.scale and manifest.groundOffset are applied once on modelTransformNode!
+  const heightScale = p.heightScale;
   const shoulderScale = p.shoulderWidth / 0.48;
   const torsoScale = p.torsoBulk / 0.32;
   const limbScale = p.limbThickness / 0.12;
   const jawScale = p.jawWidth / 0.2;
 
-  const ensureBone = (name: string, parent: TransformNode, pos: Vector3): TransformNode => {
+  const ensureBone = (
+    name: string,
+    parent: TransformNode,
+    pos: Vector3
+  ): TransformNode => {
     const node = new TransformNode(`${instancePrefix}_${name}`, scene);
     node.parent = parent;
     node.position.copyFrom(pos);
@@ -116,7 +605,7 @@ export function buildTemporaryPlaceholderHumanoidRig(
     return node;
   };
 
-  const bRoot = ensureBone('Root', facingNode, new Vector3(0, manifest.groundOffset, 0));
+  const bRoot = ensureBone('Root', modelTransformNode, new Vector3(0, 0, 0));
   const bHips = ensureBone('Hips', bRoot, new Vector3(0, 0.95 * heightScale, 0));
   const bSpine = ensureBone('Spine', bHips, new Vector3(0, 0.16 * heightScale, 0));
   const bChest = ensureBone('Chest', bSpine, new Vector3(0, 0.2 * heightScale, 0));
@@ -126,24 +615,64 @@ export function buildTemporaryPlaceholderHumanoidRig(
   const bJaw = ensureBone('Jaw', bHead, new Vector3(0, 0.04, 0.03));
   const bLeftBrow = ensureBone('LeftBrow', bHead, new Vector3(-0.048, 0.16, 0.125));
   const bRightBrow = ensureBone('RightBrow', bHead, new Vector3(0.048, 0.16, 0.125));
-  const bLeftEyelid = ensureBone('LeftEyelid', bHead, new Vector3(-0.046, 0.142, 0.118));
-  const bRightEyelid = ensureBone('RightEyelid', bHead, new Vector3(0.046, 0.142, 0.118));
+  const bLeftEyelid = ensureBone(
+    'LeftEyelid',
+    bHead,
+    new Vector3(-0.046, 0.142, 0.118)
+  );
+  const bRightEyelid = ensureBone(
+    'RightEyelid',
+    bHead,
+    new Vector3(0.046, 0.142, 0.118)
+  );
 
   const shoulderOffsetX = 0.23 * shoulderScale;
-  const bLeftShoulder = ensureBone('LeftShoulder', bChest, new Vector3(-shoulderOffsetX, 0.15, 0));
-  const bLeftUpperArm = ensureBone('LeftUpperArm', bLeftShoulder, new Vector3(-0.05, -0.12, 0));
-  const bLeftLowerArm = ensureBone('LeftLowerArm', bLeftUpperArm, new Vector3(0, -0.25, 0));
+  const bLeftShoulder = ensureBone(
+    'LeftShoulder',
+    bChest,
+    new Vector3(-shoulderOffsetX, 0.15, 0)
+  );
+  const bLeftUpperArm = ensureBone(
+    'LeftUpperArm',
+    bLeftShoulder,
+    new Vector3(-0.05, -0.12, 0)
+  );
+  const bLeftLowerArm = ensureBone(
+    'LeftLowerArm',
+    bLeftUpperArm,
+    new Vector3(0, -0.25, 0)
+  );
   const bLeftHand = ensureBone('LeftHand', bLeftLowerArm, new Vector3(0, -0.22, 0));
   bones.LeftForeArm = bLeftLowerArm;
 
-  const bRightShoulder = ensureBone('RightShoulder', bChest, new Vector3(shoulderOffsetX, 0.15, 0));
-  const bRightUpperArm = ensureBone('RightUpperArm', bRightShoulder, new Vector3(0.05, -0.12, 0));
-  const bRightLowerArm = ensureBone('RightLowerArm', bRightUpperArm, new Vector3(0, -0.25, 0));
-  const bRightHand = ensureBone('RightHand', bRightLowerArm, new Vector3(0, -0.22, 0));
+  const bRightShoulder = ensureBone(
+    'RightShoulder',
+    bChest,
+    new Vector3(shoulderOffsetX, 0.15, 0)
+  );
+  const bRightUpperArm = ensureBone(
+    'RightUpperArm',
+    bRightShoulder,
+    new Vector3(0.05, -0.12, 0)
+  );
+  const bRightLowerArm = ensureBone(
+    'RightLowerArm',
+    bRightUpperArm,
+    new Vector3(0, -0.25, 0)
+  );
+  const bRightHand = ensureBone(
+    'RightHand',
+    bRightLowerArm,
+    new Vector3(0, -0.22, 0)
+  );
   bones.RightForeArm = bRightLowerArm;
 
   const hipOffsetX = 0.12 * torsoScale;
-  const bLeftUpperLeg = ensureBone('LeftUpperLeg', bHips, new Vector3(-hipOffsetX, -0.08, 0));
+  const bLeftUpperLeg = ensureBone(
+    'LeftUpperLeg',
+    bHips,
+    new Vector3(-hipOffsetX, -0.08, 0)
+  );
   const bLeftLowerLeg = ensureBone(
     'LeftLowerLeg',
     bLeftUpperLeg,
@@ -157,7 +686,11 @@ export function buildTemporaryPlaceholderHumanoidRig(
   bones.LeftUpLeg = bLeftUpperLeg;
   bones.LeftLeg = bLeftLowerLeg;
 
-  const bRightUpperLeg = ensureBone('RightUpperLeg', bHips, new Vector3(hipOffsetX, -0.08, 0));
+  const bRightUpperLeg = ensureBone(
+    'RightUpperLeg',
+    bHips,
+    new Vector3(hipOffsetX, -0.08, 0)
+  );
   const bRightLowerLeg = ensureBone(
     'RightLowerLeg',
     bRightUpperLeg,
@@ -171,7 +704,13 @@ export function buildTemporaryPlaceholderHumanoidRig(
   bones.RightUpLeg = bRightUpperLeg;
   bones.RightLeg = bRightLowerLeg;
 
-  const skinMat = createPlaceholderPBR(scene, `${instancePrefix}_skin`, v.skinTone, 0.42, 0.04);
+  const skinMat = createPlaceholderPBR(
+    scene,
+    `${instancePrefix}_skin`,
+    v.skinTone,
+    0.42,
+    0.04
+  );
   const primaryMat = createPlaceholderPBR(
     scene,
     `${instancePrefix}_primary`,
@@ -194,8 +733,20 @@ export function buildTemporaryPlaceholderHumanoidRig(
     0.5,
     v.accentColor
   );
-  const hairMat = createPlaceholderPBR(scene, `${instancePrefix}_hair`, v.hairColor, 0.55, 0.08);
-  const darkMat = createPlaceholderPBR(scene, `${instancePrefix}_dark`, '#141418', 0.25, 0.5);
+  const hairMat = createPlaceholderPBR(
+    scene,
+    `${instancePrefix}_hair`,
+    v.hairColor,
+    0.55,
+    0.08
+  );
+  const darkMat = createPlaceholderPBR(
+    scene,
+    `${instancePrefix}_dark`,
+    '#141418',
+    0.25,
+    0.5
+  );
   const grayboxBodyMat = createPlaceholderPBR(
     scene,
     `${instancePrefix}_graybox_body`,
@@ -224,8 +775,20 @@ export function buildTemporaryPlaceholderHumanoidRig(
     0.45,
     0.15
   );
-  const eyeWhiteMat = createPlaceholderPBR(scene, `${instancePrefix}_eyeW`, '#F8FAFC', 0.2, 0.0);
-  const pupilMat = createPlaceholderPBR(scene, `${instancePrefix}_pupil`, '#1E1B18', 0.15, 0.1);
+  const eyeWhiteMat = createPlaceholderPBR(
+    scene,
+    `${instancePrefix}_eyeW`,
+    '#F8FAFC',
+    0.2,
+    0.0
+  );
+  const pupilMat = createPlaceholderPBR(
+    scene,
+    `${instancePrefix}_pupil`,
+    '#1E1B18',
+    0.15,
+    0.1
+  );
 
   const originalMaterials = new Map<Mesh, PBRMaterial>();
   const meshMinLod = new Map<Mesh, 0 | 1 | 2>();
@@ -408,7 +971,12 @@ export function buildTemporaryPlaceholderHumanoidRig(
 
   const cranium = MeshBuilder.CreateSphere(
     `${instancePrefix}_cranium`,
-    { diameterX: 0.23 * jawScale, diameterY: 0.25, diameterZ: 0.25, segments: 12 },
+    {
+      diameterX: 0.23 * jawScale,
+      diameterY: 0.25,
+      diameterZ: 0.25,
+      segments: 12,
+    },
     scene
   );
   cranium.position.set(0, 0.12, -0.01);
@@ -488,7 +1056,12 @@ export function buildTemporaryPlaceholderHumanoidRig(
   if (p.hairStyle === 'cropped_machismo') {
     const hairCap = MeshBuilder.CreateSphere(
       `${instancePrefix}_hairCap`,
-      { diameterX: 0.245 * jawScale, diameterY: 0.18, diameterZ: 0.26, segments: 10 },
+      {
+        diameterX: 0.245 * jawScale,
+        diameterY: 0.18,
+        diameterZ: 0.26,
+        segments: 10,
+      },
       scene
     );
     hairCap.position.set(0, 0.19, -0.015);
@@ -550,7 +1123,6 @@ export function buildTemporaryPlaceholderHumanoidRig(
     napeMane.position.set(0, 0.11, -0.12);
     registerMesh(napeMane, bHead, hairMat);
 
-    // Bhidu signature forehead bandana
     const headBandana = MeshBuilder.CreateCylinder(
       `${instancePrefix}_headBandana`,
       { height: 0.042, diameter: 0.255 * jawScale, tessellation: 16 },
@@ -684,7 +1256,6 @@ export function buildTemporaryPlaceholderHumanoidRig(
     fist.position.y = -0.04;
     registerMesh(fist, hand, skinMat);
 
-    // Stylized gold-trimmed parody sidearm attached to Action Sultan's right hand/holster
     if (charDef.id === 'action_sultan' && side === 'R') {
       const gunBarrel = MeshBuilder.CreateBox(
         `${instancePrefix}_sultanSidearmBarrel`,
@@ -785,11 +1356,6 @@ export function buildTemporaryPlaceholderHumanoidRig(
  * CharacterAssetLoader
  *
  * Production-ready GLB loader & validator for Filmi Dangal fighters.
- * - Reads character configuration from `CHARACTER_ASSET_MANIFEST`
- * - Supports loading real production GLB models (`public/assets/characters/<slug>/model.glb`)
- *   with preserved skinned meshes, materials, skeletons, bone aliases, and embedded AnimationGroups
- * - Isolates the temporary placeholder rig builder so replacing a character with a real GLB
- *   requires zero changes to combat, HUD, or camera logic.
  */
 export class CharacterAssetLoader {
   public static getManifest(characterId: FighterId): CharacterAssetConfig {
@@ -811,6 +1377,7 @@ export class CharacterAssetLoader {
 
   /**
    * Builds an AnimationGroup controller for an imported production GLB with embedded animations.
+   * Respects state transitions so an already-active clip is never restarted every render frame.
    */
   public static createAnimationGroupController(
     characterId: FighterId,
@@ -819,26 +1386,69 @@ export class CharacterAssetLoader {
   ): LoadedGLBAnimationController {
     const groupMap = new Map<string, AnimationGroup>();
     for (const ag of animationGroups) {
-      if (ag.name) {
+      if (ag && ag.name) {
         groupMap.set(ag.name, ag);
+        // Also index stripped Anim_Common_ prefix for seamless compatibility
+        if (ag.name.startsWith('Anim_Common_')) {
+          const stripped = ag.name.replace(/^Anim_Common_/, '');
+          if (!groupMap.has(stripped)) {
+            groupMap.set(stripped, ag);
+          }
+        }
       }
     }
 
     const availableClipNames = Array.from(groupMap.keys());
     let activeClipId: StandardAnimationClipId | null = null;
+    let activeClipName: string | null = null;
     let currentGroup: AnimationGroup | null = null;
 
-    const playClip = (clipId: StandardAnimationClipId, speedMultiplier = 1.0): boolean => {
+    const hasClip = (clipId: StandardAnimationClipId): boolean => {
+      if (availableClipNames.length === 0) return false;
+      const resolved = resolveCharacterAnimationClip(
+        characterId,
+        clipId,
+        availableClipNames
+      );
+      if (resolved.usedFallback && clipId !== 'idle') {
+        return false;
+      }
+      return groupMap.has(resolved.resolvedClipName);
+    };
+
+    const playClip = (
+      clipId: StandardAnimationClipId,
+      speedMultiplier = 1.0,
+      forceRestart = false
+    ): boolean => {
       if (availableClipNames.length === 0) return false;
       const resolved = resolveCharacterAnimationClip(
         characterId,
         clipId,
         availableClipNames,
-        (msg) => emitOnceWarning(msg, warnings)
+        (msg) => emitOnceAssetWarning(msg, warnings)
       );
+      // If a non-idle state fell all the way back to generic Idle because its clip is missing,
+      // return false so AnimationController3D Case 2 can fall back to procedural bone poses.
+      if (resolved.usedFallback && clipId !== 'idle') {
+        return false;
+      }
       const targetGroup = groupMap.get(resolved.resolvedClipName);
       if (!targetGroup) {
         return false;
+      }
+
+      const effectiveSpeed = resolved.mapping.speedRatio * speedMultiplier;
+      const isSameActiveClip =
+        activeClipId === clipId && currentGroup === targetGroup && !forceRestart;
+
+      if (isSameActiveClip) {
+        // Never restart an active clip every frame!
+        targetGroup.speedRatio = effectiveSpeed;
+        if (resolved.mapping.loop && !targetGroup.isPlaying) {
+          targetGroup.start(true, effectiveSpeed);
+        }
+        return true;
       }
 
       if (currentGroup && currentGroup !== targetGroup) {
@@ -846,13 +1456,10 @@ export class CharacterAssetLoader {
       }
       currentGroup = targetGroup;
       activeClipId = clipId;
+      activeClipName = resolved.resolvedClipName;
 
-      const effectiveSpeed = resolved.mapping.speedRatio * speedMultiplier;
-      if (!targetGroup.isPlaying) {
-        targetGroup.start(resolved.mapping.loop, effectiveSpeed);
-      } else {
-        targetGroup.speedRatio = effectiveSpeed;
-      }
+      targetGroup.stop();
+      targetGroup.start(resolved.mapping.loop, effectiveSpeed);
       return true;
     };
 
@@ -862,6 +1469,7 @@ export class CharacterAssetLoader {
       }
       currentGroup = null;
       activeClipId = null;
+      activeClipName = null;
     };
 
     return {
@@ -869,6 +1477,10 @@ export class CharacterAssetLoader {
       get activeClipId() {
         return activeClipId;
       },
+      get activeClipName() {
+        return activeClipName;
+      },
+      hasClip,
       playClip,
       stopAll,
     };
@@ -876,11 +1488,9 @@ export class CharacterAssetLoader {
 
   /**
    * Loads a character rig from the manifest path (`modelPath`, falling back to `legacyModelPath`).
-   * - If the loaded GLB is a real production character (i.e. `!manifest.isTemporaryPlaceholder`
-   *   and contains skinned or multi-vertex meshes), preserves and renders the actual imported GLB
-   *   meshes, materials, bones, and AnimationGroups.
-   * - If the character is marked `isTemporaryPlaceholder: true` or the GLB file cannot be loaded,
-   *   logs a clear development warning and constructs the isolated temporary placeholder rig.
+   * Implements two explicit, non-overlapping rendering paths (Section 6):
+   * - Path A: Temporary Placeholder (`isTemporaryPlaceholder: true` or non-production GLB)
+   * - Path B: Production Character (`isTemporaryPlaceholder: false` and valid skinned GLB)
    */
   public static async loadCharacterFromManifest(
     scene: Scene,
@@ -890,6 +1500,8 @@ export class CharacterAssetLoader {
   ): Promise<{
     rootNode: TransformNode;
     facingNode: TransformNode;
+    modelTransformNode: TransformNode;
+    importedRootNodes: TransformNode[];
     bones: Record<string, TransformNode>;
     sockets: Record<BoneAttachmentName, TransformNode>;
     meshes: Mesh[];
@@ -903,6 +1515,7 @@ export class CharacterAssetLoader {
   }> {
     const manifest = getCharacterAssetConfig(charDef.id);
     const warnings: string[] = [];
+    const errors: string[] = [];
     const attemptedPaths = [manifest.modelPath];
     if (
       manifest.legacyModelPath &&
@@ -917,17 +1530,36 @@ export class CharacterAssetLoader {
       attemptedPaths.push(charDef.visuals.glbModelPath);
     }
 
+    // 1. FighterRoot: controlled strictly by gameplay X/Y position (Z = 0)
     const rootNode = new TransformNode(`${instancePrefix}_${charDef.id}_root`, scene);
-    rootNode.metadata = {
-      characterId: charDef.id,
-      heightScale: charDef.visuals.proportions.heightScale * (manifest.scale / 1.02),
-    };
+    rootNode.position.set(0, 0, 0);
+    rootNode.scaling.setAll(1);
 
+    // 2. FacingNode: controlled strictly by facing yaw rotation
     const facingNode = new TransformNode(`${instancePrefix}_${charDef.id}_facing`, scene);
     facingNode.parent = rootNode;
+    facingNode.position.set(0, 0, 0);
+    facingNode.scaling.setAll(1);
 
-    const importedBones: Record<string, TransformNode> = {};
+    // 3. ModelTransformNode: applies manifest.scale and manifest.groundOffset EXACTLY ONCE
+    const modelTransformNode = new TransformNode(
+      `${instancePrefix}_${charDef.id}_modelTransform`,
+      scene
+    );
+    modelTransformNode.parent = facingNode;
+    modelTransformNode.position.set(0, manifest.groundOffset, 0);
+    modelTransformNode.scaling.setAll(manifest.scale);
+
+    rootNode.metadata = {
+      characterId: charDef.id,
+      heightScale: charDef.visuals.proportions.heightScale,
+      manifestScale: manifest.scale,
+      groundOffset: manifest.groundOffset,
+    };
+
     let importedMeshes: Mesh[] = [];
+    let importedTransformNodes: TransformNode[] = [];
+    let importedSkeletons: Skeleton[] = [];
     let importedAnimGroups: AnimationGroup[] = [];
     let glbLoaded = false;
     let loadedFromPath: string | null = null;
@@ -939,26 +1571,25 @@ export class CharacterAssetLoader {
         const sceneFilename = candidatePath.substring(lastSlash + 1);
 
         const result = await SceneLoader.ImportMeshAsync('', rootUrl, sceneFilename, scene);
-        if (result.meshes && result.meshes.length > 0) {
+        if (result && ((result.meshes && result.meshes.length > 0) || (result.transformNodes && result.transformNodes.length > 0))) {
           glbLoaded = true;
           loadedFromPath = candidatePath;
-          importedMeshes = result.meshes.filter((m): m is Mesh => m instanceof Mesh);
+          importedMeshes = (result.meshes || []).filter(
+            (m): m is Mesh => m instanceof Mesh
+          );
+          importedTransformNodes = result.transformNodes || [];
+          importedSkeletons = result.skeletons || [];
           importedAnimGroups = result.animationGroups || [];
-
-          for (const tn of result.transformNodes) {
-            if (tn.name) {
-              importedBones[tn.name] = tn;
-            }
-          }
           break;
         }
-      } catch {
-        // Try next candidate path
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        errors.push(`Failed loading "${candidatePath}": ${msg}`);
       }
     }
 
     if (!glbLoaded) {
-      emitOnceWarning(
+      emitOnceAssetWarning(
         `[CharacterAssetLoader] Could not load GLB for "${charDef.id}" from [${attemptedPaths.join(
           ', '
         )}]. Using temporary placeholder rig.`,
@@ -966,40 +1597,81 @@ export class CharacterAssetLoader {
       );
     }
 
-    // Resolve canonical humanoid bones via alias mapping
-    const resolvedBoneMap: Record<string, TransformNode> = {};
-    const resolvedBones: string[] = [];
-    const missingBones: string[] = [];
+    // Section 3: Attach top-level imported GLB hierarchy once under modelTransformNode
+    const hierarchyAttachment = attachImportedGLBHierarchyToFacingNode(
+      modelTransformNode,
+      importedMeshes,
+      importedTransformNodes
+    );
 
-    for (const reqBone of REQUIRED_HUMANOID_BONES) {
-      const found = resolveAliasedBoneNode(charDef.id, reqBone, importedBones);
-      if (found) {
-        resolvedBoneMap[reqBone] = found;
-        resolvedBones.push(reqBone);
-      } else {
-        missingBones.push(reqBone);
+    // Section 4: Resolve canonical humanoid & facial bones across TransformNodes and Skeletons
+    const boneResolution = resolveHumanoidSkeletonAndBones(
+      charDef.id,
+      importedTransformNodes,
+      importedMeshes,
+      importedSkeletons,
+      scene,
+      modelTransformNode,
+      instancePrefix
+    );
+
+    // Measure imported model bounds before deciding Path A vs Path B
+    const importedDimensions = computeRigWorldBounds(rootNode, importedMeshes);
+
+    // Section 5: Evaluate production character eligibility
+    const eligibility = evaluateRuntimeProductionRigEligibility({
+      manifest,
+      glbLoaded,
+      importedMeshes,
+      allSkeletons: boneResolution.allSkeletons,
+      missingHumanoidBones: boneResolution.missingBones,
+      dimensions: importedDimensions,
+    });
+
+    const useProductionPathB =
+      glbLoaded && !manifest.isTemporaryPlaceholder && eligibility.isProductionReady;
+
+    // Collect imported materials for diagnostics and disposal
+    const importedMaterialSet = new Set<Material>();
+    for (const m of importedMeshes) {
+      if (m.material) {
+        importedMaterialSet.add(m.material);
       }
     }
 
-    // Determine whether this is a real production GLB or a temporary placeholder rig
-    const hasSkinnedProductionMesh = importedMeshes.some(
-      (m) => m.skeleton !== null && m.getTotalVertices() > 100
-    );
-    const useProductionGLBMeshes =
-      glbLoaded && (!manifest.isTemporaryPlaceholder || hasSkinnedProductionMesh);
-
-    if (!useProductionGLBMeshes) {
-      emitOnceWarning(
-        `[CharacterAssetLoader] Character "${charDef.id}" (${manifest.displayName}) is running with temporary placeholder 3D geometry (isTemporaryPlaceholder=${manifest.isTemporaryPlaceholder}). Drop a production rigged GLB at "${manifest.modelPath}" and set isTemporaryPlaceholder=false to switch to final character meshes.`,
+    // =========================================================================
+    // PATH A: TEMPORARY PLACEHOLDER RIG (Section 6)
+    // =========================================================================
+    if (!useProductionPathB) {
+      emitOnceAssetWarning(
+        `[CharacterAssetLoader] Character "${charDef.id}" (${manifest.displayName}) is using Path A (Temporary Placeholder Rig). Reasons: ${eligibility.reasons.join(
+          '; '
+        )}.`,
         warnings
       );
 
-      // Hide proxy stub meshes from the temporary GLB so only the articulated placeholder rig is visible
+      // Dispose imported placeholder proxy meshes, skeletons, animation groups, and materials
+      // so ONLY the intended temporary procedural geometry exists in the scene (never both!).
+      for (const ag of importedAnimGroups) {
+        ag.stop();
+        ag.dispose();
+      }
+      for (const skel of boneResolution.allSkeletons) {
+        skel.dispose();
+      }
+      for (const proxyTn of boneResolution.createdProxyNodes) {
+        proxyTn.dispose();
+      }
       for (const m of importedMeshes) {
-        if (m.parent === null) {
-          m.parent = facingNode;
+        m.dispose(false, false);
+      }
+      for (const tn of importedTransformNodes) {
+        if (!tn.isDisposed()) {
+          tn.dispose();
         }
-        m.isVisible = false;
+      }
+      for (const mat of importedMaterialSet) {
+        mat.dispose();
       }
 
       const placeholder = buildTemporaryPlaceholderHumanoidRig(
@@ -1007,40 +1679,40 @@ export class CharacterAssetLoader {
         charDef,
         manifest,
         instancePrefix,
-        facingNode,
-        resolvedBoneMap,
+        modelTransformNode,
+        {},
         shadowGenerator
       );
 
-      const glbAnimationController =
-        importedAnimGroups.length > 0
-          ? CharacterAssetLoader.createAnimationGroupController(
-              charDef.id,
-              importedAnimGroups,
-              warnings
-            )
-          : null;
-
-      const availableAnimationClips = importedAnimGroups.map((a) => a.name);
-      const missingStandardClips = ALL_STANDARD_ANIMATION_CLIP_IDS.filter((clipId) => {
-        const res = resolveCharacterAnimationClip(
-          charDef.id,
-          clipId,
-          availableAnimationClips
-        );
-        return res.usedFallback && availableAnimationClips.length > 0;
-      });
+      const placeholderDimensions = computeRigWorldBounds(rootNode, placeholder.meshes);
+      const placeholderMatSet = new Set(placeholder.originalMaterials.values());
 
       const diagnostics: CharacterAssetLoadDiagnostics = {
         characterId: charDef.id,
+        requestedModelPath: manifest.modelPath,
         attemptedPaths,
         loadedFromPath,
+        glbLoaded,
         usedTemporaryPlaceholder: true,
-        hasEmbeddedAnimations: importedAnimGroups.length > 0,
-        availableAnimationClips,
-        missingStandardClips,
+        importedMeshCount: importedMeshes.length,
+        importedTransformNodeCount: importedTransformNodes.length,
+        skeletonCount: boneResolution.allSkeletons.length,
+        resolvedBoneCount: Object.keys(placeholder.bones).length,
         resolvedBones: Object.keys(placeholder.bones),
         missingBones: [],
+        missingFacialBones: [],
+        hasEmbeddedAnimations: false,
+        availableAnimationClips: [],
+        missingStandardClips: [],
+        skinningValid: eligibility.skinningValid,
+        productionRigEligible: false,
+        productionEligibilityReasons: eligibility.reasons,
+        modelDimensions: placeholderDimensions,
+        scale: manifest.scale,
+        groundOffset: manifest.groundOffset,
+        materialCount: placeholderMatSet.size,
+        textureLoadingStatus: 'NO_TEXTURES',
+        errors,
         warnings,
       };
 
@@ -1052,7 +1724,9 @@ export class CharacterAssetLoader {
               mesh.name.includes('fist') ||
               mesh.name.includes('boot') ||
               mesh.name.includes('jaw');
-            mesh.material = isJoint ? placeholder.grayboxJointMat : placeholder.grayboxBodyMat;
+            mesh.material = isJoint
+              ? placeholder.grayboxJointMat
+              : placeholder.grayboxBodyMat;
           } else {
             const orig = placeholder.originalMaterials.get(mesh);
             if (orig) mesh.material = orig;
@@ -1070,17 +1744,18 @@ export class CharacterAssetLoader {
       return {
         rootNode,
         facingNode,
+        modelTransformNode,
+        importedRootNodes: [placeholder.bones.Root],
         bones: placeholder.bones,
         sockets: placeholder.sockets,
         meshes: placeholder.meshes,
         glbLoaded,
         isPlaceholderAsset: true,
-        glbAnimationController,
+        glbAnimationController: null,
         diagnostics,
         setRenderMode,
         setLODLevel,
         dispose: () => {
-          glbAnimationController?.stopAll();
           const uniqueMats = new Set(placeholder.originalMaterials.values());
           uniqueMats.add(placeholder.grayboxBodyMat);
           uniqueMats.add(placeholder.grayboxJointMat);
@@ -1092,40 +1767,37 @@ export class CharacterAssetLoader {
       };
     }
 
-    // PRODUCTION GLB PATH: Preserve and render actual imported GLB meshes, materials, and skeleton!
+    // =========================================================================
+    // PATH B: PRODUCTION CHARACTER GLB (Section 6)
+    // =========================================================================
     for (const m of importedMeshes) {
-      if (m.parent === null) {
-        m.parent = facingNode;
-      }
-      m.isVisible = m.getTotalVertices() > 0;
-      m.receiveShadows = true;
-      if (shadowGenerator && m.getTotalVertices() > 0) {
+      const hasVerts = m.getTotalVertices() > 0;
+      m.isVisible = hasVerts;
+      m.receiveShadows = hasVerts;
+      if (shadowGenerator && hasVerts) {
         shadowGenerator.addShadowCaster(m);
       }
     }
 
-    facingNode.scaling.setAll(manifest.scale);
-    facingNode.position.y = manifest.groundOffset;
-
-    if (missingBones.length > 0) {
-      emitOnceWarning(
-        `[CharacterAssetLoader] Production GLB for "${charDef.id}" is missing humanoid bones: ${missingBones.join(
+    if (boneResolution.missingBones.length > 0) {
+      emitOnceAssetWarning(
+        `[CharacterAssetLoader] Production GLB for "${charDef.id}" is missing humanoid bones: ${boneResolution.missingBones.join(
           ', '
         )}`,
         warnings
       );
     }
 
-    const fallbackNode = resolvedBoneMap.Root || facingNode;
+    const fallbackNode = boneResolution.resolvedBoneMap.Root || modelTransformNode;
     const sockets: Record<BoneAttachmentName, TransformNode> = {
-      Head: resolvedBoneMap.Head || fallbackNode,
-      Chest: resolvedBoneMap.Chest || fallbackNode,
-      RightHand: resolvedBoneMap.RightHand || fallbackNode,
-      LeftHand: resolvedBoneMap.LeftHand || fallbackNode,
-      RightFoot: resolvedBoneMap.RightFoot || fallbackNode,
-      LeftFoot: resolvedBoneMap.LeftFoot || fallbackNode,
-      Hips: resolvedBoneMap.Hips || fallbackNode,
-      Projectile: resolvedBoneMap.Chest || fallbackNode,
+      Head: boneResolution.resolvedBoneMap.Head || fallbackNode,
+      Chest: boneResolution.resolvedBoneMap.Chest || fallbackNode,
+      RightHand: boneResolution.resolvedBoneMap.RightHand || fallbackNode,
+      LeftHand: boneResolution.resolvedBoneMap.LeftHand || fallbackNode,
+      RightFoot: boneResolution.resolvedBoneMap.RightFoot || fallbackNode,
+      LeftFoot: boneResolution.resolvedBoneMap.LeftFoot || fallbackNode,
+      Hips: boneResolution.resolvedBoneMap.Hips || fallbackNode,
+      Projectile: boneResolution.resolvedBoneMap.Chest || fallbackNode,
     };
 
     const glbAnimationController = CharacterAssetLoader.createAnimationGroupController(
@@ -1140,28 +1812,70 @@ export class CharacterAssetLoader {
         charDef.id,
         clipId,
         availableAnimationClips,
-        (msg) => emitOnceWarning(msg, warnings)
+        (msg) => emitOnceAssetWarning(msg, warnings)
       );
       return res.usedFallback;
     });
 
+    // Inspect texture readiness across imported materials
+    let totalTextures = 0;
+    let allTexturesReady = true;
+    for (const mat of importedMaterialSet) {
+      const activeTex = mat.getActiveTextures();
+      for (const tex of activeTex) {
+        totalTextures++;
+        if (!tex.isReady()) {
+          allTexturesReady = false;
+        }
+      }
+    }
+    const textureLoadingStatus: CharacterAssetLoadDiagnostics['textureLoadingStatus'] =
+      totalTextures === 0
+        ? 'NO_TEXTURES'
+        : allTexturesReady
+        ? 'READY'
+        : 'PENDING_OR_FAILED';
+
+    const productionDimensions = computeRigWorldBounds(rootNode, importedMeshes);
+
     const diagnostics: CharacterAssetLoadDiagnostics = {
       characterId: charDef.id,
+      requestedModelPath: manifest.modelPath,
       attemptedPaths,
       loadedFromPath,
+      glbLoaded: true,
       usedTemporaryPlaceholder: false,
+      importedMeshCount: importedMeshes.length,
+      importedTransformNodeCount: importedTransformNodes.length,
+      skeletonCount: boneResolution.allSkeletons.length,
+      resolvedBoneCount: boneResolution.resolvedBones.length,
+      resolvedBones: boneResolution.resolvedBones,
+      missingBones: boneResolution.missingBones,
+      missingFacialBones: boneResolution.missingFacialBones,
       hasEmbeddedAnimations: importedAnimGroups.length > 0,
       availableAnimationClips,
       missingStandardClips,
-      resolvedBones,
-      missingBones,
+      skinningValid: eligibility.skinningValid,
+      productionRigEligible: true,
+      productionEligibilityReasons: [],
+      modelDimensions: productionDimensions,
+      scale: manifest.scale,
+      groundOffset: manifest.groundOffset,
+      materialCount: importedMaterialSet.size,
+      textureLoadingStatus,
+      errors,
       warnings,
     };
 
     return {
       rootNode,
       facingNode,
-      bones: { ...importedBones, ...resolvedBoneMap },
+      modelTransformNode,
+      importedRootNodes: hierarchyAttachment.importedRoots,
+      bones: {
+        ...boneResolution.rawNodeLookup,
+        ...boneResolution.resolvedBoneMap,
+      },
       sockets,
       meshes: importedMeshes,
       glbLoaded: true,
@@ -1172,6 +1886,18 @@ export class CharacterAssetLoader {
       setLODLevel: () => {},
       dispose: () => {
         glbAnimationController.stopAll();
+        for (const ag of importedAnimGroups) {
+          ag.dispose();
+        }
+        for (const skel of boneResolution.allSkeletons) {
+          skel.dispose();
+        }
+        for (const proxyTn of boneResolution.createdProxyNodes) {
+          proxyTn.dispose();
+        }
+        for (const mat of importedMaterialSet) {
+          mat.dispose();
+        }
         rootNode.dispose();
       },
     };

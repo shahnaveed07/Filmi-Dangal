@@ -4,7 +4,10 @@ import {
   FighterId,
   FighterStateName,
 } from '../../types/fighter';
-import { mapStateToStandardClipId } from '../../config/characterAssets';
+import {
+  getCharacterAssetConfig,
+  mapStateToStandardClipId,
+} from '../../config/characterAssets';
 import { CharacterRig3D } from '../assets/AssetLoader3D';
 
 export interface BonePoseTransform {
@@ -22,18 +25,37 @@ function lerp(a: number, b: number, t: number): number {
   return a + (b - a) * t;
 }
 
+const CORE_COMPATIBLE_BONES = [
+  'Hips',
+  'Chest',
+  'Head',
+  'LeftUpperArm',
+  'RightUpperArm',
+  'LeftUpperLeg',
+  'RightUpperLeg',
+] as const;
+
+export function hasCompatibleProceduralBones(
+  bones: Record<string, unknown>
+): boolean {
+  let count = 0;
+  for (const name of CORE_COMPATIBLE_BONES) {
+    if (bones[name]) count++;
+  }
+  return count >= 5;
+}
+
 /**
  * 3D Skeletal Animation State Machine for Filmi Dangal 2.0.
- * Supports:
- * - Embedded GLB AnimationGroups when a production GLB model provides skeletal clips
- * - Procedural bone-transform pose synthesis across all 17 active 2D XY animation states
- *   with distinct character-specific SuperShots:
- *   1. Action Sultan: Blackbuck Gunshot (holster draw -> aiming stance -> gunshot recoil)
- *   2. Romance Raja: Iconic Open-Arms Pose (dramatic entry -> wide open-arms pose + upward head tilt -> energy wave release)
- *   3. Duggu: Kaho Naa Dance Wave (dancer stance -> syncopated footwork + arm wave -> 360° acrobatic spin)
- *   4. Bhidu: Bhidu Swagger Shockwave (relaxed stance -> slow deliberate swagger walk + shoulder roll -> hero stance shockwave)
+ * Distinguishes between:
+ * 1. Valid production GLB with usable AnimationGroups
+ * 2. Production GLB with missing/incomplete AnimationGroups (falls back to procedural pose on compatible bones or safe visible state)
+ * 3. Temporary procedural placeholder rig
+ * 4. Invalid or partially loaded character
  */
 export class AnimationController3D {
+  private warnedMissingClips = new Set<string>();
+
   public updateRigPose(
     rig: CharacterRig3D,
     characterId: FighterId,
@@ -43,20 +65,70 @@ export class AnimationController3D {
     facing: 1 | -1,
     _zVelocity = 0
   ): void {
+    if (!rig || !rig.rootNode || !rig.facingNode) return;
+
+    const manifest = getCharacterAssetConfig(characterId);
     const heightScale = (rig.rootNode.metadata?.heightScale as number) || 1.0;
 
-    // Facing rotation around Y axis so fighter faces +X (right) or -X (left)
-    const targetYaw = facing === 1 ? Math.PI * 0.5 : -Math.PI * 0.5;
+    // Facing rotation around Y axis driven by character manifest
+    const rightYaw = manifest?.facingRotationY?.right ?? Math.PI * 0.5;
+    const leftYaw = manifest?.facingRotationY?.left ?? -Math.PI * 0.5;
+    const targetYaw = facing === 1 ? rightYaw : leftYaw;
     rig.facingNode.rotation.y = lerp(
       rig.facingNode.rotation.y,
       targetYaw,
       Math.min(1, dt * 16)
     );
 
-    // If a production GLB with embedded AnimationGroups is active, drive the clip via glbAnimationController
-    if (rig.glbAnimationController && !rig.isPlaceholderAsset) {
+    if (!rig.rootNode.metadata) {
+      rig.rootNode.metadata = {};
+    }
+    const meta = rig.rootNode.metadata as Record<string, unknown>;
+    const prevState = meta.lastAnimState as FighterStateName | undefined;
+    const prevStateTime = (meta.lastAnimStateTimeSec as number) ?? 0;
+    const isNewStateEntry =
+      prevState !== state || stateTimeSec < prevStateTime - 0.02;
+    meta.lastAnimState = state;
+    meta.lastAnimStateTimeSec = stateTimeSec;
+
+    // Case 1 & Case 2: Production GLB rig (!isPlaceholderAsset && productionRigValid)
+    if (!rig.isPlaceholderAsset && rig.productionRigValid) {
       const standardClipId = mapStateToStandardClipId(state);
-      rig.glbAnimationController.playClip(standardClipId, 1.0);
+      const animSpeed = manifest?.animationSpeed || 1.0;
+      const played =
+        rig.glbAnimationController?.playClip(
+          standardClipId,
+          animSpeed,
+          isNewStateEntry
+        ) ?? false;
+
+      if (played) {
+        return;
+      }
+
+      // Case 2: Production GLB is missing a usable clip for this state
+      rig.glbAnimationController?.stopAll();
+      const warnKey = `${characterId}:${standardClipId}`;
+      if (!this.warnedMissingClips.has(warnKey)) {
+        this.warnedMissingClips.add(warnKey);
+        const msg = `Production GLB for '${characterId}' is missing usable AnimationGroup for state '${state}' (${standardClipId}); falling back to procedural bone pose.`;
+        console.warn(`[AnimationController3D] ${msg}`);
+        if (
+          rig.diagnostics &&
+          !rig.diagnostics.warnings.includes(msg)
+        ) {
+          rig.diagnostics.warnings.push(msg);
+        }
+      }
+
+      if (!hasCompatibleProceduralBones(rig.bones)) {
+        // Keep character in safe visible state without throwing
+        return;
+      }
+    }
+
+    // Case 3 (Temporary procedural placeholder) or Case 2 fallback with compatible bones
+    if (!rig.bones || Object.keys(rig.bones).length === 0) {
       return;
     }
 

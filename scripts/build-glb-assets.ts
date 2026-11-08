@@ -2,23 +2,26 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 
 /**
- * Generates valid binary glTF 2.0 (.glb) humanoid fighter assets and manifest.json
- * for Filmi Dangal 3D (Version 2.0 Final Character Asset Production Directive).
+ * Generates valid binary glTF 2.0 (.glb) humanoid placeholder assets and manifest.json
+ * for the active Filmi Dangal 3D 4-fighter roster:
+ * - action_sultan (Action Sultan — Salman Khan-inspired)
+ * - romance_raja  (Romance Raja — Shah Rukh Khan-inspired)
+ * - duggu         (Duggu — Hrithik Roshan-inspired)
+ * - bhidu         (Bhidu — Jackie Shroff-inspired)
  *
- * Includes:
- * - 26-node Shared Humanoid Skeleton + Facial Expression Rig (Jaw, LeftBrow, RightBrow, LeftEyelid, RightEyelid)
- * - 3 LOD groups (LOD0_High, LOD1_Medium, LOD2_Low)
- * - PBR Metallic-Roughness materials with verified material slots
- * - Embedded glTF 2.0 keyframe animation clips for Idle, Walk, Punch, Kick, Block, Jump, SuperShot, and SuperMove
- * - Ground origin at (0, 0, 0) and +Z forward orientation
+ * SAFETY & HONESTY RULES (Section 11):
+ * - Explicitly marks generated geometry as `isPlaceholder: true` and `productionStatus: 'PLACEHOLDER'`
+ *   unless real skinned mesh geometry (`skins`, `JOINTS_0`, `WEIGHTS_0`) is present.
+ * - Refuses to overwrite any existing non-placeholder production GLB file on disk unless
+ *   `--force-overwrite-production` is explicitly passed on the command line.
+ * - Never recreates obsolete `dance-dynamo` or `villain-saab` directories.
  */
 
 interface CharacterAssetSpec {
-  folder: string;
-  id: string;
+  folder: 'action-sultan' | 'romance-raja' | 'duggu' | 'bhidu';
+  id: 'action_sultan' | 'romance_raja' | 'duggu' | 'bhidu';
   name: string;
   inspiration: string;
-  productionStatus: 'VERTICAL_SLICE_COMPLETE' | 'STAGE_2_INTEGRATED';
   primaryHex: [number, number, number];
   secondaryHex: [number, number, number];
   skinHex: [number, number, number];
@@ -35,26 +38,25 @@ interface CharacterAssetSpec {
   superMoveName: string;
 }
 
-const SPECS: CharacterAssetSpec[] = [
+export const ACTIVE_CHARACTER_SPECS: readonly CharacterAssetSpec[] = [
   {
     folder: 'action-sultan',
     id: 'action_sultan',
     name: 'ACTION SULTAN',
     inspiration: 'Salman Khan-inspired (Configurable Parody Persona)',
-    productionStatus: 'VERTICAL_SLICE_COMPLETE',
-    primaryHex: [0.85, 0.47, 0.02], // Saffron Gold Pathani Vest
-    secondaryHex: [0.99, 0.88, 0.28], // Gold Trim
-    skinHex: [0.88, 0.67, 0.51],
-    hairHex: [0.11, 0.1, 0.09],
-    accentHex: [0.22, 0.74, 0.97], // Firoza Turquoise Bracelet
-    heightScale: 1.02,
-    shoulderWidth: 0.52,
-    torsoBulk: 0.38,
+    primaryHex: [0.11, 0.31, 0.85], // Royal Blue Denim Vest
+    secondaryHex: [0.96, 0.62, 0.04], // Gold Belt Buckle & Sidearm Trim
+    skinHex: [0.85, 0.61, 0.45],
+    hairHex: [0.12, 0.11, 0.09],
+    accentHex: [0.08, 0.72, 0.65], // Turquoise Silver Bracelet
+    heightScale: 1.04,
+    shoulderWidth: 0.56,
+    torsoBulk: 0.39,
     legLength: 0.92,
     jawWidth: 0.22,
-    superShotAnimName: 'Anim_AS_SuperShot_PowerlineBlast',
+    superShotAnimName: 'Anim_AS_SuperShot_BlackbuckGunshot',
     superMoveAnimName: 'Anim_AS_SuperMove_SultanBreaker',
-    superShotName: 'POWERLINE BLAST',
+    superShotName: 'BLACKBUCK GUNSHOT',
     superMoveName: 'SULTAN BREAKER',
   },
   {
@@ -62,65 +64,62 @@ const SPECS: CharacterAssetSpec[] = [
     id: 'romance_raja',
     name: 'ROMANCE RAJA',
     inspiration: 'Shah Rukh Khan-inspired (Configurable Parody Persona)',
-    productionStatus: 'STAGE_2_INTEGRATED',
-    primaryHex: [0.75, 0.07, 0.24], // Velvet Crimson Jacket
-    secondaryHex: [0.96, 0.62, 0.04], // Regal Gold Lapel & Scarf
-    skinHex: [0.89, 0.69, 0.54],
-    hairHex: [0.12, 0.09, 0.08],
-    accentHex: [0.98, 0.44, 0.52],
+    primaryHex: [0.75, 0.07, 0.24], // Velvet Crimson Blazer
+    secondaryHex: [0.98, 0.75, 0.14], // Gold-Embroidered Lapels & Scarf
+    skinHex: [0.87, 0.67, 0.51],
+    hairHex: [0.11, 0.1, 0.09],
+    accentHex: [0.96, 0.25, 0.37],
     heightScale: 1.0,
-    shoulderWidth: 0.46,
+    shoulderWidth: 0.47,
     torsoBulk: 0.31,
     legLength: 0.94,
     jawWidth: 0.19,
-    superShotAnimName: 'Anim_RR_SuperShot_DilSePulse',
+    superShotAnimName: 'Anim_RR_SuperShot_OpenArmsPose',
     superMoveAnimName: 'Anim_RR_SuperMove_BaadshahGrandGesture',
-    superShotName: 'DIL SE PULSE',
-    superMoveName: "BAADSHAH'S GRAND GESTURE",
+    superShotName: 'ICONIC OPEN-ARMS POSE',
+    superMoveName: "MONARCH'S GRAND GESTURE",
   },
   {
-    folder: 'dance-dynamo',
-    id: 'dance_dynamo',
-    name: 'DANCE DYNAMO',
+    folder: 'duggu',
+    id: 'duggu',
+    name: 'DUGGU',
     inspiration: 'Hrithik Roshan-inspired (Configurable Parody Persona)',
-    productionStatus: 'STAGE_2_INTEGRATED',
-    primaryHex: [0.01, 0.52, 0.78], // Electric Stage Blue Vest
-    secondaryHex: [0.22, 0.74, 0.97], // Neon Cyan Trim
-    skinHex: [0.9, 0.71, 0.55],
-    hairHex: [0.23, 0.16, 0.12],
-    accentHex: [0.99, 0.88, 0.28],
-    heightScale: 1.04,
-    shoulderWidth: 0.5,
-    torsoBulk: 0.32,
-    legLength: 0.98,
-    jawWidth: 0.19,
-    superShotAnimName: 'Anim_DD_SuperShot_BeatDrop',
-    superMoveAnimName: 'Anim_DD_SuperMove_RhythmOverdrive',
-    superShotName: 'BEAT DROP',
+    primaryHex: [0.01, 0.52, 0.78], // Metallic Cyan Performance Jacket
+    secondaryHex: [0.13, 0.77, 0.37], // Emerald Groove Trim
+    skinHex: [0.88, 0.67, 0.52],
+    hairHex: [0.25, 0.15, 0.12],
+    accentHex: [0.22, 0.74, 0.97],
+    heightScale: 1.02,
+    shoulderWidth: 0.51,
+    torsoBulk: 0.3,
+    legLength: 0.96,
+    jawWidth: 0.195,
+    superShotAnimName: 'Anim_DG_SuperShot_KahoNaaDanceWave',
+    superMoveAnimName: 'Anim_DG_SuperMove_RhythmOverdrive',
+    superShotName: 'KAHO NAA DANCE WAVE',
     superMoveName: 'RHYTHM OVERDRIVE',
   },
   {
-    folder: 'villain-saab',
-    id: 'villain_saab',
-    name: 'VILLAIN SAAB',
-    inspiration: 'Sanjay Dutt-inspired (Configurable Parody Persona)',
-    productionStatus: 'STAGE_2_INTEGRATED',
-    primaryHex: [0.3, 0.11, 0.58], // Royal Bandhgala Coat
-    secondaryHex: [0.84, 0.64, 0.28], // Heavy Gold Chains
-    skinHex: [0.83, 0.62, 0.47],
+    folder: 'bhidu',
+    id: 'bhidu',
+    name: 'BHIDU',
+    inspiration: 'Jackie Shroff-inspired (Configurable Parody Persona)',
+    primaryHex: [0.35, 0.11, 0.53], // Street-Hero Jacket
+    secondaryHex: [0.86, 0.15, 0.15], // Signature Red Bandana
+    skinHex: [0.78, 0.54, 0.4],
     hairHex: [0.09, 0.09, 0.11],
-    accentHex: [0.94, 0.27, 0.27], // Crimson Aura
+    accentHex: [0.96, 0.62, 0.04], // Heavy Gold Chain
     heightScale: 1.07,
-    shoulderWidth: 0.56,
+    shoulderWidth: 0.59,
     torsoBulk: 0.42,
     legLength: 0.95,
-    jawWidth: 0.24,
-    superShotAnimName: 'Anim_VS_SuperShot_UnderworldBarrage',
-    superMoveAnimName: 'Anim_VS_SuperMove_BlackoutVerdict',
-    superShotName: 'UNDERWORLD BARRAGE',
+    jawWidth: 0.235,
+    superShotAnimName: 'Anim_BH_SuperShot_BhiduSwaggerWalk',
+    superMoveAnimName: 'Anim_BH_SuperMove_BlackoutVerdict',
+    superShotName: 'BHIDU SWAGGER SHOCKWAVE',
     superMoveName: 'BLACKOUT VERDICT',
   },
-];
+] as const;
 
 function createUnitBoxGeometry(): {
   positions: Float32Array;
@@ -163,7 +162,7 @@ function createUnitBoxGeometry(): {
   return { positions, normals, indices };
 }
 
-function buildGLBForCharacter(spec: CharacterAssetSpec): {
+export function buildPlaceholderGLBForCharacter(spec: CharacterAssetSpec): {
   glb: Buffer;
   documentedAnimations: string[];
   boneNames: string[];
@@ -171,10 +170,7 @@ function buildGLBForCharacter(spec: CharacterAssetSpec): {
 } {
   const { positions, normals, indices } = createUnitBoxGeometry();
 
-  // Animation keyframe data embedded in binary buffer:
-  // Times: [0.0, 0.25, 0.5, 0.75, 1.0]
   const animTimes = new Float32Array([0.0, 0.25, 0.5, 0.75, 1.0]);
-  // Rotations (quaternions x,y,z,w) for 5 keyframes
   const animRotations = new Float32Array([
     0, 0, 0, 1,
     0.08, 0.04, 0, 0.996,
@@ -236,37 +232,6 @@ function buildGLBForCharacter(spec: CharacterAssetSpec): {
     spec.superShotAnimName,
     spec.superMoveAnimName,
   ];
-
-  // 26 Humanoid & Facial Rig Nodes + 3 LOD group nodes = 29 nodes
-  // 0: Root (Ground origin 0,0,0)
-  // 1: Hips
-  // 2: Spine
-  // 3: Chest
-  // 4: Neck
-  // 5: Head
-  // 6: Hair
-  // 7: Jaw (Facial Expression Rig)
-  // 8: LeftBrow (Facial Expression Rig)
-  // 9: RightBrow (Facial Expression Rig)
-  // 10: LeftEyelid (Facial Expression Rig)
-  // 11: RightEyelid (Facial Expression Rig)
-  // 12: LeftShoulder
-  // 13: LeftUpperArm
-  // 14: LeftForeArm
-  // 15: LeftHand
-  // 16: RightShoulder
-  // 17: RightUpperArm
-  // 18: RightForeArm
-  // 19: RightHand
-  // 20: LeftUpLeg
-  // 21: LeftLeg
-  // 22: LeftFoot
-  // 23: RightUpLeg
-  // 24: RightLeg
-  // 25: RightFoot
-  // 26: LOD0_High
-  // 27: LOD1_Medium
-  // 28: LOD2_Low
 
   const nodes = [
     {
@@ -439,7 +404,7 @@ function buildGLBForCharacter(spec: CharacterAssetSpec): {
       {
         sampler: 0,
         target: {
-          node: (idx % 5) + 1, // Hips/Spine/Chest/Neck/Head
+          node: (idx % 5) + 1,
           path: 'rotation',
         },
       },
@@ -456,12 +421,15 @@ function buildGLBForCharacter(spec: CharacterAssetSpec): {
   const gltfJson = {
     asset: {
       version: '2.0',
-      generator: 'FilmiDangal-3D-CharacterPipeline-v2.0',
-      copyright: 'Filmi Dangal Parody Fighter Rig (Shared Humanoid Standard)',
+      generator: 'FilmiDangal-3D-PlaceholderAssetGenerator-v2.1',
+      copyright: 'Filmi Dangal Parody Fighter Rig (Temporary Placeholder GLB)',
       extras: {
         characterId: spec.id,
         characterName: spec.name,
-        productionStatus: spec.productionStatus,
+        isPlaceholder: true,
+        productionStatus: 'PLACEHOLDER',
+        placeholderNotice:
+          'Temporary unskinned box-primitive placeholder GLB. Replace with a production skinned GLB containing glTF skins, JOINTS_0, and WEIGHTS_0.',
         groundOriginVerified: true,
         forwardAxis: '+Z',
         lodLevels: ['LOD0_High', 'LOD1_Medium', 'LOD2_Low'],
@@ -644,48 +612,110 @@ function buildGLBForCharacter(spec: CharacterAssetSpec): {
   };
 }
 
-const outRoot = path.resolve(process.cwd(), 'public/assets/characters');
-for (const spec of SPECS) {
-  const dir = path.join(outRoot, spec.folder);
-  fs.mkdirSync(dir, { recursive: true });
-  const { glb, documentedAnimations, boneNames, lodNames } = buildGLBForCharacter(spec);
-  const outFile = path.join(dir, 'model.glb');
-  fs.writeFileSync(outFile, glb);
+/**
+ * Checks whether an existing GLB file on disk is a real skinned production model
+ * so that running the placeholder generator never overwrites a real character asset.
+ */
+function isExistingProductionGLB(filePath: string): boolean {
+  if (!fs.existsSync(filePath)) return false;
+  try {
+    const buf = fs.readFileSync(filePath);
+    if (buf.byteLength < 20) return false;
+    const magic = buf.readUInt32LE(0);
+    const version = buf.readUInt32LE(4);
+    if (magic !== 0x46546c67 || version !== 2) return false;
+    const jsonLen = buf.readUInt32LE(12);
+    const jsonChunkType = buf.readUInt32LE(16);
+    if (jsonChunkType !== 0x4e4f534a) return false;
+    const jsonText = buf.subarray(20, 20 + jsonLen).toString('utf8').trim();
+    const gltf = JSON.parse(jsonText);
+    if (gltf.asset?.extras?.isPlaceholder === true) {
+      return false;
+    }
+    const hasSkins = Array.isArray(gltf.skins) && gltf.skins.length > 0;
+    const hasSkinnedPrimitive =
+      Array.isArray(gltf.meshes) &&
+      gltf.meshes.some(
+        (m: { primitives?: Array<{ attributes?: Record<string, number> }> }) =>
+          Array.isArray(m.primitives) &&
+          m.primitives.some(
+            (prim) =>
+              prim.attributes &&
+              typeof prim.attributes.JOINTS_0 === 'number' &&
+              typeof prim.attributes.WEIGHTS_0 === 'number'
+          )
+      );
+    return hasSkins && hasSkinnedPrimitive;
+  } catch {
+    return false;
+  }
+}
 
-  const manifest = {
-    characterId: spec.id,
-    characterName: spec.name,
-    inspiration: spec.inspiration,
-    productionStatus: spec.productionStatus,
-    format: 'glTF 2.0 Binary (.glb)',
-    modelFile: `/assets/characters/${spec.folder}/model.glb`,
-    groundOrigin: [0, 0, 0],
-    forwardOrientation: '+Z',
-    skeletonStandard: 'FilmiDangal_SharedHumanoid_26',
-    bones: boneNames,
-    facialRigNodes: ['Jaw', 'LeftBrow', 'RightBrow', 'LeftEyelid', 'RightEyelid'],
-    lodLevels: lodNames,
-    materials: [
-      `${spec.id}_Pants_PBR`,
-      `${spec.id}_Costume_Primary_PBR`,
-      `${spec.id}_Skin_Subsurface_PBR`,
-      `${spec.id}_Hair_And_Boots_PBR`,
-      `${spec.id}_Signature_Accessory_PBR`,
-    ],
-    specialAttacks: {
-      superShot: {
-        name: spec.superShotName,
-        animationClip: spec.superShotAnimName,
+export function generatePlaceholderAssetsOnDisk(forceOverwriteProduction = false): void {
+  const outRoot = path.resolve(process.cwd(), 'public/assets/characters');
+  for (const spec of ACTIVE_CHARACTER_SPECS) {
+    const dir = path.join(outRoot, spec.folder);
+    fs.mkdirSync(dir, { recursive: true });
+    const outFile = path.join(dir, 'model.glb');
+
+    if (!forceOverwriteProduction && isExistingProductionGLB(outFile)) {
+      console.log(
+        `[build-glb-assets] Skipping ${outFile}: detected existing skinned production GLB asset.`
+      );
+      continue;
+    }
+
+    const { glb, documentedAnimations, boneNames, lodNames } =
+      buildPlaceholderGLBForCharacter(spec);
+    fs.writeFileSync(outFile, glb);
+
+    const manifest = {
+      characterId: spec.id,
+      characterName: spec.name,
+      inspiration: spec.inspiration,
+      isPlaceholder: true,
+      productionStatus: 'PLACEHOLDER',
+      format: 'glTF 2.0 Binary (.glb)',
+      modelFile: `/assets/characters/${spec.folder}/model.glb`,
+      groundOrigin: [0, 0, 0],
+      forwardOrientation: '+Z',
+      skeletonStandard: 'FilmiDangal_SharedHumanoid_26',
+      bones: boneNames,
+      facialRigNodes: ['Jaw', 'LeftBrow', 'RightBrow', 'LeftEyelid', 'RightEyelid'],
+      lodLevels: lodNames,
+      materials: [
+        `${spec.id}_Pants_PBR`,
+        `${spec.id}_Costume_Primary_PBR`,
+        `${spec.id}_Skin_Subsurface_PBR`,
+        `${spec.id}_Hair_And_Boots_PBR`,
+        `${spec.id}_Signature_Accessory_PBR`,
+      ],
+      specialAttacks: {
+        superShot: {
+          name: spec.superShotName,
+          animationClip: spec.superShotAnimName,
+        },
+        superMove: {
+          name: spec.superMoveName,
+          animationClip: spec.superMoveAnimName,
+        },
       },
-      superMove: {
-        name: spec.superMoveName,
-        animationClip: spec.superMoveAnimName,
-      },
-    },
-    documentedAnimations,
-  };
-  fs.writeFileSync(path.join(dir, 'manifest.json'), JSON.stringify(manifest, null, 2));
-  console.log(
-    `Generated ${outFile} (${glb.length} bytes) [${spec.productionStatus}] with ${documentedAnimations.length} clips & ${lodNames.length} LODs`
-  );
+      documentedAnimations,
+    };
+    fs.writeFileSync(path.join(dir, 'manifest.json'), JSON.stringify(manifest, null, 2));
+    console.log(
+      `Generated placeholder ${outFile} (${glb.length} bytes) [PLACEHOLDER] with ${documentedAnimations.length} clips & ${lodNames.length} LOD nodes`
+    );
+  }
+}
+
+const isMainExecution =
+  typeof process !== 'undefined' &&
+  Array.isArray(process.argv) &&
+  process.argv[1] &&
+  process.argv[1].endsWith('build-glb-assets.ts');
+
+if (isMainExecution) {
+  const force = process.argv.includes('--force-overwrite-production');
+  generatePlaceholderAssetsOnDisk(force);
 }

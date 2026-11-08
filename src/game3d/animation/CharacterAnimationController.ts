@@ -4,10 +4,15 @@ import {
   FighterId,
   FighterStateName,
 } from '../../types/fighter';
+import {
+  getCharacterAssetConfig,
+  mapStateToStandardClipId,
+} from '../../config/characterAssets';
 import { CharacterRig3D } from '../assets/AssetLoader3D';
 import {
   AnimationController3D,
   BonePoseTransform,
+  hasCompatibleProceduralBones,
   RigPoseMap,
 } from './AnimationController3D';
 import {
@@ -35,6 +40,7 @@ function lerp(a: number, b: number, t: number): number {
 export class CharacterAnimationController {
   private readonly baseAnim = new AnimationController3D();
   private readonly animEvents = new FighterAnimationEvents();
+  private warnedMissingClips = new Set<string>();
 
   public getEventsDispatcher(): FighterAnimationEvents {
     return this.animEvents;
@@ -49,6 +55,7 @@ export class CharacterAnimationController {
     facing: 1 | -1,
     zVelocity = 0
   ): FighterAnimationEventPayload {
+    const manifest = getCharacterAssetConfig(characterId);
     const heightScale = (rig.rootNode.metadata?.heightScale as number) || 1.0;
     const stateFrame = Math.floor(stateTimeSec * 60);
 
@@ -58,15 +65,65 @@ export class CharacterAnimationController {
       stateFrame
     );
 
+    const rightYaw = manifest?.facingRotationY?.right ?? Math.PI * 0.5;
+    const leftYaw = manifest?.facingRotationY?.left ?? -Math.PI * 0.5;
     const targetYaw =
       facing === 1
-        ? Math.PI * 0.5 - zVelocity * 0.05
-        : -Math.PI * 0.5 + zVelocity * 0.05;
+        ? rightYaw - zVelocity * 0.05
+        : leftYaw + zVelocity * 0.05;
     rig.facingNode.rotation.y = lerp(
       rig.facingNode.rotation.y,
       targetYaw,
       Math.min(1, dt * 16)
     );
+
+    if (!rig.rootNode.metadata) {
+      rig.rootNode.metadata = {};
+    }
+    const meta = rig.rootNode.metadata as Record<string, unknown>;
+    const prevState = meta.lastPreviewAnimState as FighterStateName | undefined;
+    const prevStateTime = (meta.lastPreviewAnimStateTimeSec as number) ?? 0;
+    const isNewStateEntry =
+      prevState !== state || stateTimeSec < prevStateTime - 0.02;
+    meta.lastPreviewAnimState = state;
+    meta.lastPreviewAnimStateTimeSec = stateTimeSec;
+
+    if (!rig.isPlaceholderAsset && rig.productionRigValid) {
+      const standardClipId = mapStateToStandardClipId(state);
+      const animSpeed = manifest?.animationSpeed || 1.0;
+      const played =
+        rig.glbAnimationController?.playClip(
+          standardClipId,
+          animSpeed,
+          isNewStateEntry
+        ) ?? false;
+
+      if (played) {
+        return eventPayload;
+      }
+
+      rig.glbAnimationController?.stopAll();
+      const warnKey = `${characterId}:${standardClipId}`;
+      if (!this.warnedMissingClips.has(warnKey)) {
+        this.warnedMissingClips.add(warnKey);
+        const msg = `Production GLB for '${characterId}' is missing usable AnimationGroup for state '${state}' (${standardClipId}); falling back to procedural bone pose.`;
+        console.warn(`[CharacterAnimationController] ${msg}`);
+        if (
+          rig.diagnostics &&
+          !rig.diagnostics.warnings.includes(msg)
+        ) {
+          rig.diagnostics.warnings.push(msg);
+        }
+      }
+
+      if (!hasCompatibleProceduralBones(rig.bones)) {
+        return eventPayload;
+      }
+    }
+
+    if (!rig.bones || Object.keys(rig.bones).length === 0) {
+      return eventPayload;
+    }
 
     const pose = this.computeTargetPose(
       characterId,

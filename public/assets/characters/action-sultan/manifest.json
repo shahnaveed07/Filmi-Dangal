@@ -2,10 +2,15 @@
   "characterId": "action_sultan",
   "characterName": "ACTION SULTAN",
   "inspiration": "Salman Khan-inspired (Configurable Parody Persona)",
-  "productionStatus": "VERTICAL_SLICE_COMPLETE",
+  "isPlaceholder": true,
+  "productionStatus": "PLACEHOLDER",
   "format": "glTF 2.0 Binary (.glb)",
   "modelFile": "/assets/characters/action-sultan/model.glb",
-  "groundOrigin": [0, 0, 0],
+  "groundOrigin": [
+    0,
+    0,
+    0
+  ],
   "forwardOrientation": "+Z",
   "skeletonStandard": "FilmiDangal_SharedHumanoid_26",
   "bones": [
@@ -36,8 +41,18 @@
     "RightLeg",
     "RightFoot"
   ],
-  "facialRigNodes": ["Jaw", "LeftBrow", "RightBrow", "LeftEyelid", "RightEyelid"],
-  "lodLevels": ["LOD0_High", "LOD1_Medium", "LOD2_Low"],
+  "facialRigNodes": [
+    "Jaw",
+    "LeftBrow",
+    "RightBrow",
+    "LeftEyelid",
+    "RightEyelid"
+  ],
+  "lodLevels": [
+    "LOD0_High",
+    "LOD1_Medium",
+    "LOD2_Low"
+  ],
   "materials": [
     "action_sultan_Pants_PBR",
     "action_sultan_Costume_Primary_PBR",

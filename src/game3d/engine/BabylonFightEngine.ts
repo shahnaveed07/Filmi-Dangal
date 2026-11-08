@@ -206,14 +206,34 @@ export class BabylonFightEngine {
     const p1Def = CHARACTERS[bridge.p1CharacterId] || CHARACTERS.action_sultan;
     const p2Def = CHARACTERS[bridge.p2CharacterId] || CHARACTERS.romance_raja;
 
-    this.p1Rig?.dispose();
-    this.p2Rig?.dispose();
-    this.p1Rig = null;
-    this.p2Rig = null;
+    const safeLoadRig = async (
+      def: typeof p1Def,
+      slotPrefix: string
+    ): Promise<CharacterRig3D> => {
+      try {
+        return await loadCharacterRig3D(
+          this.scene,
+          def,
+          `${slotPrefix}_${loadToken}`,
+          this.arenaHandle.shadowGenerator
+        );
+      } catch (err) {
+        console.warn(
+          `[BabylonFightEngine] Unexpected error loading ${slotPrefix} (${def.id}); retrying procedural fallback:`,
+          err
+        );
+        return await loadCharacterRig3D(
+          this.scene,
+          CHARACTERS.action_sultan,
+          `${slotPrefix}_fallback_${loadToken}`,
+          this.arenaHandle.shadowGenerator
+        );
+      }
+    };
 
     const [rig1, rig2] = await Promise.all([
-      loadCharacterRig3D(this.scene, p1Def, 'p1', this.arenaHandle.shadowGenerator),
-      loadCharacterRig3D(this.scene, p2Def, 'p2', this.arenaHandle.shadowGenerator),
+      safeLoadRig(p1Def, 'p1'),
+      safeLoadRig(p2Def, 'p2'),
     ]);
 
     if (this.isDisposed || loadToken !== this.rigLoadToken) {
@@ -222,11 +242,20 @@ export class BabylonFightEngine {
       return;
     }
 
+    const prevP1Rig = this.p1Rig;
+    const prevP2Rig = this.p2Rig;
+    prevP1Rig?.dispose();
+    prevP2Rig?.dispose();
+
     const settings = SettingsManager.getInstance().getSettings();
     const targetLod: 0 | 1 | 2 =
       settings.graphicsQuality === 'low' ? 2 : settings.graphicsQuality === 'medium' ? 1 : 0;
     rig1.setLODLevel(targetLod);
     rig2.setLODLevel(targetLod);
+
+    // Sync initial positions immediately so there is never a single frame at (0,0,0)
+    rig1.rootNode.position.set(this.p1.position.x, this.p1.position.y, 0);
+    rig2.rootNode.position.set(this.p2.position.x, this.p2.position.y, 0);
 
     this.p1Rig = rig1;
     this.p2Rig = rig2;

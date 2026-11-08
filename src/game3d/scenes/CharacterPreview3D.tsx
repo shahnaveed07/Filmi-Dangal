@@ -60,12 +60,20 @@ export const CharacterPreview3D: React.FC<CharacterPreview3DProps> = ({
       }
     );
     sceneControllerRef.current = previewScene;
-    setSelectedState('idle');
 
     return () => {
       previewScene.dispose();
       sceneControllerRef.current = null;
     };
+    // Initialize WebGL preview scene once per mount; character changes use loadCharacterAsset below
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    const controller = sceneControllerRef.current;
+    if (!controller) return;
+    setSelectedState('idle');
+    void controller.loadCharacterAsset(characterId);
   }, [characterId]);
 
   const handleTriggerState = (state: FighterStateName) => {
@@ -102,6 +110,9 @@ export const CharacterPreview3D: React.FC<CharacterPreview3DProps> = ({
     sceneControllerRef.current?.setLODLevel(next);
   };
 
+  const isPlaceholder =
+    telemetry ? telemetry.isPlaceholderAsset : assetConfig.isTemporaryPlaceholder;
+
   return (
     <div className="relative w-full h-48 sm:h-60 rounded-lg overflow-hidden border border-[#D6A447]/60 bg-[#0D0B18] shadow-inner">
       <canvas
@@ -114,7 +125,12 @@ export const CharacterPreview3D: React.FC<CharacterPreview3DProps> = ({
 
       {/* TOP LEFT: ASSET PIPELINE STATUS & ANIMATION TELEMETRY */}
       <div className="absolute top-1.5 left-1.5 flex flex-wrap items-center gap-1 pointer-events-none">
-        {assetConfig.isTemporaryPlaceholder ? (
+        {telemetry?.isLoading && (
+          <div className="px-1.5 py-0.5 rounded border text-[8px] font-mono uppercase tracking-wider bg-sky-950/90 border-sky-400/70 text-sky-200">
+            LOADING 3D RIG...
+          </div>
+        )}
+        {isPlaceholder ? (
           <div
             title={`Drop production GLB into public${assetConfig.modelPath}`}
             className="px-1.5 py-0.5 rounded border text-[8px] font-mono uppercase tracking-wider bg-amber-950/90 border-amber-400/70 text-amber-200"
@@ -124,6 +140,11 @@ export const CharacterPreview3D: React.FC<CharacterPreview3DProps> = ({
         ) : (
           <div className="px-1.5 py-0.5 rounded border text-[8px] font-mono uppercase tracking-wider bg-[#14532D]/90 border-[#4ADE80] text-[#BBF7D0]">
             PRODUCTION GLB ACTIVE
+          </div>
+        )}
+        {telemetry?.loadError && (
+          <div className="px-1.5 py-0.5 rounded border text-[8px] font-mono uppercase tracking-wider bg-rose-950/90 border-rose-400/70 text-rose-200">
+            FALLBACK RIG ACTIVE
           </div>
         )}
         {telemetry && (
