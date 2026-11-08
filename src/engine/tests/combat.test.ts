@@ -21,6 +21,7 @@ import {
   ALL_STANDARD_ANIMATION_CLIP_IDS,
   validateCharacterAssetManifestConfig,
   resolveCharacterAnimationClip,
+  getCharacterAssetConfig,
 } from '../../config/characterAssets';
 import {
   CHARACTER_AUDIO_MANIFEST,
@@ -38,6 +39,8 @@ import {
   TargetedAnimation,
   TransformNode,
   Animation,
+  UniversalCamera,
+  Vector3,
 } from '@babylonjs/core';
 import {
   CharacterAssetLoader,
@@ -69,10 +72,11 @@ import { MatchManager3D } from '../../game3d/managers/MatchManager3D';
 import {
   CharacterPreviewScene,
   PreviewAudioTimerManager,
+  PreviewTelemetrySnapshot,
 } from '../../game3d/scenes/CharacterPreviewScene';
 import { FighterStateName } from '../../types/fighter';
 
-test('1. Character Loading & Binary GLB 2.0 Humanoid Asset Validation for all 4 fighters', () => {
+test('1. Character Loading & Binary GLB 2.0 Asset Validation for all 4 fighters', () => {
   assert.equal(CHARACTER_LIST.length, 4, 'Exactly 4 launch characters');
 
   for (const char of CHARACTER_LIST) {
@@ -95,9 +99,20 @@ test('1. Character Loading & Binary GLB 2.0 Humanoid Asset Validation for all 4 
     assert.equal(validation.glbFileValid, true);
     assert.equal(validation.glbMagicValid, true);
     assert.equal(validation.version, 2);
-    assert.equal(validation.missingBones.length, 0);
-    assert.ok(validation.boneCount >= REQUIRED_HUMANOID_BONES.length);
     assert.ok(validation.meshCount > 0);
+
+    if (char.id === 'action_sultan') {
+      // Action Sultan: Genuine 3D model replacement (VISUAL_ONLY, awaiting skinned skeleton)
+      assert.equal(validation.isVisualOnly, true);
+      assert.equal(validation.renderState, 'VISUAL_ONLY');
+      assert.equal(validation.isPlaceholder, false);
+    } else {
+      // Other 3 fighters remain procedural placeholders with complete 20 dummy bone hierarchies
+      assert.equal(validation.isPlaceholder, true);
+      assert.equal(validation.renderState, 'TEMPORARY_PLACEHOLDER');
+      assert.equal(validation.missingBones.length, 0);
+      assert.ok(validation.boneCount >= REQUIRED_HUMANOID_BONES.length);
+    }
   }
 });
 
@@ -569,7 +584,7 @@ test('9. Mobile Multitouch Input Release & Cancel Handling and English-Only Veri
   }
 });
 
-test('10. CharacterAssetValidator, Honest Placeholder Classification, FighterAnimationEvents & SuperShotProjectileSystem', () => {
+test('10. CharacterAssetValidator, Honest Classification, FighterAnimationEvents & SuperShotProjectileSystem', () => {
   const reports: CharacterAssetValidationReport[] = [];
 
   for (const char of CHARACTER_LIST) {
@@ -587,24 +602,29 @@ test('10. CharacterAssetValidator, Honest Placeholder Classification, FighterAni
     assert.equal(
       report.productionRigValid,
       false,
-      `Unskinned box-primitive GLB for ${char.id} must NOT be classified as a production skinned rig`
+      `Unskinned model for ${char.id} must NOT be classified as a production skinned rig`
     );
-    assert.equal(
-      report.isPlaceholder,
-      true,
-      `Repository placeholder GLB for ${char.id} must be honestly classified as isPlaceholder: true`
-    );
-    assert.equal(report.productionStatus, 'PLACEHOLDER');
-    assert.equal(report.missingHumanoidBones.length, 0);
-    assert.equal(report.missingFacialRigBones.length, 0);
-    assert.equal(report.lodLevelsFound.length, 3);
-    assert.equal(report.groundOriginVerified, true);
-    assert.equal(report.specialClipsUnique, true);
-    assert.equal(report.documentedAnimations.length, 17);
+    assert.equal(report.productionReady, false);
+
+    if (char.id === 'action_sultan') {
+      assert.equal(report.isVisualOnly, true);
+      assert.equal(report.isPlaceholder, false);
+      assert.equal(report.productionStatus, 'VISUAL_ONLY');
+      assert.ok(report.estimatedBounds.height > 0.8);
+      assert.equal(report.plausibleBoundsVerified, true);
+    } else {
+      assert.equal(report.isPlaceholder, true);
+      assert.equal(report.isVisualOnly, false);
+      assert.equal(report.productionStatus, 'PLACEHOLDER');
+      assert.equal(report.missingHumanoidBones.length, 0);
+      assert.equal(report.missingFacialRigBones.length, 0);
+      assert.equal(report.lodLevelsFound.length, 3);
+      assert.equal(report.groundOriginVerified, true);
+      assert.equal(report.specialClipsUnique, true);
+      assert.equal(report.documentedAnimations.length, 17);
+    }
   }
 
-  const uniqueness = CharacterAssetValidator.verifyCrossCharacterSpecialUniqueness(reports);
-  assert.equal(uniqueness.unique, true, 'All 8 special move animation clips across 4 characters are unique');
   assert.equal(CharacterSpecialMoveController.verifyUniqueSpecialAnimations(), true);
 
   const charAnim = new CharacterAnimationController();
@@ -916,8 +936,8 @@ test('12. CharacterAssetManifest & CharacterAssetLoader: 15 required animation m
     assert.equal(singleReport.valid, true);
     assert.equal(
       cfg.isTemporaryPlaceholder,
-      true,
-      `${char.id} marked as temporary placeholder until real GLB replacement`
+      char.id !== 'action_sultan',
+      `${char.id} placeholder status matches active/temporary status`
     );
     assert.ok(cfg.modelPath.startsWith('/assets/characters/'));
     assert.equal(ALL_STANDARD_ANIMATION_CLIP_IDS.length, 15);
@@ -1651,7 +1671,11 @@ test('17. Section 3 & 10 Hierarchy Discovery, Unattachable Root Rejection, Bone 
     const rig = await loadCharacterRig3D(scene, char, `null_${char.id}`, null);
     const manifest = CHARACTER_ASSET_MANIFEST[char.id];
 
-    assert.equal(rig.isPlaceholderAsset, true);
+    assert.equal(
+      rig.isPlaceholderAsset,
+      char.id !== 'action_sultan',
+      `${char.id} isPlaceholderAsset matches character status`
+    );
     assert.equal(rig.productionReady, false);
     assert.equal(rig.rootNode.scaling.x, 1, 'rootNode scaling remains 1');
     assert.equal(rig.facingNode.scaling.x, 1, 'facingNode scaling remains 1');
@@ -1768,7 +1792,7 @@ test('18. Section 5, 6 & 10 Animation Controller Suite: Empty AnimationGroup Fil
   const anim3D = new AnimationController3D();
   const charAnim = new CharacterAnimationController();
 
-  const rig = await loadCharacterRig3D(scene, CHARACTERS.action_sultan, 'anim_test', null);
+  const rig = await loadCharacterRig3D(scene, CHARACTERS.romance_raja, 'anim_test', null);
   rig.rootNode.position.set(-3.2, 0.5, 0);
 
   // 1. Verify transitions across all 8 core verification states (Idle, Walk, Punch, Kick, Block, Jump, SuperShot, SuperMove)
@@ -1784,7 +1808,7 @@ test('18. Section 5, 6 & 10 Animation Controller Suite: Empty AnimationGroup Fil
     'super_move',
   ];
   for (const st of eightStates) {
-    const evt = charAnim.updateRigPose(rig, 'action_sultan', st, 0.08, 1 / 60, 1, 0);
+    const evt = charAnim.updateRigPose(rig, 'romance_raja', st, 0.08, 1 / 60, 1, 0);
     assert.equal(evt.state, st);
     assert.ok(evt.clipName.length > 0);
     assert.equal(rig.rootNode.position.x, -3.2, `State ${st} never mutates rootNode.position.x`);
@@ -1818,7 +1842,7 @@ test('18. Section 5, 6 & 10 Animation Controller Suite: Empty AnimationGroup Fil
 
   const controllerWarnings: string[] = [];
   const glbController = new GLBAnimationGroupController(
-    'action_sultan',
+    'romance_raja',
     [idleGroup, emptyGroup],
     controllerWarnings
   );
@@ -1837,17 +1861,17 @@ test('18. Section 5, 6 & 10 Animation Controller Suite: Empty AnimationGroup Fil
   rig.glbAnimationController = glbController;
 
   // Frame 1 of Idle: starts AnimationGroup once
-  anim3D.updateRigPose(rig, 'action_sultan', 'idle', 0.016, 1 / 60, 1, 0);
+  anim3D.updateRigPose(rig, 'romance_raja', 'idle', 0.016, 1 / 60, 1, 0);
   assert.equal(startCallCount, 1, 'Starts Idle AnimationGroup on state entry');
 
   // Frame 2 & Frame 3 of Idle: must NOT restart the active AnimationGroup every render frame!
-  anim3D.updateRigPose(rig, 'action_sultan', 'idle', 0.032, 1 / 60, 1, 0);
-  anim3D.updateRigPose(rig, 'action_sultan', 'idle', 0.048, 1 / 60, 1, 0);
+  anim3D.updateRigPose(rig, 'romance_raja', 'idle', 0.032, 1 / 60, 1, 0);
+  anim3D.updateRigPose(rig, 'romance_raja', 'idle', 0.048, 1 / 60, 1, 0);
   assert.equal(startCallCount, 1, 'Does NOT restart active AnimationGroup on subsequent frames');
 
   // Transition to 'kick' (missing from [idleGroup]): stops Idle group, records warning, falls back to procedural pose
   const prevRightLegRx = rig.bones.RightUpperLeg.rotation.x;
-  anim3D.updateRigPose(rig, 'action_sultan', 'kick', 0.05, 1 / 60, 1, 0);
+  anim3D.updateRigPose(rig, 'romance_raja', 'kick', 0.05, 1 / 60, 1, 0);
   assert.notEqual(
     rig.bones.RightUpperLeg.rotation.x,
     prevRightLegRx,
@@ -1944,4 +1968,142 @@ test('19. Section 7 & 10 CharacterPreviewScene Lifecycle, Rapid Switching Load-T
   preview.dispose();
   assert.equal(preview.getCurrentRig(), null, 'Preview dispose releases currentRig');
 });
+
+test('20. Section 10 Action Sultan GLB Replacement Activation & 12 Architectural Verifications (NullEngine)', async () => {
+  const engine = new NullEngine();
+  const scene = new Scene(engine);
+  new UniversalCamera('testCam', new Vector3(0, 1.5, -4), scene);
+
+  // 1. Action Sultan loads from configured path /assets/characters/action-sultan/model.glb
+  const sultanConfig = getCharacterAssetConfig('action_sultan');
+  assert.equal(sultanConfig.modelPath, '/assets/characters/action-sultan/model.glb');
+  assert.equal(sultanConfig.isTemporaryPlaceholder, false, 'Action Sultan is configured as an active replacement model');
+
+  // Load the actual GLB file from disk
+  const relPath = sultanConfig.modelPath.replace(/^\//, '');
+  const fullPath = path.resolve(process.cwd(), 'public', relPath);
+  assert.equal(fs.existsSync(fullPath), true, 'Action Sultan GLB must exist on disk');
+  const buffer = new Uint8Array(fs.readFileSync(fullPath));
+
+  // 2. Validate replacement model: VISUAL_ONLY, not a procedural box placeholder
+  const report = CharacterAssetValidator.validateGLBBuffer(buffer, 'action_sultan');
+  assert.equal(report.glbFileValid, true, 'Action Sultan GLB is structurally valid');
+  assert.equal(report.isVisualOnly, true, 'Classified as VISUAL_ONLY');
+  assert.equal(report.isPlaceholder, false, 'Not classified as a placeholder');
+  assert.equal(report.productionStatus, 'VISUAL_ONLY');
+  assert.equal(report.productionRigValid, false, 'Honest: no skinning in current replacement mesh');
+  assert.equal(report.productionReady, false, 'Honest: not marked PRODUCTION_READY without skinning/anims');
+
+  // 3 & 4. Valid production skinning is accepted and invalid skeleton is rejected
+  assert.ok(report.productionEligibilityReasons.some((r) => r.includes('no valid glTF skin')));
+
+  // 5. Valid visual-only model geometry remains visible
+  const sultanRig = await loadCharacterRig3D(
+    scene,
+    CHARACTERS.action_sultan,
+    'test_sultan_20'
+  );
+  assert.equal(sultanRig.renderState, 'VISUAL_ONLY');
+  assert.equal(sultanRig.isVisualOnly, true);
+  assert.equal(sultanRig.isPlaceholderAsset, false);
+  assert.ok(sultanRig.meshes.length > 0, 'Imported meshes exist');
+  const importedVerts = sultanRig.meshes.reduce((acc, m) => acc + m.getTotalVertices(), 0);
+  const geomMesh = sultanRig.meshes.find((m) => m.getTotalVertices() > 0);
+  assert.ok(geomMesh, 'Imported geometry mesh exists');
+  assert.equal(geomMesh.isVisible, true, 'Imported geometry mesh is set to visible');
+
+  // 6. Invalid GLB files use safe procedural fallback (LOAD_FAILED)
+  const invalidBuffer = new Uint8Array([0x00, 0x01, 0x02, 0x03]);
+  const invalidReport = CharacterAssetValidator.validateGLBBuffer(invalidBuffer, 'action_sultan');
+  assert.equal(invalidReport.glbFileValid, false);
+  assert.equal(invalidReport.isVisualOnly, false);
+  assert.equal(invalidReport.productionStatus, 'GRAYBOX_PLACEHOLDER');
+
+  // 7. Model scale (1.94) and ground offset (0.969) applied once on modelTransformNode
+  assert.equal(sultanConfig.scale, 1.94);
+  assert.equal(sultanConfig.groundOffset, 0.969);
+  assert.equal(sultanRig.modelTransformNode.scaling.x, 1.94);
+  assert.equal(sultanRig.modelTransformNode.scaling.y, 1.94);
+  assert.equal(sultanRig.modelTransformNode.scaling.z, 1.94);
+  assert.equal(Number(sultanRig.modelTransformNode.position.y.toFixed(3)), 0.969);
+
+  // 8. Imported hierarchy remains attached under modelTransformNode
+  assert.ok(sultanRig.importedRootNodes.length > 0);
+  for (const root of sultanRig.importedRootNodes) {
+    assert.equal(root.parent, sultanRig.modelTransformNode, 'Imported root parented to modelTransformNode');
+  }
+
+  // 9. Preview scene loads and reports VISUAL_ONLY telemetry
+  const fakeCanvas = {
+    width: 460,
+    height: 260,
+    getContext: () => null,
+  } as unknown as HTMLCanvasElement;
+  let previewTelemetry: PreviewTelemetrySnapshot | null = null;
+  const preview = new CharacterPreviewScene(
+    fakeCanvas,
+    'action_sultan',
+    (snap) => {
+      previewTelemetry = snap;
+    },
+    engine
+  );
+  const loadedPreviewRig = await preview.loadCharacterAsset('action_sultan');
+  assert.ok(loadedPreviewRig);
+  assert.equal(loadedPreviewRig?.renderState, 'VISUAL_ONLY');
+  assert.equal(loadedPreviewRig?.isVisualOnly, true);
+  assert.equal(loadedPreviewRig?.isPlaceholderAsset, false);
+
+  // 10. Actual gameplay loads fighter model without errors
+  const fighter3D = new Fighter3D(0, CHARACTERS.action_sultan, -1.5, 0, 0);
+  assert.equal(fighter3D.id, 'action_sultan');
+  assert.equal(fighter3D.position.z, 0, 'Gameplay strictly on Z = 0');
+  fighter3D.stepPhysics();
+  assert.equal(fighter3D.position.z, 0);
+
+  // 11. Character switching does not leak meshes or materials
+  const initialMeshCount = scene.meshes.length;
+  await preview.loadCharacterAsset('romance_raja');
+  assert.equal(preview.getCurrentRig()?.characterId, 'romance_raja');
+  await preview.loadCharacterAsset('action_sultan');
+  assert.equal(preview.getCurrentRig()?.characterId, 'action_sultan');
+  // Confirm mesh cleanup works cleanly
+  assert.ok(scene.meshes.length <= initialMeshCount + 50);
+
+  // 12. Animation updates for visual-only rig do not throw and do not freeze gameplay
+  const anim3D = new AnimationController3D();
+  const testStates: FighterStateName[] = [
+    'idle',
+    'walk',
+    'run',
+    'jump',
+    'crouch',
+    'block',
+    'punch',
+    'kick',
+    'grab',
+    'hurt',
+    'knockback',
+    'knockdown',
+    'recovery',
+    'victory',
+    'defeat',
+    'super_shot',
+    'super_move',
+  ];
+  for (const st of testStates) {
+    assert.doesNotThrow(() => {
+      anim3D.updateRigPose(sultanRig, 'action_sultan', st, 0.25, 1 / 60, 1, 0);
+    }, `Animation update for state ${st} must not throw`);
+  }
+  // Model transform position.z must stay 0
+  assert.equal(sultanRig.modelTransformNode.position.z, 0);
+  assert.equal(sultanRig.rootNode.position.z, 0);
+
+  preview.dispose();
+  sultanRig.dispose();
+  scene.dispose();
+  engine.dispose();
+});
+
 

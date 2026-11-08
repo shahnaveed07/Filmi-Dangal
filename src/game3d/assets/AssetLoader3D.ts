@@ -11,6 +11,7 @@ import { StandardAnimationClipId } from '../../config/characterAssets';
 import {
   CharacterAssetLoadDiagnostics,
   CharacterAssetLoader,
+  CharacterRenderState,
   LoadedGLBAnimationController,
 } from './CharacterAssetLoader';
 import {
@@ -94,6 +95,8 @@ export interface GLBAssetValidationResult {
   animationValid: boolean;
   productionReady: boolean;
   isPlaceholder: boolean;
+  isVisualOnly: boolean;
+  renderState: CharacterRenderState;
   characterId: string;
   glbMagicValid: boolean;
   version: number;
@@ -120,6 +123,8 @@ export interface CharacterRig3D {
   animationValid: boolean;
   productionReady: boolean;
   isPlaceholderAsset: boolean;
+  isVisualOnly: boolean;
+  renderState: CharacterRenderState;
   glbAnimationController?: LoadedGLBAnimationController | null;
   diagnostics?: CharacterAssetLoadDiagnostics;
   renderMode: 'stylized' | 'graybox';
@@ -141,13 +146,23 @@ export function validateGLBBuffer(
   buffer: Uint8Array
 ): GLBAssetValidationResult {
   const report = CharacterAssetValidator.validateGLBBuffer(buffer, characterId);
+  const renderState: CharacterRenderState = report.productionReady
+    ? 'PRODUCTION_SKINNED'
+    : report.isVisualOnly
+    ? 'VISUAL_ONLY'
+    : report.isPlaceholder
+    ? 'TEMPORARY_PLACEHOLDER'
+    : 'LOAD_FAILED';
+
   return {
-    valid: report.glbFileValid && report.missingHumanoidBones.length === 0,
+    valid: report.glbFileValid && (report.missingHumanoidBones.length === 0 || report.isVisualOnly),
     glbFileValid: report.glbFileValid,
     productionRigValid: report.productionRigValid,
     animationValid: report.animationValid,
     productionReady: report.productionReady,
     isPlaceholder: report.isPlaceholder,
+    isVisualOnly: report.isVisualOnly,
+    renderState,
     characterId: report.characterId,
     glbMagicValid: report.glbVersion === 2,
     version: report.glbVersion,
@@ -204,6 +219,8 @@ export async function loadCharacterRig3D(
     animationValid,
     productionReady,
     isPlaceholderAsset: loaded.isPlaceholderAsset,
+    isVisualOnly: loaded.isVisualOnly,
+    renderState: loaded.renderState,
     glbAnimationController: loaded.glbAnimationController,
     diagnostics: loaded.diagnostics,
     get renderMode() {

@@ -88,6 +88,18 @@ export class CharacterAnimationController {
     meta.lastPreviewAnimState = state;
     meta.lastPreviewAnimStateTimeSec = stateTimeSec;
 
+    // Case 0: Visual-Only imported GLB (valid geometry & textures, no skeleton/skinning)
+    if ((rig.isVisualOnly || rig.renderState === 'VISUAL_ONLY') && !rig.productionRigValid) {
+      this.baseAnim.updateVisualOnlyPresentation(
+        rig,
+        characterId,
+        state,
+        stateTimeSec,
+        dt
+      );
+      return eventPayload;
+    }
+
     if (!rig.isPlaceholderAsset && rig.productionRigValid) {
       const standardClipId = mapStateToStandardClipId(state);
       const animSpeed = manifest?.animationSpeed || 1.0;

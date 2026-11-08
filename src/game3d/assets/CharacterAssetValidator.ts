@@ -102,10 +102,13 @@ export interface CharacterAssetValidationReport {
   productionReady: boolean;
   /** True when the asset is a placeholder or lacks production skinning */
   isPlaceholder: boolean;
+  /** True when the asset has valid geometry/materials/bounds but lacks humanoid skeleton/skinning */
+  isVisualOnly: boolean;
   characterId: string;
   characterName: string;
   productionStatus:
     | 'PRODUCTION_READY'
+    | 'VISUAL_ONLY'
     | 'PLACEHOLDER'
     | 'VERTICAL_SLICE_COMPLETE'
     | 'STAGE_2_INTEGRATED'
@@ -387,6 +390,7 @@ export class CharacterAssetValidator {
       animationValid: false,
       productionReady: false,
       isPlaceholder: true,
+      isVisualOnly: false,
       characterId: expectedCharacterId || 'unknown',
       characterName: 'UNKNOWN',
       productionStatus: 'GRAYBOX_PLACEHOLDER',
@@ -1079,7 +1083,12 @@ export class CharacterAssetValidator {
       }
 
       const productionRigValid = productionEligibilityReasons.length === 0;
-      const isPlaceholder = !productionRigValid;
+      const isVisualOnly =
+        glbFileValid &&
+        plausibleBoundsVerified &&
+        !explicitlyMarkedPlaceholder &&
+        !productionRigValid;
+      const isPlaceholder = !productionRigValid && !isVisualOnly;
       const productionReady =
         glbFileValid && productionRigValid && animationValid && !isPlaceholder;
 
@@ -1087,26 +1096,30 @@ export class CharacterAssetValidator {
       if (!glbFileValid) {
         errors.push('GLB structure is missing valid meshes, position accessors, or materials');
       }
-      if (missingHumanoidBones.length > 0) {
-        errors.push(`Missing humanoid bones: ${missingHumanoidBones.join(', ')}`);
-      }
-      if (!groundOriginVerified) {
-        errors.push('Root bone ground origin is not at (0, 0, 0)');
-      }
       if (materials.length < 1) {
         errors.push('GLB must define at least 1 material');
       }
-      if (missingAnimations.length > 0) {
-        errors.push(`Missing documented animation clips: ${missingAnimations.join(', ')}`);
-      }
-      for (const aErr of animationValidationErrors) {
-        errors.push(aErr);
+      if (!isVisualOnly) {
+        if (missingHumanoidBones.length > 0) {
+          errors.push(`Missing humanoid bones: ${missingHumanoidBones.join(', ')}`);
+        }
+        if (!groundOriginVerified) {
+          errors.push('Root bone ground origin is not at (0, 0, 0)');
+        }
+        if (missingAnimations.length > 0) {
+          errors.push(`Missing documented animation clips: ${missingAnimations.join(', ')}`);
+        }
+        for (const aErr of animationValidationErrors) {
+          errors.push(aErr);
+        }
       }
 
       // Section 5: Do NOT mark a character as PRODUCTION_READY if required animations are invalid or missing!
       const productionStatus: CharacterAssetValidationReport['productionStatus'] =
         productionReady
           ? 'PRODUCTION_READY'
+          : isVisualOnly
+          ? 'VISUAL_ONLY'
           : productionRigValid && !animationValid
           ? 'STAGE_2_INTEGRATED'
           : extras.productionStatus === 'VERTICAL_SLICE_COMPLETE'
@@ -1115,7 +1128,11 @@ export class CharacterAssetValidator {
           ? 'STAGE_2_INTEGRATED'
           : 'PLACEHOLDER';
 
-      const placeholderDisclosures: string[] = isPlaceholder
+      const placeholderDisclosures: string[] = isVisualOnly
+        ? [
+            `Visual-only 3D model verified for ${characterName} (${characterId}). Genuine geometry, materials, and bounds verified without humanoid skeleton/skinning. Rendering imported mesh directly under modelTransformNode without procedural placeholder.`,
+          ]
+        : isPlaceholder
         ? [
             `Temporary placeholder asset active for ${characterName} (${characterId}). Reason: ${productionEligibilityReasons.join(
               '; '
@@ -1134,6 +1151,7 @@ export class CharacterAssetValidator {
         animationValid,
         productionReady,
         isPlaceholder,
+        isVisualOnly,
         characterId,
         characterName,
         productionStatus,

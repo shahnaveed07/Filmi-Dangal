@@ -16,7 +16,10 @@ import { FighterId, FighterStateName } from '../../types/fighter';
 import { CharacterAnimationController } from '../animation/CharacterAnimationController';
 import { FighterAnimationEventPayload } from '../animation/FighterAnimationEvents';
 import { CharacterAssetValidationReport } from '../assets/CharacterAssetValidator';
-import { CharacterAssetLoadDiagnostics } from '../assets/CharacterAssetLoader';
+import {
+  CharacterAssetLoadDiagnostics,
+  CharacterRenderState,
+} from '../assets/CharacterAssetLoader';
 import { CharacterRig3D, loadCharacterRig3D } from '../assets/AssetLoader3D';
 import { detectSoftwareWebGL } from '../engine/BabylonFightEngine';
 import { VFXManager3D } from '../vfx/VFXManager3D';
@@ -40,6 +43,8 @@ export interface PreviewTelemetrySnapshot {
   productionRigValid: boolean;
   animationValid: boolean;
   isPlaceholderAsset: boolean;
+  isVisualOnly?: boolean;
+  renderState?: CharacterRenderState;
   validationReport: CharacterAssetValidationReport | null;
   diagnostics: CharacterAssetLoadDiagnostics | null;
   loadError: string | null;
@@ -357,6 +362,8 @@ export class CharacterPreviewScene {
           productionRigValid: this.currentRig.productionRigValid,
           animationValid: this.currentRig.animationValid,
           isPlaceholderAsset: this.currentRig.isPlaceholderAsset,
+          isVisualOnly: this.currentRig.isVisualOnly,
+          renderState: this.currentRig.renderState,
           validationReport: this.validationReport,
           diagnostics: this.currentRig.diagnostics ?? null,
           loadError: this.loadError,

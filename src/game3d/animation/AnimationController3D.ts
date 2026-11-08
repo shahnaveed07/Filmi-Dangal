@@ -91,6 +91,12 @@ export class AnimationController3D {
     meta.lastAnimState = state;
     meta.lastAnimStateTimeSec = stateTimeSec;
 
+    // Case 0: Visual-Only imported GLB (valid geometry & textures, no skeleton/skinning)
+    if ((rig.isVisualOnly || rig.renderState === 'VISUAL_ONLY') && !rig.productionRigValid) {
+      this.updateVisualOnlyPresentation(rig, characterId, state, stateTimeSec, dt);
+      return;
+    }
+
     // Case 1 & Case 2: Production GLB rig (!isPlaceholderAsset && productionRigValid)
     if (!rig.isPlaceholderAsset && rig.productionRigValid) {
       const standardClipId = mapStateToStandardClipId(state);
@@ -160,6 +166,157 @@ export class AnimationController3D {
         node.position.z = lerp(node.position.z, target.pz, blendSpeed);
       }
     }
+  }
+
+  /**
+   * Safe root-level visual presentation for visual-only 3D models (lacking bone skeleton/skinning).
+   * Applies subtle breathing, stepping, crouch, and attack impulse offsets to `modelTransformNode`
+   * while leaving `rootNode.position` strictly under the control of 2D X/Y gameplay physics.
+   */
+  public updateVisualOnlyPresentation(
+    rig: CharacterRig3D,
+    characterId: FighterId,
+    state: FighterStateName,
+    stateTimeSec: number,
+    dt: number
+  ): void {
+    if (!rig.modelTransformNode) return;
+    const manifest = getCharacterAssetConfig(characterId);
+    const baseGroundOffset = manifest?.groundOffset ?? 0.969;
+    const baseScale = manifest?.scale ?? 1.94;
+
+    // Maintain base scale
+    rig.modelTransformNode.scaling.setAll(baseScale);
+
+    // Compute state-based dynamic offsets relative to base ground offset
+    let targetOffsetY = baseGroundOffset;
+    let targetOffsetX = 0;
+    let targetRotZ = 0;
+    let targetRotX = 0;
+
+    switch (state) {
+      case 'idle': {
+        const breathing = Math.sin(stateTimeSec * 3.2) * 0.015;
+        targetOffsetY = baseGroundOffset + breathing;
+        break;
+      }
+      case 'walk': {
+        const stepBob = Math.abs(Math.sin(stateTimeSec * 8.5)) * 0.025;
+        const sway = Math.sin(stateTimeSec * 4.25) * 0.015;
+        targetOffsetY = baseGroundOffset + stepBob;
+        targetRotZ = sway;
+        break;
+      }
+      case 'run': {
+        const stepBob = Math.abs(Math.sin(stateTimeSec * 13)) * 0.04;
+        const sway = Math.sin(stateTimeSec * 6.5) * 0.025;
+        targetOffsetY = baseGroundOffset + stepBob;
+        targetOffsetX = 0.04;
+        targetRotZ = sway;
+        targetRotX = -0.06;
+        break;
+      }
+      case 'crouch': {
+        targetOffsetY = baseGroundOffset - 0.22;
+        targetRotX = 0.08;
+        break;
+      }
+      case 'jump': {
+        // Vertical arc handled by rootNode.position.y in 2D physics or preview
+        targetOffsetY = baseGroundOffset;
+        targetRotX = -0.05;
+        break;
+      }
+      case 'block': {
+        targetOffsetY = baseGroundOffset - 0.05;
+        targetOffsetX = -0.03;
+        targetRotZ = 0.04;
+        break;
+      }
+      case 'punch': {
+        const punchPhase = Math.sin(Math.min(Math.PI, stateTimeSec * 12));
+        targetOffsetX = 0.07 * punchPhase;
+        targetOffsetY = baseGroundOffset - 0.02 * punchPhase;
+        targetRotZ = -0.03 * punchPhase;
+        break;
+      }
+      case 'kick': {
+        const kickPhase = Math.sin(Math.min(Math.PI, stateTimeSec * 10));
+        targetOffsetX = 0.09 * kickPhase;
+        targetOffsetY = baseGroundOffset + 0.04 * kickPhase;
+        targetRotZ = 0.05 * kickPhase;
+        break;
+      }
+      case 'grab': {
+        const grabPhase = Math.sin(Math.min(Math.PI, stateTimeSec * 8));
+        targetOffsetX = 0.06 * grabPhase;
+        break;
+      }
+      case 'hurt':
+      case 'knockback': {
+        targetOffsetX = -0.08;
+        targetRotX = 0.12;
+        targetOffsetY = baseGroundOffset - 0.04;
+        break;
+      }
+      case 'knockdown': {
+        targetOffsetY = baseGroundOffset - 0.45;
+        targetRotX = 0.35;
+        break;
+      }
+      case 'recovery': {
+        targetOffsetY = baseGroundOffset - 0.15;
+        break;
+      }
+      case 'super_shot': {
+        const shotPhase = Math.sin(Math.min(Math.PI, stateTimeSec * 4));
+        targetOffsetX = 0.05 * shotPhase;
+        targetOffsetY = baseGroundOffset + 0.03 * shotPhase;
+        break;
+      }
+      case 'super_move': {
+        const movePhase = Math.sin(stateTimeSec * 6);
+        targetOffsetX = 0.08 * Math.sin(stateTimeSec * 8);
+        targetOffsetY = baseGroundOffset + 0.05 * Math.abs(movePhase);
+        break;
+      }
+      case 'victory': {
+        const vicBob = Math.sin(stateTimeSec * 4) * 0.02;
+        targetOffsetY = baseGroundOffset + 0.03 + vicBob;
+        break;
+      }
+      case 'defeat': {
+        targetOffsetY = baseGroundOffset - 0.35;
+        targetRotX = 0.25;
+        break;
+      }
+      default:
+        targetOffsetY = baseGroundOffset;
+        break;
+    }
+
+    const blendSpeed = Math.min(1, dt * 18);
+    rig.modelTransformNode.position.y = lerp(
+      rig.modelTransformNode.position.y,
+      targetOffsetY,
+      blendSpeed
+    );
+    rig.modelTransformNode.position.x = lerp(
+      rig.modelTransformNode.position.x,
+      targetOffsetX,
+      blendSpeed
+    );
+    rig.modelTransformNode.position.z = 0; // Strictly on Z = 0
+    rig.modelTransformNode.rotation.z = lerp(
+      rig.modelTransformNode.rotation.z,
+      targetRotZ,
+      blendSpeed
+    );
+    rig.modelTransformNode.rotation.x = lerp(
+      rig.modelTransformNode.rotation.x,
+      targetRotX,
+      blendSpeed
+    );
   }
 
   public getSocketWorldPosition(

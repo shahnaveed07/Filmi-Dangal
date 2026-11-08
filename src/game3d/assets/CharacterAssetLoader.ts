@@ -55,6 +55,12 @@ export interface CharacterModelDimensions {
   plausibleBounds: boolean;
 }
 
+export type CharacterRenderState =
+  | 'PRODUCTION_SKINNED'
+  | 'VISUAL_ONLY'
+  | 'TEMPORARY_PLACEHOLDER'
+  | 'LOAD_FAILED';
+
 export interface CharacterAssetLoadDiagnostics {
   characterId: FighterId;
   requestedModelPath: string;
@@ -62,6 +68,8 @@ export interface CharacterAssetLoadDiagnostics {
   loadedFromPath: string | null;
   glbLoaded: boolean;
   usedTemporaryPlaceholder: boolean;
+  renderState: CharacterRenderState;
+  isVisualOnly: boolean;
   importedMeshCount: number;
   importedTransformNodeCount: number;
   skeletonCount: number;
@@ -1575,6 +1583,8 @@ export class CharacterAssetLoader {
     meshes: Mesh[];
     glbLoaded: boolean;
     isPlaceholderAsset: boolean;
+    isVisualOnly: boolean;
+    renderState: CharacterRenderState;
     glbAnimationController: LoadedGLBAnimationController | null;
     diagnostics: CharacterAssetLoadDiagnostics;
     setRenderMode: (mode: 'stylized' | 'graybox') => void;
@@ -1634,9 +1644,36 @@ export class CharacterAssetLoader {
 
     for (const candidatePath of attemptedPaths) {
       try {
-        const lastSlash = candidatePath.lastIndexOf('/');
-        const rootUrl = candidatePath.substring(0, lastSlash + 1);
-        const sceneFilename = candidatePath.substring(lastSlash + 1);
+        let rootUrl = '';
+        let sceneFilename = candidatePath;
+
+        if (typeof window === 'undefined') {
+          try {
+            const fs = await import('node:fs');
+            const path = await import('node:path');
+            const localRel = candidatePath.replace(/^\//, '');
+            const localCandidates = [
+              path.resolve(process.cwd(), 'public', localRel),
+              path.resolve(process.cwd(), localRel),
+            ];
+            for (const loc of localCandidates) {
+              if (fs.existsSync(loc)) {
+                const buf = fs.readFileSync(loc);
+                rootUrl = '';
+                sceneFilename = 'data:model/gltf-binary;base64,' + buf.toString('base64');
+                break;
+              }
+            }
+          } catch {
+            // fallback to standard relative path
+          }
+        }
+
+        if (!sceneFilename.startsWith('data:')) {
+          const lastSlash = candidatePath.lastIndexOf('/');
+          rootUrl = candidatePath.substring(0, lastSlash + 1);
+          sceneFilename = candidatePath.substring(lastSlash + 1);
+        }
 
         const result = await SceneLoader.ImportMeshAsync('', rootUrl, sceneFilename, scene);
         if (result && ((result.meshes && result.meshes.length > 0) || (result.transformNodes && result.transformNodes.length > 0))) {
@@ -1697,11 +1734,29 @@ export class CharacterAssetLoader {
       dimensions: importedDimensions,
     });
 
-    const useProductionPathB =
+    const hasValidGeometry =
+      glbLoaded &&
+      hierarchyAttachment.hierarchyValid &&
+      importedMeshes.some((m) => m.getTotalVertices() > 0);
+
+    const isProductionSkinned =
       glbLoaded &&
       hierarchyAttachment.hierarchyValid &&
       !manifest.isTemporaryPlaceholder &&
       eligibility.isProductionReady;
+
+    const isVisualOnly =
+      !manifest.isTemporaryPlaceholder &&
+      !isProductionSkinned &&
+      hasValidGeometry;
+
+    const renderState: CharacterRenderState = isProductionSkinned
+      ? 'PRODUCTION_SKINNED'
+      : isVisualOnly
+      ? 'VISUAL_ONLY'
+      : !glbLoaded
+      ? 'LOAD_FAILED'
+      : 'TEMPORARY_PLACEHOLDER';
 
     // Collect imported materials for diagnostics and disposal
     const importedMaterialSet = new Set<Material>();
@@ -1712,13 +1767,14 @@ export class CharacterAssetLoader {
     }
 
     // =========================================================================
-    // PATH A: TEMPORARY PLACEHOLDER RIG (Section 6)
+    // PATH A: TEMPORARY PLACEHOLDER RIG (Section 4 - C / Section 6)
+    // Used when character manifest has isTemporaryPlaceholder: true OR GLB load failed
     // =========================================================================
-    if (!useProductionPathB) {
+    if (renderState === 'TEMPORARY_PLACEHOLDER' || renderState === 'LOAD_FAILED') {
       emitOnceAssetWarning(
-        `[CharacterAssetLoader] Character "${charDef.id}" (${manifest.displayName}) is using Path A (Temporary Placeholder Rig). Reasons: ${eligibility.reasons.join(
-          '; '
-        )}.`,
+        `[CharacterAssetLoader] Character "${charDef.id}" (${manifest.displayName}) is using Path A (${
+          renderState === 'LOAD_FAILED' ? 'Load Failed Fallback' : 'Temporary Placeholder Rig'
+        }). Reasons: ${eligibility.reasons.join('; ')}.`,
         warnings
       );
 
@@ -1766,6 +1822,8 @@ export class CharacterAssetLoader {
         loadedFromPath,
         glbLoaded,
         usedTemporaryPlaceholder: true,
+        renderState,
+        isVisualOnly: false,
         importedMeshCount: importedMeshes.length,
         importedTransformNodeCount: importedTransformNodes.length,
         skeletonCount: boneResolution.allSkeletons.length,
@@ -1824,6 +1882,8 @@ export class CharacterAssetLoader {
         meshes: placeholder.meshes,
         glbLoaded,
         isPlaceholderAsset: true,
+        isVisualOnly: false,
+        renderState,
         glbAnimationController: null,
         diagnostics,
         setRenderMode,
@@ -1836,6 +1896,149 @@ export class CharacterAssetLoader {
           for (const mat of uniqueMats) {
             mat.dispose();
           }
+        },
+      };
+    }
+
+    // =========================================================================
+    // PATH C: VALID VISUAL-ONLY CHARACTER (Section 4 - B)
+    // Keeps imported character geometry and materials visible!
+    // =========================================================================
+    if (renderState === 'VISUAL_ONLY') {
+      emitOnceAssetWarning(
+        `[CharacterAssetLoader] Character "${charDef.id}" (${manifest.displayName}) is using Path C (Valid Visual-Only GLB). Reasons: ${eligibility.reasons.join(
+          '; '
+        )}.`,
+        warnings
+      );
+
+      for (const m of importedMeshes) {
+        const hasVerts = m.getTotalVertices() > 0;
+        m.isVisible = hasVerts;
+        m.receiveShadows = hasVerts;
+        if (shadowGenerator && hasVerts) {
+          shadowGenerator.addShadowCaster(m);
+        }
+      }
+
+      const visualSockets: Record<BoneAttachmentName, TransformNode> = {
+        Head: new TransformNode(`${instancePrefix}_socket_Head`, scene),
+        Chest: new TransformNode(`${instancePrefix}_socket_Chest`, scene),
+        RightHand: new TransformNode(`${instancePrefix}_socket_RightHand`, scene),
+        LeftHand: new TransformNode(`${instancePrefix}_socket_LeftHand`, scene),
+        RightFoot: new TransformNode(`${instancePrefix}_socket_RightFoot`, scene),
+        LeftFoot: new TransformNode(`${instancePrefix}_socket_LeftFoot`, scene),
+        Hips: new TransformNode(`${instancePrefix}_socket_Hips`, scene),
+        Projectile: new TransformNode(`${instancePrefix}_socket_Projectile`, scene),
+      };
+
+      visualSockets.Head.parent = modelTransformNode;
+      visualSockets.Head.position.set(0, 0.44, 0.02);
+      visualSockets.Chest.parent = modelTransformNode;
+      visualSockets.Chest.position.set(0, 0.16, 0.02);
+      visualSockets.RightHand.parent = modelTransformNode;
+      visualSockets.RightHand.position.set(0.24, -0.02, 0.06);
+      visualSockets.LeftHand.parent = modelTransformNode;
+      visualSockets.LeftHand.position.set(-0.24, -0.02, 0.06);
+      visualSockets.RightFoot.parent = modelTransformNode;
+      visualSockets.RightFoot.position.set(0.12, -0.48, 0.02);
+      visualSockets.LeftFoot.parent = modelTransformNode;
+      visualSockets.LeftFoot.position.set(-0.12, -0.48, 0.02);
+      visualSockets.Hips.parent = modelTransformNode;
+      visualSockets.Hips.position.set(0, 0, 0);
+      visualSockets.Projectile.parent = modelTransformNode;
+      visualSockets.Projectile.position.set(0.24, -0.02, 0.06);
+
+      let totalTextures = 0;
+      let allTexturesReady = true;
+      for (const mat of importedMaterialSet) {
+        const activeTex = mat.getActiveTextures();
+        for (const tex of activeTex) {
+          totalTextures++;
+          if (!tex.isReady()) {
+            allTexturesReady = false;
+          }
+        }
+      }
+      const textureLoadingStatus: CharacterAssetLoadDiagnostics['textureLoadingStatus'] =
+        totalTextures === 0
+          ? 'NO_TEXTURES'
+          : allTexturesReady
+          ? 'READY'
+          : 'PENDING_OR_FAILED';
+
+      const visualDimensions = computeRigWorldBounds(rootNode, importedMeshes);
+
+      const diagnostics: CharacterAssetLoadDiagnostics = {
+        characterId: charDef.id,
+        requestedModelPath: manifest.modelPath,
+        attemptedPaths,
+        loadedFromPath,
+        glbLoaded: true,
+        usedTemporaryPlaceholder: false,
+        renderState: 'VISUAL_ONLY',
+        isVisualOnly: true,
+        importedMeshCount: importedMeshes.length,
+        importedTransformNodeCount: importedTransformNodes.length,
+        skeletonCount: boneResolution.allSkeletons.length,
+        resolvedBoneCount: 0,
+        resolvedBones: [],
+        missingBones: boneResolution.missingBones,
+        missingFacialBones: boneResolution.missingFacialBones,
+        hasEmbeddedAnimations: false,
+        availableAnimationClips: [],
+        missingStandardClips: [...ALL_STANDARD_ANIMATION_CLIP_IDS],
+        hierarchyValid: hierarchyAttachment.hierarchyValid,
+        skinningValid: false,
+        productionRigEligible: false,
+        productionEligibilityReasons: eligibility.reasons,
+        modelDimensions: visualDimensions,
+        scale: manifest.scale,
+        groundOffset: manifest.groundOffset,
+        materialCount: importedMaterialSet.size,
+        textureLoadingStatus,
+        errors,
+        warnings,
+      };
+
+      const originalMaterials = new Map<Mesh, Material | null>();
+      for (const m of importedMeshes) {
+        originalMaterials.set(m, m.material);
+      }
+      const grayboxMat = new PBRMaterial(`${instancePrefix}_visualOnly_graybox`, scene);
+      grayboxMat.albedoColor = Color3.FromHexString('#71717A');
+      grayboxMat.roughness = 0.5;
+      grayboxMat.metallic = 0.1;
+
+      return {
+        rootNode,
+        facingNode,
+        modelTransformNode,
+        importedRootNodes: hierarchyAttachment.importedRoots,
+        bones: {
+          Root: modelTransformNode,
+          ...visualSockets,
+        },
+        sockets: visualSockets,
+        meshes: importedMeshes,
+        glbLoaded: true,
+        isPlaceholderAsset: false,
+        isVisualOnly: true,
+        renderState: 'VISUAL_ONLY',
+        glbAnimationController: null,
+        diagnostics,
+        setRenderMode: (mode: 'stylized' | 'graybox') => {
+          for (const m of importedMeshes) {
+            m.material = mode === 'graybox' ? grayboxMat : originalMaterials.get(m) ?? null;
+          }
+        },
+        setLODLevel: () => {},
+        dispose: () => {
+          grayboxMat.dispose();
+          for (const mat of importedMaterialSet) {
+            mat.dispose();
+          }
+          rootNode.dispose();
         },
       };
     }
@@ -1918,6 +2121,8 @@ export class CharacterAssetLoader {
       loadedFromPath,
       glbLoaded: true,
       usedTemporaryPlaceholder: false,
+      renderState: 'PRODUCTION_SKINNED',
+      isVisualOnly: false,
       importedMeshCount: importedMeshes.length,
       importedTransformNodeCount: importedTransformNodes.length,
       skeletonCount: boneResolution.allSkeletons.length,
@@ -1954,6 +2159,8 @@ export class CharacterAssetLoader {
       meshes: importedMeshes,
       glbLoaded: true,
       isPlaceholderAsset: false,
+      isVisualOnly: false,
+      renderState: 'PRODUCTION_SKINNED',
       glbAnimationController,
       diagnostics,
       setRenderMode: () => {},

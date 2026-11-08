@@ -389,17 +389,17 @@ export const CHARACTER_ASSET_MANIFEST: Record<FighterId, CharacterAssetConfig> =
     superShotTitle: 'BLACKBUCK GUNSHOT',
     superShotConcept:
       'Draws a stylized parody firearm, sights a brief non-graphic golden blackbuck silhouette hologram, and fires with muzzle flash, recoil, shell ejection, smoke, bullet trail, and explosive impact.',
-    isTemporaryPlaceholder: true,
+    isTemporaryPlaceholder: false,
     modelPath: '/assets/characters/action-sultan/model.glb',
     legacyModelPath: '/assets/characters/action-sultan/model.glb',
     portraitPath: '/assets/characters/action-sultan/portrait.png',
     thumbnailPath: '/assets/characters/action-sultan/thumbnail.png',
-    scale: 1.04,
+    scale: 1.94,
     facingRotationY: {
       right: Math.PI * 0.5,
       left: -Math.PI * 0.5,
     },
-    groundOffset: 0,
+    groundOffset: 0.969,
     defaultSpawnX: {
       p1: -2.4,
       p2: 2.4,

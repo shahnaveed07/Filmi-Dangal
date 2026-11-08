@@ -127,9 +127,14 @@ export const CharacterPreview3D: React.FC<CharacterPreview3DProps> = ({
     sceneControllerRef.current?.setLODLevel(next);
   };
 
-  const isPlaceholder =
-    telemetry ? telemetry.isPlaceholderAsset : assetConfig.isTemporaryPlaceholder;
-  const isProductionActive = !isPlaceholder && Boolean(telemetry?.productionRigValid);
+  const renderState =
+    telemetry?.renderState ||
+    telemetry?.diagnostics?.renderState ||
+    (telemetry?.isVisualOnly || (!assetConfig.isTemporaryPlaceholder && telemetry?.glbLoaded)
+      ? 'VISUAL_ONLY'
+      : telemetry?.loadError
+      ? 'LOAD_FAILED'
+      : 'TEMPORARY_PLACEHOLDER');
 
   return (
     <div className="relative w-full h-48 sm:h-60 rounded-lg overflow-hidden border border-[#D6A447]/60 bg-[#0D0B18] shadow-inner">
@@ -148,9 +153,20 @@ export const CharacterPreview3D: React.FC<CharacterPreview3DProps> = ({
             LOADING 3D RIG...
           </div>
         )}
-        {isProductionActive ? (
+        {renderState === 'PRODUCTION_SKINNED' ? (
           <div className="px-1.5 py-0.5 rounded border text-[8px] font-mono uppercase tracking-wider bg-[#14532D]/90 border-[#4ADE80] text-[#BBF7D0]">
             PRODUCTION GLB ACTIVE
+          </div>
+        ) : renderState === 'VISUAL_ONLY' ? (
+          <div
+            title="Imported 3D mesh active with genuine geometry and textures. Awaiting skinned skeletal rig for full production animations."
+            className="px-1.5 py-0.5 rounded border text-[8px] font-mono uppercase tracking-wider bg-cyan-950/90 border-cyan-400/80 text-cyan-200"
+          >
+            VISUAL-ONLY MODEL ACTIVE · NO SKELETON
+          </div>
+        ) : renderState === 'LOAD_FAILED' || telemetry?.loadError ? (
+          <div className="px-1.5 py-0.5 rounded border text-[8px] font-mono uppercase tracking-wider bg-rose-950/90 border-rose-400/70 text-rose-200">
+            LOAD FAILED · FALLBACK RIG ACTIVE
           </div>
         ) : (
           <div
@@ -158,11 +174,6 @@ export const CharacterPreview3D: React.FC<CharacterPreview3DProps> = ({
             className="px-1.5 py-0.5 rounded border text-[8px] font-mono uppercase tracking-wider bg-amber-950/90 border-amber-400/70 text-amber-200"
           >
             TEMPORARY PLACEHOLDER · PRODUCTION MODEL NOT INSTALLED
-          </div>
-        )}
-        {telemetry?.loadError && (
-          <div className="px-1.5 py-0.5 rounded border text-[8px] font-mono uppercase tracking-wider bg-rose-950/90 border-rose-400/70 text-rose-200">
-            FALLBACK RIG ACTIVE
           </div>
         )}
         {telemetry && (

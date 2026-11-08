@@ -2,17 +2,20 @@
   "characterId": "action_sultan",
   "characterName": "ACTION SULTAN",
   "inspiration": "Salman Khan-inspired (Configurable Parody Persona)",
-  "isPlaceholder": true,
-  "productionStatus": "PLACEHOLDER",
+  "isPlaceholder": false,
+  "productionStatus": "VISUAL_ONLY",
   "format": "glTF 2.0 Binary (.glb)",
   "modelFile": "/assets/characters/action-sultan/model.glb",
+  "note": "Valid visual-only 3D character model. Actual character geometry (3978 vertices, 16332 indices, baseColor texture). glTF skins and humanoid skeleton not yet installed.",
+  "scale": 1.94,
+  "groundOffset": 0.969,
   "groundOrigin": [
     0,
     0,
     0
   ],
   "forwardOrientation": "+Z",
-  "skeletonStandard": "FilmiDangal_SharedHumanoid_26",
+  "skeletonStandard": "None (Visual-Only)",
   "bones": [
     "Root",
     "Hips",
