@@ -92,6 +92,7 @@ export interface GLBAssetValidationResult {
   glbFileValid: boolean;
   productionRigValid: boolean;
   animationValid: boolean;
+  productionReady: boolean;
   isPlaceholder: boolean;
   characterId: string;
   glbMagicValid: boolean;
@@ -117,6 +118,7 @@ export interface CharacterRig3D {
   glbFileValid: boolean;
   productionRigValid: boolean;
   animationValid: boolean;
+  productionReady: boolean;
   isPlaceholderAsset: boolean;
   glbAnimationController?: LoadedGLBAnimationController | null;
   diagnostics?: CharacterAssetLoadDiagnostics;
@@ -132,7 +134,7 @@ export type LoadedCharacterRig = CharacterRig3D;
 /**
  * Validates binary GLB buffer or parsed glTF JSON structure for humanoid rig completeness
  * and separates structural GLB validity (`glbFileValid`) from production skinning validity
- * (`productionRigValid`) and animation validity (`animationValid`).
+ * (`productionRigValid`), animation validity (`animationValid`), and overall `productionReady`.
  */
 export function validateGLBBuffer(
   characterId: string,
@@ -144,6 +146,7 @@ export function validateGLBBuffer(
     glbFileValid: report.glbFileValid,
     productionRigValid: report.productionRigValid,
     animationValid: report.animationValid,
+    productionReady: report.productionReady,
     isPlaceholder: report.isPlaceholder,
     characterId: report.characterId,
     glbMagicValid: report.glbVersion === 2,
@@ -177,6 +180,15 @@ export async function loadCharacterRig3D(
   let currentRenderMode: 'stylized' | 'graybox' = 'stylized';
   let currentLodLevel: 0 | 1 | 2 = 0;
 
+  const animationValid =
+    loaded.diagnostics.hasEmbeddedAnimations &&
+    loaded.diagnostics.missingStandardClips.length === 0;
+  const productionReady =
+    loaded.glbLoaded &&
+    loaded.diagnostics.productionRigEligible &&
+    animationValid &&
+    !loaded.isPlaceholderAsset;
+
   return {
     characterId: charDef.id,
     rootNode: loaded.rootNode,
@@ -189,9 +201,8 @@ export async function loadCharacterRig3D(
     glbLoaded: loaded.glbLoaded,
     glbFileValid: loaded.glbLoaded,
     productionRigValid: loaded.diagnostics.productionRigEligible,
-    animationValid:
-      loaded.diagnostics.hasEmbeddedAnimations &&
-      loaded.diagnostics.missingStandardClips.length === 0,
+    animationValid,
+    productionReady,
     isPlaceholderAsset: loaded.isPlaceholderAsset,
     glbAnimationController: loaded.glbAnimationController,
     diagnostics: loaded.diagnostics,

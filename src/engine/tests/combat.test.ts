@@ -65,7 +65,10 @@ import { Fighter3D } from '../../game3d/combat/Fighter3D';
 import { CombatSystem3D } from '../../game3d/combat/CombatSystem3D';
 import { CPUController3D } from '../../game3d/cpu/CPUController3D';
 import { MatchManager3D } from '../../game3d/managers/MatchManager3D';
-import { CharacterPreviewScene } from '../../game3d/scenes/CharacterPreviewScene';
+import {
+  CharacterPreviewScene,
+  PreviewAudioTimerManager,
+} from '../../game3d/scenes/CharacterPreviewScene';
 import { FighterStateName } from '../../types/fighter';
 
 test('1. Character Loading & Binary GLB 2.0 Humanoid Asset Validation for all 4 fighters', () => {
@@ -1114,7 +1117,7 @@ function buildSyntheticGLBBuffer(
   return out;
 }
 
-test('16. Section 13 GLB Validation Suite: Header, Truncation, JSON, Meshes, Skins, JOINTS_0, WEIGHTS_0, Skin Refs, Bones & Clips', () => {
+test('16. Section 4, 5 & 10 GLB Validation Suite: Header, Truncation, JSON, Meshes, Skins, JOINTS_0 Range, WEIGHTS_0 Normalization, Accessor Counts, Buffer Bounds & Animation Samplers', () => {
   // 1. Truncated buffer (< 20 bytes)
   const tinyReport = CharacterAssetValidator.validateGLBBuffer(
     new Uint8Array([0x67, 0x6c, 0x54, 0x46]),
@@ -1122,6 +1125,7 @@ test('16. Section 13 GLB Validation Suite: Header, Truncation, JSON, Meshes, Ski
   );
   assert.equal(tinyReport.glbFileValid, false);
   assert.equal(tinyReport.productionRigValid, false);
+  assert.equal(tinyReport.productionReady, false);
 
   // 2. Invalid magic header
   const badMagic = new Uint8Array(32);
@@ -1157,15 +1161,45 @@ test('16. Section 13 GLB Validation Suite: Header, Truncation, JSON, Meshes, Ski
   assert.equal(noMeshReport.glbFileValid, false);
   assert.ok(noMeshReport.errors.some((e) => e.includes('missing valid meshes')));
 
-  // Build binary buffer with non-zero float32 weights (4 floats = 16 bytes) and zero weights
-  const nonZeroWeightsBin = new Uint8Array(32);
-  const nzView = new DataView(nonZeroWeightsBin.buffer);
-  nzView.setFloat32(0, 1.0, true);
-  nzView.setFloat32(4, 0.0, true);
-  nzView.setFloat32(8, 0.0, true);
-  nzView.setFloat32(12, 0.0, true);
+  // Construct a clean binary buffer with dedicated bufferViews:
+  // - bufferView 0 (offset 0, len 12): POSITION VEC3 float32 (1 vertex: [0, 1.0, 0])
+  // - bufferView 1 (offset 12, len 4): JOINTS_0 VEC4 uint8 (1 vertex: [0, 1, 2, 3])
+  // - bufferView 2 (offset 16, len 16): WEIGHTS_0 VEC4 float32 (1 vertex: [0.7, 0.3, 0.0, 0.0], sum = 1.0)
+  // - bufferView 3 (offset 32, len 8): Anim input SCALAR float32 (2 keys: [0.0, 0.5])
+  // - bufferView 4 (offset 40, len 32): Anim output VEC4 float32 (2 rotation quaternions: [0,0,0,1], [0,0,0,1])
+  const createValidProductionBin = (): Uint8Array => {
+    const bin = new Uint8Array(72);
+    const dv = new DataView(bin.buffer);
+    // POSITION (offset 0)
+    dv.setFloat32(0, 0.0, true);
+    dv.setFloat32(4, 1.0, true);
+    dv.setFloat32(8, 0.0, true);
+    // JOINTS_0 (offset 12)
+    bin[12] = 0;
+    bin[13] = 1;
+    bin[14] = 2;
+    bin[15] = 3;
+    // WEIGHTS_0 (offset 16)
+    dv.setFloat32(16, 0.7, true);
+    dv.setFloat32(20, 0.3, true);
+    dv.setFloat32(24, 0.0, true);
+    dv.setFloat32(28, 0.0, true);
+    // Anim input times (offset 32)
+    dv.setFloat32(32, 0.0, true);
+    dv.setFloat32(36, 0.5, true);
+    // Anim output rotations (offset 40)
+    dv.setFloat32(40, 0.0, true);
+    dv.setFloat32(44, 0.0, true);
+    dv.setFloat32(48, 0.0, true);
+    dv.setFloat32(52, 1.0, true);
+    dv.setFloat32(56, 0.0, true);
+    dv.setFloat32(60, 0.1, true);
+    dv.setFloat32(64, 0.0, true);
+    dv.setFloat32(68, 0.995, true);
+    return bin;
+  };
 
-  const zeroWeightsBin = new Uint8Array(32); // all 0.0f
+  const validBin = createValidProductionBin();
 
   const allBoneNodes = [
     ...REQUIRED_HUMANOID_BONES.map((name: string) => ({
@@ -1179,6 +1213,26 @@ test('16. Section 13 GLB Validation Suite: Header, Truncation, JSON, Meshes, Ski
   ];
   const jointIndices = REQUIRED_HUMANOID_BONES.map((_, idx) => idx);
 
+  const allClipNames = [
+    'Idle',
+    'Walk',
+    'Run',
+    'Jump',
+    'Crouch',
+    'Block',
+    'Punch',
+    'Kick',
+    'Grab',
+    'HitReaction',
+    'Knockback',
+    'Knockdown',
+    'Recovery',
+    'Victory',
+    'Defeat',
+    'Anim_AS_SuperShot_BlackbuckGunshot',
+    'Anim_AS_SuperMove_SultanBreaker',
+  ];
+
   const baseSkinnedGltf = {
     asset: {
       version: '2.0',
@@ -1190,25 +1244,7 @@ test('16. Section 13 GLB Validation Suite: Header, Truncation, JSON, Meshes, Ski
           superShot: 'Anim_AS_SuperShot_BlackbuckGunshot',
           superMove: 'Anim_AS_SuperMove_SultanBreaker',
         },
-        documentedAnimations: [
-          'Idle',
-          'Walk',
-          'Run',
-          'Jump',
-          'Crouch',
-          'Block',
-          'Punch',
-          'Kick',
-          'Grab',
-          'HitReaction',
-          'Knockback',
-          'Knockdown',
-          'Recovery',
-          'Victory',
-          'Defeat',
-          'Anim_AS_SuperShot_BlackbuckGunshot',
-          'Anim_AS_SuperMove_SultanBreaker',
-        ],
+        documentedAnimations: allClipNames,
       },
     },
     nodes: [
@@ -1241,6 +1277,7 @@ test('16. Section 13 GLB Validation Suite: Header, Truncation, JSON, Meshes, Ski
     accessors: [
       {
         bufferView: 0,
+        byteOffset: 0,
         componentType: 5126,
         count: 1,
         type: 'VEC3',
@@ -1248,24 +1285,42 @@ test('16. Section 13 GLB Validation Suite: Header, Truncation, JSON, Meshes, Ski
         max: [0.45, 1.85, 0.25],
       },
       {
-        bufferView: 0,
+        bufferView: 1,
+        byteOffset: 0,
         componentType: 5121,
         count: 1,
         type: 'VEC4',
       },
       {
-        bufferView: 0,
+        bufferView: 2,
+        byteOffset: 0,
         componentType: 5126,
         count: 1,
         type: 'VEC4',
       },
+      {
+        bufferView: 3,
+        byteOffset: 0,
+        componentType: 5126,
+        count: 2,
+        type: 'SCALAR',
+        min: [0.0],
+        max: [0.5],
+      },
+      {
+        bufferView: 4,
+        byteOffset: 0,
+        componentType: 5126,
+        count: 2,
+        type: 'VEC4',
+      },
     ],
     bufferViews: [
-      {
-        buffer: 0,
-        byteOffset: 0,
-        byteLength: 16,
-      },
+      { buffer: 0, byteOffset: 0, byteLength: 12 },
+      { buffer: 0, byteOffset: 12, byteLength: 4 },
+      { buffer: 0, byteOffset: 16, byteLength: 16 },
+      { buffer: 0, byteOffset: 32, byteLength: 8 },
+      { buffer: 0, byteOffset: 40, byteLength: 32 },
     ],
     materials: [
       {
@@ -1273,101 +1328,28 @@ test('16. Section 13 GLB Validation Suite: Header, Truncation, JSON, Meshes, Ski
         pbrMetallicRoughness: { baseColorFactor: [1, 1, 1, 1] },
       },
     ],
-    animations: [
-      {
-        name: 'Idle',
-        channels: [{ sampler: 0, target: { node: 1, path: 'rotation' } }],
-        samplers: [{ input: 0, output: 0 }],
-      },
-      {
-        name: 'Walk',
-        channels: [{ sampler: 0, target: { node: 1, path: 'rotation' } }],
-        samplers: [{ input: 0, output: 0 }],
-      },
-      {
-        name: 'Run',
-        channels: [{ sampler: 0, target: { node: 1, path: 'rotation' } }],
-        samplers: [{ input: 0, output: 0 }],
-      },
-      {
-        name: 'Jump',
-        channels: [{ sampler: 0, target: { node: 1, path: 'rotation' } }],
-        samplers: [{ input: 0, output: 0 }],
-      },
-      {
-        name: 'Crouch',
-        channels: [{ sampler: 0, target: { node: 1, path: 'rotation' } }],
-        samplers: [{ input: 0, output: 0 }],
-      },
-      {
-        name: 'Block',
-        channels: [{ sampler: 0, target: { node: 1, path: 'rotation' } }],
-        samplers: [{ input: 0, output: 0 }],
-      },
-      {
-        name: 'Punch',
-        channels: [{ sampler: 0, target: { node: 1, path: 'rotation' } }],
-        samplers: [{ input: 0, output: 0 }],
-      },
-      {
-        name: 'Kick',
-        channels: [{ sampler: 0, target: { node: 1, path: 'rotation' } }],
-        samplers: [{ input: 0, output: 0 }],
-      },
-      {
-        name: 'Grab',
-        channels: [{ sampler: 0, target: { node: 1, path: 'rotation' } }],
-        samplers: [{ input: 0, output: 0 }],
-      },
-      {
-        name: 'HitReaction',
-        channels: [{ sampler: 0, target: { node: 1, path: 'rotation' } }],
-        samplers: [{ input: 0, output: 0 }],
-      },
-      {
-        name: 'Knockback',
-        channels: [{ sampler: 0, target: { node: 1, path: 'rotation' } }],
-        samplers: [{ input: 0, output: 0 }],
-      },
-      {
-        name: 'Knockdown',
-        channels: [{ sampler: 0, target: { node: 1, path: 'rotation' } }],
-        samplers: [{ input: 0, output: 0 }],
-      },
-      {
-        name: 'Recovery',
-        channels: [{ sampler: 0, target: { node: 1, path: 'rotation' } }],
-        samplers: [{ input: 0, output: 0 }],
-      },
-      {
-        name: 'Victory',
-        channels: [{ sampler: 0, target: { node: 1, path: 'rotation' } }],
-        samplers: [{ input: 0, output: 0 }],
-      },
-      {
-        name: 'Defeat',
-        channels: [{ sampler: 0, target: { node: 1, path: 'rotation' } }],
-        samplers: [{ input: 0, output: 0 }],
-      },
-      {
-        name: 'Anim_AS_SuperShot_BlackbuckGunshot',
-        channels: [{ sampler: 0, target: { node: 1, path: 'rotation' } }],
-        samplers: [{ input: 0, output: 0 }],
-      },
-      {
-        name: 'Anim_AS_SuperMove_SultanBreaker',
-        channels: [{ sampler: 0, target: { node: 1, path: 'rotation' } }],
-        samplers: [{ input: 0, output: 0 }],
-      },
-    ],
+    animations: allClipNames.map((name) => ({
+      name,
+      channels: [{ sampler: 0, target: { node: 1, path: 'rotation' } }],
+      samplers: [{ input: 3, interpolation: 'LINEAR', output: 4 }],
+    })),
   };
 
-  // 6. Genuine skinned production GLB passes all 3 validation tiers
-  const prodGlb = buildSyntheticGLBBuffer(baseSkinnedGltf, nonZeroWeightsBin);
+  // 6. Genuine skinned production GLB passes all 4 validation states
+  const prodGlb = buildSyntheticGLBBuffer(baseSkinnedGltf, validBin);
   const prodReport = CharacterAssetValidator.validateGLBBuffer(prodGlb, 'action_sultan');
   assert.equal(prodReport.glbFileValid, true);
-  assert.equal(prodReport.productionRigValid, true, `Expected productionRigValid=true, errors: ${prodReport.errors.join('; ')}`);
-  assert.equal(prodReport.animationValid, true);
+  assert.equal(
+    prodReport.productionRigValid,
+    true,
+    `Expected productionRigValid=true, reasons: ${prodReport.productionEligibilityReasons.join('; ')}`
+  );
+  assert.equal(
+    prodReport.animationValid,
+    true,
+    `Expected animationValid=true, errors: ${prodReport.errors.join('; ')}`
+  );
+  assert.equal(prodReport.productionReady, true);
   assert.equal(prodReport.isPlaceholder, false);
   assert.equal(prodReport.productionStatus, 'PRODUCTION_READY');
 
@@ -1375,25 +1357,42 @@ test('16. Section 13 GLB Validation Suite: Header, Truncation, JSON, Meshes, Ski
   const noJointsGltf = JSON.parse(JSON.stringify(baseSkinnedGltf));
   delete noJointsGltf.meshes[0].primitives[0].attributes.JOINTS_0;
   const noJointsReport = CharacterAssetValidator.validateGLBBuffer(
-    buildSyntheticGLBBuffer(noJointsGltf, nonZeroWeightsBin),
+    buildSyntheticGLBBuffer(noJointsGltf, validBin),
     'action_sultan'
   );
   assert.equal(noJointsReport.glbFileValid, true);
   assert.equal(noJointsReport.productionRigValid, false);
   assert.equal(noJointsReport.hasValidJointsAttribute, false);
 
-  // 8. Missing WEIGHTS_0 -> productionRigValid = false
+  // 8. Out-of-range vertex joint index in JOINTS_0 binary buffer -> productionRigValid = false
+  const outOfRangeJointsBin = new Uint8Array(validBin);
+  outOfRangeJointsBin[12] = 99; // 99 >= skin.joints.length (20)
+  const outOfRangeJointsReport = CharacterAssetValidator.validateGLBBuffer(
+    buildSyntheticGLBBuffer(baseSkinnedGltf, outOfRangeJointsBin),
+    'action_sultan'
+  );
+  assert.equal(outOfRangeJointsReport.hasValidJointsAttribute, false);
+  assert.equal(outOfRangeJointsReport.skinningValid, false);
+  assert.equal(outOfRangeJointsReport.productionRigValid, false);
+
+  // 9. Missing WEIGHTS_0 -> productionRigValid = false
   const noWeightsGltf = JSON.parse(JSON.stringify(baseSkinnedGltf));
   delete noWeightsGltf.meshes[0].primitives[0].attributes.WEIGHTS_0;
   const noWeightsReport = CharacterAssetValidator.validateGLBBuffer(
-    buildSyntheticGLBBuffer(noWeightsGltf, nonZeroWeightsBin),
+    buildSyntheticGLBBuffer(noWeightsGltf, validBin),
     'action_sultan'
   );
   assert.equal(noWeightsReport.glbFileValid, true);
   assert.equal(noWeightsReport.productionRigValid, false);
   assert.equal(noWeightsReport.hasValidWeightsAttribute, false);
 
-  // 9. Zero WEIGHTS_0 values in binary buffer -> productionRigValid = false
+  // 10. Zero WEIGHTS_0 values in binary buffer -> productionRigValid = false
+  const zeroWeightsBin = new Uint8Array(validBin);
+  const zwView = new DataView(zeroWeightsBin.buffer);
+  zwView.setFloat32(16, 0.0, true);
+  zwView.setFloat32(20, 0.0, true);
+  zwView.setFloat32(24, 0.0, true);
+  zwView.setFloat32(28, 0.0, true);
   const zeroWeightsReport = CharacterAssetValidator.validateGLBBuffer(
     buildSyntheticGLBBuffer(baseSkinnedGltf, zeroWeightsBin),
     'action_sultan'
@@ -1403,29 +1402,107 @@ test('16. Section 13 GLB Validation Suite: Header, Truncation, JSON, Meshes, Ski
   assert.equal(zeroWeightsReport.hasUsableVertexWeights, false);
   assert.equal(zeroWeightsReport.productionRigValid, false);
 
-  // 10. Invalid skin skeleton reference -> productionRigValid = false
+  // 11. NaN or unnormalized WEIGHTS_0 values in binary buffer -> productionRigValid = false
+  const nanWeightsBin = new Uint8Array(validBin);
+  new DataView(nanWeightsBin.buffer).setFloat32(16, Number.NaN, true);
+  const nanWeightsReport = CharacterAssetValidator.validateGLBBuffer(
+    buildSyntheticGLBBuffer(baseSkinnedGltf, nanWeightsBin),
+    'action_sultan'
+  );
+  assert.equal(nanWeightsReport.hasUsableVertexWeights, false);
+  assert.equal(nanWeightsReport.productionRigValid, false);
+
+  const unnormalizedWeightsBin = new Uint8Array(validBin);
+  new DataView(unnormalizedWeightsBin.buffer).setFloat32(16, 4.5, true); // sum = 4.8 > 1.5
+  const unnormWeightsReport = CharacterAssetValidator.validateGLBBuffer(
+    buildSyntheticGLBBuffer(baseSkinnedGltf, unnormalizedWeightsBin),
+    'action_sultan'
+  );
+  assert.equal(unnormWeightsReport.hasUsableVertexWeights, false);
+  assert.equal(unnormWeightsReport.productionRigValid, false);
+
+  // 12. Accessor count mismatch between POSITION and JOINTS_0/WEIGHTS_0 -> productionRigValid = false
+  const mismatchedCountGltf = JSON.parse(JSON.stringify(baseSkinnedGltf));
+  mismatchedCountGltf.accessors[1].count = 2; // JOINTS_0 count 2 != POSITION count 1
+  const mismatchedCountReport = CharacterAssetValidator.validateGLBBuffer(
+    buildSyntheticGLBBuffer(mismatchedCountGltf, validBin),
+    'action_sultan'
+  );
+  assert.equal(mismatchedCountReport.skinningValid, false);
+  assert.equal(mismatchedCountReport.productionRigValid, false);
+
+  // 13. Out-of-bounds bufferView byteOffset/byteLength -> productionRigValid = false
+  const badBufferViewGltf = JSON.parse(JSON.stringify(baseSkinnedGltf));
+  badBufferViewGltf.bufferViews[2].byteOffset = 9999;
+  const badBufferViewReport = CharacterAssetValidator.validateGLBBuffer(
+    buildSyntheticGLBBuffer(badBufferViewGltf, validBin),
+    'action_sultan'
+  );
+  assert.equal(badBufferViewReport.skinningValid, false);
+  assert.equal(badBufferViewReport.productionRigValid, false);
+
+  // 14. Invalid skin skeleton reference or missing mesh-node skin binding -> productionRigValid = false
   const badSkinRefGltf = JSON.parse(JSON.stringify(baseSkinnedGltf));
   badSkinRefGltf.skins[0].skeleton = 9999;
   const badSkinRefReport = CharacterAssetValidator.validateGLBBuffer(
-    buildSyntheticGLBBuffer(badSkinRefGltf, nonZeroWeightsBin),
+    buildSyntheticGLBBuffer(badSkinRefGltf, validBin),
     'action_sultan'
   );
   assert.equal(badSkinRefReport.skinningValid, false);
   assert.equal(badSkinRefReport.productionRigValid, false);
 
-  // 11. Missing special animation clips -> animationValid = false
+  const noNodeSkinBindingGltf = JSON.parse(JSON.stringify(baseSkinnedGltf));
+  for (const n of noNodeSkinBindingGltf.nodes) {
+    delete n.skin;
+  }
+  const noNodeSkinBindingReport = CharacterAssetValidator.validateGLBBuffer(
+    buildSyntheticGLBBuffer(noNodeSkinBindingGltf, validBin),
+    'action_sultan'
+  );
+  assert.equal(noNodeSkinBindingReport.skinningValid, false);
+  assert.equal(noNodeSkinBindingReport.productionRigValid, false);
+
+  // 15. Missing special animation clips -> productionRigValid = true, animationValid = false, productionReady = false (NOT PRODUCTION_READY!)
   const missingSpecialClipGltf = JSON.parse(JSON.stringify(baseSkinnedGltf));
   missingSpecialClipGltf.animations = [missingSpecialClipGltf.animations[0]];
   const missingSpecialReport = CharacterAssetValidator.validateGLBBuffer(
-    buildSyntheticGLBBuffer(missingSpecialClipGltf, nonZeroWeightsBin),
+    buildSyntheticGLBBuffer(missingSpecialClipGltf, validBin),
     'action_sultan'
   );
   assert.equal(missingSpecialReport.glbFileValid, true);
   assert.equal(missingSpecialReport.productionRigValid, true);
   assert.equal(missingSpecialReport.animationValid, false);
+  assert.equal(missingSpecialReport.productionReady, false);
+  assert.notEqual(
+    missingSpecialReport.productionStatus,
+    'PRODUCTION_READY',
+    'Model with missing required animations must NOT be marked PRODUCTION_READY'
+  );
+
+  // 16. Non-monotonic or NaN animation keyframe timestamps -> animationValid = false
+  const nonMonotonicAnimBin = new Uint8Array(validBin);
+  const nmView = new DataView(nonMonotonicAnimBin.buffer);
+  nmView.setFloat32(32, 0.8, true);
+  nmView.setFloat32(36, 0.2, true); // t[1] < t[0] (decreasing time)
+  const nonMonotonicReport = CharacterAssetValidator.validateGLBBuffer(
+    buildSyntheticGLBBuffer(baseSkinnedGltf, nonMonotonicAnimBin),
+    'action_sultan'
+  );
+  assert.equal(nonMonotonicReport.animationValid, false);
+  assert.equal(nonMonotonicReport.productionReady, false);
+
+  // 17. Invalid animation sampler output type/count -> animationValid = false
+  const badAnimSamplerGltf = JSON.parse(JSON.stringify(baseSkinnedGltf));
+  badAnimSamplerGltf.accessors[4].count = 1; // output count 1 != input count 2
+  const badAnimSamplerReport = CharacterAssetValidator.validateGLBBuffer(
+    buildSyntheticGLBBuffer(badAnimSamplerGltf, validBin),
+    'action_sultan'
+  );
+  assert.equal(badAnimSamplerReport.animationValid, false);
+  assert.equal(badAnimSamplerReport.productionReady, false);
 });
 
-test('17. Section 13 Hierarchy Discovery, Bone Resolution (Mixamo/Rigify/Skeleton Bones), Transform Application & Resource Disposal (NullEngine)', async () => {
+test('17. Section 3 & 10 Hierarchy Discovery, Unattachable Root Rejection, Bone Resolution, Transform Application & Resource Disposal (NullEngine)', async () => {
   const engine = new NullEngine();
   const scene = new Scene(engine);
 
@@ -1457,11 +1534,62 @@ test('17. Section 13 Hierarchy Discovery, Bone Resolution (Mixamo/Rigify/Skeleto
   assert.equal(childNodeA.parent, importedRootA, 'Nested TransformNode child preserves internal parent');
   assert.equal(childMeshB.parent, importedRootMeshB, 'Nested Mesh child preserves internal parent');
 
-  // 2. Test bone resolution across Mixamo, Rigify, and Skeleton.bones without false-positive mapping
+  // 2. Test unattachable / broken root node failing descendant verification and being rejected by production eligibility
+  const unattachableRoot = new TransformNode('UnattachableRoot', scene);
+  Object.defineProperty(unattachableRoot, 'parent', {
+    get: () => null,
+    set: () => {
+      // Simulate a broken or locked parent setter that refuses attachment
+    },
+    configurable: true,
+  });
+  const brokenAttachment = attachImportedGLBHierarchyToFacingNode(
+    modelTransformNode,
+    [],
+    [unattachableRoot]
+  );
+  assert.equal(
+    brokenAttachment.hierarchyValid,
+    false,
+    'Root that cannot be attached under modelTransformNode fails hierarchyValid'
+  );
+
+  const emptyAttachment = attachImportedGLBHierarchyToFacingNode(modelTransformNode, [], []);
+  assert.equal(
+    emptyAttachment.hierarchyValid,
+    false,
+    'Zero imported nodes fails hierarchyValid'
+  );
+
+  const bounds = computeRigWorldBounds(rootNode, [importedRootMeshB, childMeshB]);
+  const rejectedByHierarchyEligibility = evaluateRuntimeProductionRigEligibility({
+    manifest: {
+      ...CHARACTER_ASSET_MANIFEST.action_sultan,
+      isTemporaryPlaceholder: false,
+    },
+    glbLoaded: true,
+    hierarchyValid: brokenAttachment.hierarchyValid,
+    importedMeshes: [importedRootMeshB],
+    allSkeletons: [],
+    missingHumanoidBones: [],
+    dimensions: bounds,
+  });
+  assert.equal(
+    rejectedByHierarchyEligibility.isProductionReady,
+    false,
+    'Invalid hierarchy is rejected by evaluateRuntimeProductionRigEligibility'
+  );
+  assert.ok(
+    rejectedByHierarchyEligibility.reasons.some((r) =>
+      r.includes('hierarchy validation failed')
+    ),
+    'Records explicit hierarchy validation failure reason'
+  );
+
+  // 3. Test bone resolution across Mixamo, Rigify, and Skeleton.bones without false-positive mapping
   const skeleton = new Skeleton('TestHumanoidSkeleton', 'skel_0', scene);
   const boneMapInputNodes: TransformNode[] = [];
 
-  // Populate half the bones as TransformNodes with Mixamo prefixes and half as Skeleton Bones with Rigify names
   const mixamoAliases: Record<string, string> = {
     Root: 'Armature',
     Hips: 'mixamorig:Hips',
@@ -1516,26 +1644,14 @@ test('17. Section 13 Hierarchy Discovery, Bone Resolution (Mixamo/Rigify/Skeleto
   assert.ok(boneResolution.missingBones.includes('LeftFoot'));
   assert.ok(boneResolution.missingBones.includes('RightFoot'));
 
-  // 3. Test world bounds computation and runtime production eligibility
-  const bounds = computeRigWorldBounds(rootNode, [importedRootMeshB, childMeshB]);
-  assert.ok(bounds.width > 0 && bounds.height > 0 && bounds.depth > 0);
-
-  const eligibility = evaluateRuntimeProductionRigEligibility({
-    manifest: CHARACTER_ASSET_MANIFEST.action_sultan,
-    glbLoaded: true,
-    importedMeshes: [importedRootMeshB],
-    allSkeletons: [skeleton],
-    missingHumanoidBones: boneResolution.missingBones,
-    dimensions: bounds,
-  });
-  assert.equal(eligibility.isProductionReady, false, 'Unskinned mesh with missing feet is rejected as production rig');
-
-  // 4. Verify loadCharacterRig3D for all 4 fighters applies scale/groundOffset once and propagates transforms
+  // 4. Verify loadCharacterRig3D for all 4 fighters applies scale/groundOffset once, cleans up failed/placeholder imports, and disposes cleanly
   for (const char of CHARACTER_LIST) {
+    const meshCountBeforeLoad = scene.meshes.length;
     const rig = await loadCharacterRig3D(scene, char, `null_${char.id}`, null);
     const manifest = CHARACTER_ASSET_MANIFEST[char.id];
 
     assert.equal(rig.isPlaceholderAsset, true);
+    assert.equal(rig.productionReady, false);
     assert.equal(rig.rootNode.scaling.x, 1, 'rootNode scaling remains 1');
     assert.equal(rig.facingNode.scaling.x, 1, 'facingNode scaling remains 1');
     assert.ok(
@@ -1550,39 +1666,55 @@ test('17. Section 13 Hierarchy Discovery, Bone Resolution (Mixamo/Rigify/Skeleto
     // Move FighterRoot on 2D XY plane and rotate FacingNode
     rig.rootNode.position.set(2.75, 1.25, 0);
     rig.facingNode.rotation.y = -Math.PI * 0.5;
-    const headSocketPos = rig.sockets.Head.getAbsolutePosition();
     rig.sockets.Head.computeWorldMatrix(true);
     const updatedHeadPos = rig.sockets.Head.getAbsolutePosition();
     assert.ok(Math.abs(updatedHeadPos.x - 2.75) < 1.0, 'Head socket world X follows FighterRoot X');
     assert.ok(updatedHeadPos.y > 1.25, 'Head socket world Y is above FighterRoot Y');
-    assert.ok(headSocketPos !== undefined);
 
-    const meshCountBeforeDispose = scene.meshes.length;
     rig.dispose();
-    assert.ok(scene.meshes.length < meshCountBeforeDispose, 'rig.dispose() releases all character meshes from scene');
+    assert.equal(
+      scene.meshes.length,
+      meshCountBeforeLoad,
+      'rig.dispose() releases all character meshes from scene with zero leaked meshes'
+    );
   }
 
   scene.dispose();
   engine.dispose();
 });
 
-test('18. Section 13 Animation Controller Suite: Production AnimationGroup Playback, No Per-Frame Restart, Missing Clip Fallback & Coordinate Safety (NullEngine)', async () => {
+test('18. Section 5, 6 & 10 Animation Controller Suite: Empty AnimationGroup Filtering, No Per-Frame Restart, 8-State Transitions & Coordinate Safety (NullEngine)', async () => {
   const engine = new NullEngine();
   const scene = new Scene(engine);
   const anim3D = new AnimationController3D();
+  const charAnim = new CharacterAnimationController();
 
   const rig = await loadCharacterRig3D(scene, CHARACTERS.action_sultan, 'anim_test', null);
   rig.rootNode.position.set(-3.2, 0.5, 0);
 
-  // 1. Temporary placeholder rig uses procedural bone animation without mutating FighterRoot position
-  const initialHipRotY = rig.bones.Hips.rotation.y;
-  anim3D.updateRigPose(rig, 'action_sultan', 'punch', 0.1, 1 / 60, 1, 0);
-  assert.notEqual(rig.bones.Hips.rotation.y, initialHipRotY, 'Procedural pose rotates Hips bone on punch');
-  assert.equal(rig.rootNode.position.x, -3.2, 'Animation update never mutates rootNode.position.x');
-  assert.equal(rig.rootNode.position.y, 0.5, 'Animation update never mutates rootNode.position.y');
-  assert.equal(rig.rootNode.position.z, 0, 'Animation update never mutates rootNode.position.z');
+  // 1. Verify transitions across all 8 core verification states (Idle, Walk, Punch, Kick, Block, Jump, SuperShot, SuperMove)
+  // never mutate rootNode.position and always produce valid event payloads
+  const eightStates: FighterStateName[] = [
+    'idle',
+    'walk',
+    'punch',
+    'kick',
+    'block',
+    'jump',
+    'super_shot',
+    'super_move',
+  ];
+  for (const st of eightStates) {
+    const evt = charAnim.updateRigPose(rig, 'action_sultan', st, 0.08, 1 / 60, 1, 0);
+    assert.equal(evt.state, st);
+    assert.ok(evt.clipName.length > 0);
+    assert.equal(rig.rootNode.position.x, -3.2, `State ${st} never mutates rootNode.position.x`);
+    assert.equal(rig.rootNode.position.y, 0.5, `State ${st} never mutates rootNode.position.y`);
+    assert.equal(rig.rootNode.position.z, 0, `State ${st} never mutates rootNode.position.z`);
+  }
 
-  // 2. Simulate a valid production GLB rig with an embedded AnimationGroup for Idle, but missing Kick
+  // 2. Verify empty AnimationGroup (0 targetedAnimations) is rejected by createAnimationGroupController
+  const emptyGroup = new AnimationGroup('Walk', scene);
   const dummyTarget = new TransformNode('DummyAnimTarget', scene);
   const animClip = new Animation(
     'rotAnim',
@@ -1605,9 +1737,25 @@ test('18. Section 13 Animation Controller Suite: Production AnimationGroup Playb
     return origStart(...args);
   };
 
+  const controllerWarnings: string[] = [];
+  const glbController = new GLBAnimationGroupController(
+    'action_sultan',
+    [idleGroup, emptyGroup],
+    controllerWarnings
+  );
+  assert.equal(
+    glbController.hasClip('walk'),
+    false,
+    'Empty Walk AnimationGroup (0 targetedAnimations) is filtered out and not treated as usable'
+  );
+  assert.ok(
+    controllerWarnings.some((w) => w.includes('Skipping unusable AnimationGroup "Walk"')),
+    'Logs warning when skipping empty AnimationGroup'
+  );
+
   rig.isPlaceholderAsset = false;
   rig.productionRigValid = true;
-  rig.glbAnimationController = new GLBAnimationGroupController('action_sultan', [idleGroup]);
+  rig.glbAnimationController = glbController;
 
   // Frame 1 of Idle: starts AnimationGroup once
   anim3D.updateRigPose(rig, 'action_sultan', 'idle', 0.016, 1 / 60, 1, 0);
@@ -1618,8 +1766,7 @@ test('18. Section 13 Animation Controller Suite: Production AnimationGroup Playb
   anim3D.updateRigPose(rig, 'action_sultan', 'idle', 0.048, 1 / 60, 1, 0);
   assert.equal(startCallCount, 1, 'Does NOT restart active AnimationGroup on subsequent frames');
 
-  // Transition to 'kick' (which has NO AnimationGroup in [idleGroup]):
-  // Must stop stale Idle group, log a warning in diagnostics, and fall back to procedural kick pose!
+  // Transition to 'kick' (missing from [idleGroup]): stops Idle group, records warning, falls back to procedural pose
   const prevRightLegRx = rig.bones.RightUpperLeg.rotation.x;
   anim3D.updateRigPose(rig, 'action_sultan', 'kick', 0.05, 1 / 60, 1, 0);
   assert.notEqual(
@@ -1632,13 +1779,14 @@ test('18. Section 13 Animation Controller Suite: Production AnimationGroup Playb
     'Records missing clip fallback warning in rig diagnostics'
   );
 
+  emptyGroup.dispose();
   idleGroup.dispose();
   rig.dispose();
   scene.dispose();
   engine.dispose();
 });
 
-test('19. Section 13 CharacterPreviewScene Lifecycle, Rapid Switching Load-Token Protection & Gameplay Isolation (NullEngine)', async () => {
+test('19. Section 7 & 10 CharacterPreviewScene Lifecycle, Rapid Switching Load-Token Protection, PreviewAudioTimerManager Cancellation & Gameplay Isolation (NullEngine)', async () => {
   const nullEngine = new NullEngine();
   const fakeCanvas = {
     width: 460,
@@ -1656,7 +1804,7 @@ test('19. Section 13 CharacterPreviewScene Lifecycle, Rapid Switching Load-Token
     nullEngine
   );
 
-  // Rapidly switch characters: action_sultan -> romance_raja -> duggu -> bhidu
+  // 1. Rapidly switch characters: action_sultan -> romance_raja -> duggu -> bhidu
   const pSultan = preview.loadCharacterAsset('action_sultan');
   const pRaja = preview.loadCharacterAsset('romance_raja');
   const pDuggu = preview.loadCharacterAsset('duggu');
@@ -1676,12 +1824,45 @@ test('19. Section 13 CharacterPreviewScene Lifecycle, Rapid Switching Load-Token
   assert.ok(rBhidu, 'Latest character load (bhidu) succeeds');
   assert.equal(preview.getCurrentRig()?.characterId, 'bhidu');
 
-  // Preview animation triggers must never mutate gameplay Fighter3D state
+  // 2. Preview animation triggers must never mutate gameplay Fighter3D state
   preview.triggerAnimationState('super_shot');
   preview.triggerAnimationState('super_move');
   assert.equal(p1.state, 'idle', 'Preview scene is completely isolated from gameplay Fighter3D');
   assert.equal(p2.health, p2.maxHealth);
 
+  // 3. Test PreviewAudioTimerManager cancellation on new state trigger, character switch, and unmount/dispose
+  const timerMgr = new PreviewAudioTimerManager('action_sultan');
+  const firedEvents: string[] = [];
+
+  // Schedule two timers for action_sultan, then immediately clearAll() (simulating clicking another preview button)
+  timerMgr.schedule(15, 'action_sultan', () => firedEvents.push('sultan_stale_release'));
+  timerMgr.schedule(25, 'action_sultan', () => firedEvents.push('sultan_stale_impact'));
+  assert.equal(timerMgr.getPendingTimerCount(), 2);
+  timerMgr.clearAll();
+  assert.equal(timerMgr.getPendingTimerCount(), 0, 'clearAll cancels pending timers immediately');
+
+  // Schedule a timer for action_sultan, then switch character to romance_raja before it fires
+  timerMgr.schedule(15, 'action_sultan', () => firedEvents.push('sultan_after_switch'));
+  timerMgr.setCharacterId('romance_raja');
+  assert.equal(timerMgr.getPendingTimerCount(), 0, 'Switching character cancels previous character timers');
+
+  // Schedule a valid timer for romance_raja that should fire
+  timerMgr.schedule(10, 'romance_raja', () => firedEvents.push('raja_valid_impact'));
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  assert.deepEqual(
+    firedEvents,
+    ['raja_valid_impact'],
+    'Only the active character timer fires; cancelled/switched timers never fire'
+  );
+
+  // Schedule a timer and dispose before it fires (simulating preview unmount)
+  timerMgr.schedule(15, 'romance_raja', () => firedEvents.push('raja_after_dispose'));
+  timerMgr.dispose();
+  assert.equal(timerMgr.getPendingTimerCount(), 0);
+  await new Promise((resolve) => setTimeout(resolve, 25));
+  assert.deepEqual(firedEvents, ['raja_valid_impact'], 'Disposed timer manager never fires callbacks');
+
   preview.dispose();
   assert.equal(preview.getCurrentRig(), null, 'Preview dispose releases currentRig');
 });
+

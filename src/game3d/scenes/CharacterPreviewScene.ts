@@ -54,6 +54,70 @@ export interface PreviewTelemetrySnapshot {
   lodLevel: 0 | 1 | 2;
 }
 
+/**
+ * Section 7: Cancellable Preview Audio Timer Manager.
+ * Tracks all scheduled preview audio `setTimeout` IDs and ensures pending timers are cancelled:
+ * - When a new preview animation state is triggered,
+ * - When the selected `characterId` changes,
+ * - When the preview component/scene unmounts or disposes.
+ * Also guards timer callbacks so stale character audio never fires after switching or unmounting.
+ */
+export class PreviewAudioTimerManager {
+  private activeTimers = new Set<ReturnType<typeof setTimeout>>();
+  private currentCharacterId: FighterId;
+  private isDisposed = false;
+
+  constructor(initialCharacterId: FighterId) {
+    this.currentCharacterId = initialCharacterId;
+  }
+
+  public setCharacterId(characterId: FighterId): void {
+    if (this.currentCharacterId !== characterId) {
+      this.currentCharacterId = characterId;
+      this.clearAll();
+    } else {
+      this.currentCharacterId = characterId;
+    }
+  }
+
+  public getCharacterId(): FighterId {
+    return this.currentCharacterId;
+  }
+
+  public getPendingTimerCount(): number {
+    return this.activeTimers.size;
+  }
+
+  public clearAll(): void {
+    for (const timerId of this.activeTimers) {
+      clearTimeout(timerId);
+    }
+    this.activeTimers.clear();
+  }
+
+  public schedule(
+    delayMs: number,
+    expectedCharacterId: FighterId,
+    callback: () => void
+  ): ReturnType<typeof setTimeout> | null {
+    if (this.isDisposed) return null;
+    const timerId = setTimeout(() => {
+      this.activeTimers.delete(timerId);
+      if (this.isDisposed || this.currentCharacterId !== expectedCharacterId) {
+        return;
+      }
+      callback();
+    }, Math.max(0, delayMs));
+    this.activeTimers.add(timerId);
+    return timerId;
+  }
+
+  public dispose(): void {
+    this.isDisposed = true;
+    this.clearAll();
+  }
+}
+
 export class CharacterPreviewScene {
   private engine: Engine;
   private scene: Scene;

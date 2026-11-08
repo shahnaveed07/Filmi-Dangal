@@ -98,6 +98,8 @@ export interface CharacterAssetValidationReport {
   productionRigValid: boolean;
   /** Layer 3: Does it contain usable animation clips targeting the character rig? */
   animationValid: boolean;
+  /** Layer 4: Fully production-ready character (glbFileValid && productionRigValid && animationValid && !isPlaceholder) */
+  productionReady: boolean;
   /** True when the asset is a placeholder or lacks production skinning */
   isPlaceholder: boolean;
   characterId: string;
@@ -169,6 +171,7 @@ interface GltfAccessorRaw {
   bufferView?: number;
   byteOffset?: number;
   componentType?: number;
+  normalized?: boolean;
   count?: number;
   type?: string;
   min?: number[];
@@ -179,6 +182,7 @@ interface GltfBufferViewRaw {
   buffer?: number;
   byteOffset?: number;
   byteLength?: number;
+  byteStride?: number;
 }
 
 interface GltfAnimationRaw {
@@ -221,18 +225,151 @@ export function doesNodeSetContainBone(
     [canonicalBone];
 
   for (const alias of aliases) {
-    if (nodeNames.has(alias) || strippedNodeNames.has( stripBoneNamespacePrefix(alias))) {
+    if (nodeNames.has(alias) || strippedNodeNames.has(stripBoneNamespacePrefix(alias))) {
       return true;
     }
   }
   return false;
 }
 
+function getComponentByteSize(componentType?: number): number {
+  switch (componentType) {
+    case 5120: // BYTE
+    case 5121: // UNSIGNED_BYTE
+      return 1;
+    case 5122: // SHORT
+    case 5123: // UNSIGNED_SHORT
+      return 2;
+    case 5125: // UNSIGNED_INT
+    case 5126: // FLOAT
+      return 4;
+    default:
+      return 0;
+  }
+}
+
+function getAccessorTypeComponentCount(type?: string): number {
+  switch (type) {
+    case 'SCALAR':
+      return 1;
+    case 'VEC2':
+      return 2;
+    case 'VEC3':
+      return 3;
+    case 'VEC4':
+    case 'MAT2':
+      return 4;
+    case 'MAT3':
+      return 9;
+    case 'MAT4':
+      return 16;
+    default:
+      return 0;
+  }
+}
+
+function validateAccessorBinaryBounds(
+  acc: GltfAccessorRaw,
+  bv: GltfBufferViewRaw | undefined,
+  binByteLength: number
+): {
+  valid: boolean;
+  startOffset: number;
+  stride: number;
+  elementBytes: number;
+  componentBytes: number;
+  numComponents: number;
+} {
+  if (!bv) {
+    return {
+      valid: false,
+      startOffset: 0,
+      stride: 0,
+      elementBytes: 0,
+      componentBytes: 0,
+      numComponents: 0,
+    };
+  }
+  const count = acc.count ?? 0;
+  const componentBytes = getComponentByteSize(acc.componentType);
+  const numComponents = getAccessorTypeComponentCount(acc.type);
+  const elementBytes = componentBytes * numComponents;
+  if (count <= 0 || componentBytes === 0 || numComponents === 0) {
+    return {
+      valid: false,
+      startOffset: 0,
+      stride: 0,
+      elementBytes,
+      componentBytes,
+      numComponents,
+    };
+  }
+
+  const bvOffset = bv.byteOffset ?? 0;
+  const bvLength = bv.byteLength ?? 0;
+  const accOffset = acc.byteOffset ?? 0;
+  if (
+    !Number.isInteger(bvOffset) ||
+    bvOffset < 0 ||
+    !Number.isInteger(bvLength) ||
+    bvLength <= 0 ||
+    !Number.isInteger(accOffset) ||
+    accOffset < 0 ||
+    bvOffset + bvLength > binByteLength
+  ) {
+    return {
+      valid: false,
+      startOffset: 0,
+      stride: 0,
+      elementBytes,
+      componentBytes,
+      numComponents,
+    };
+  }
+
+  const stride = bv.byteStride ?? elementBytes;
+  if (!Number.isInteger(stride) || stride < elementBytes || stride > 255) {
+    return {
+      valid: false,
+      startOffset: 0,
+      stride: 0,
+      elementBytes,
+      componentBytes,
+      numComponents,
+    };
+  }
+
+  const requiredSpanInBufferView = accOffset + (count - 1) * stride + elementBytes;
+  const startOffset = bvOffset + accOffset;
+  if (
+    requiredSpanInBufferView > bvLength ||
+    startOffset + (count - 1) * stride + elementBytes > binByteLength
+  ) {
+    return {
+      valid: false,
+      startOffset,
+      stride,
+      elementBytes,
+      componentBytes,
+      numComponents,
+    };
+  }
+
+  return {
+    valid: true,
+    startOffset,
+    stride,
+    elementBytes,
+    componentBytes,
+    numComponents,
+  };
+}
+
 export class CharacterAssetValidator {
   /**
    * Validates raw binary .glb ArrayBuffer or Node Buffer for a character.
    * Performs structural GLB validation, glTF skinning/joint/weight validation,
-   * humanoid bone alias resolution, and animation channel validation.
+   * humanoid bone alias resolution, and animation channel/sampler/binary validation.
    */
   public static validateGLBBuffer(
     buffer: ArrayBuffer | Uint8Array,
@@ -248,6 +385,7 @@ export class CharacterAssetValidator {
       glbFileValid: false,
       productionRigValid: false,
       animationValid: false,
+      productionReady: false,
       isPlaceholder: true,
       characterId: expectedCharacterId || 'unknown',
       characterName: 'UNKNOWN',
@@ -380,6 +518,8 @@ export class CharacterAssetValidator {
 
       const forwardOrientation: string = extras.forwardAxis || '+Z';
 
+      const binByteLength = binChunkSubarray ? binChunkSubarray.byteLength : 0;
+
       // Validate bufferViews and accessors
       const isValidAccessorIndex = (idx: unknown): idx is number =>
         typeof idx === 'number' &&
@@ -387,6 +527,7 @@ export class CharacterAssetValidator {
         idx >= 0 &&
         idx < accessors.length &&
         typeof accessors[idx].bufferView === 'number' &&
+        Number.isInteger(accessors[idx].bufferView) &&
         accessors[idx].bufferView! >= 0 &&
         accessors[idx].bufferView! < bufferViews.length;
 
@@ -404,7 +545,17 @@ export class CharacterAssetValidator {
           const posIdx = prim.attributes?.POSITION;
           if (isValidAccessorIndex(posIdx)) {
             const acc = accessors[posIdx];
-            if ((acc.count ?? 0) > 0) {
+            const bv = bufferViews[acc.bufferView!];
+            const boundsCheck =
+              binByteLength > 0
+                ? validateAccessorBinaryBounds(acc, bv, binByteLength)
+                : { valid: (acc.count ?? 0) > 0 };
+            if (
+              acc.type === 'VEC3' &&
+              acc.componentType === 5126 &&
+              (acc.count ?? 0) > 0 &&
+              boundsCheck.valid
+            ) {
               hasPositionAccessor = true;
               if (
                 Array.isArray(acc.min) &&
@@ -444,24 +595,39 @@ export class CharacterAssetValidator {
         estHeight < 6.0 &&
         estDepth > 0.05;
 
-      // Skinning & Joint / Weight Verification (Section 5)
+      // =========================================================================
+      // Section 4: Strengthened glTF Skinning, Joint Index & Vertex Weight Checks
+      // =========================================================================
       let validSkins = skins.length > 0;
       let totalJoints = 0;
-      for (const skin of skins) {
+      const skinJointCounts = new Map<number, number>();
+
+      for (let sIdx = 0; sIdx < skins.length; sIdx++) {
+        const skin = skins[sIdx];
         if (!Array.isArray(skin.joints) || skin.joints.length === 0) {
           validSkins = false;
         } else {
+          const seenInSkin = new Set<number>();
           for (const jIdx of skin.joints) {
-            if (typeof jIdx !== 'number' || jIdx < 0 || jIdx >= nodes.length) {
+            if (
+              typeof jIdx !== 'number' ||
+              !Number.isInteger(jIdx) ||
+              jIdx < 0 ||
+              jIdx >= nodes.length ||
+              seenInSkin.has(jIdx)
+            ) {
               validSkins = false;
             } else {
+              seenInSkin.add(jIdx);
               totalJoints++;
             }
           }
+          skinJointCounts.set(sIdx, skin.joints.length);
         }
         if (
           skin.skeleton !== undefined &&
           (typeof skin.skeleton !== 'number' ||
+            !Number.isInteger(skin.skeleton) ||
             skin.skeleton < 0 ||
             skin.skeleton >= nodes.length)
         ) {
@@ -469,66 +635,199 @@ export class CharacterAssetValidator {
         }
       }
 
+      // Verify mesh-node skin assignments (`node.mesh` + `node.skin`)
+      const meshToSkinMap = new Map<number, number>();
+      let validMeshNodeSkinBinding = false;
+      let invalidNodeSkinAssignment = false;
+
+      for (const n of nodes) {
+        if (n.skin !== undefined) {
+          if (
+            typeof n.skin !== 'number' ||
+            !Number.isInteger(n.skin) ||
+            n.skin < 0 ||
+            n.skin >= skins.length ||
+            typeof n.mesh !== 'number' ||
+            !Number.isInteger(n.mesh) ||
+            n.mesh < 0 ||
+            n.mesh >= meshes.length
+          ) {
+            invalidNodeSkinAssignment = true;
+          } else {
+            validMeshNodeSkinBinding = true;
+            meshToSkinMap.set(n.mesh, n.skin);
+          }
+        }
+      }
+      if (!validMeshNodeSkinBinding || invalidNodeSkinAssignment) {
+        validSkins = false;
+      }
+
       let hasValidJointsAttribute = false;
       let hasValidWeightsAttribute = false;
       let hasUsableVertexWeights = false;
+      let allSkinnedPrimitivesValid = true;
+      const skinningErrors: string[] = [];
 
-      for (const m of meshes) {
+      for (let mIdx = 0; mIdx < meshes.length; mIdx++) {
+        const m = meshes[mIdx];
+        const assignedSkinIdx = meshToSkinMap.get(mIdx) ?? 0;
+        const maxJointsInSkin = skinJointCounts.get(assignedSkinIdx) ?? totalJoints;
+
         for (const prim of m.primitives || []) {
+          const posAccIdx = prim.attributes?.POSITION;
           const jointsAccIdx = prim.attributes?.JOINTS_0;
           const weightsAccIdx = prim.attributes?.WEIGHTS_0;
-          if (
-            isValidAccessorIndex(jointsAccIdx) &&
-            isValidAccessorIndex(weightsAccIdx)
-          ) {
-            const jAcc = accessors[jointsAccIdx];
-            const wAcc = accessors[weightsAccIdx];
-            if (
-              jAcc.type === 'VEC4' &&
-              (jAcc.count ?? 0) > 0 &&
-              wAcc.type === 'VEC4' &&
-              wAcc.count === jAcc.count
-            ) {
-              hasValidJointsAttribute = true;
-              hasValidWeightsAttribute = true;
 
-              // Inspect actual vertex weights in binary buffer if float32 (5126)
-              const bv = bufferViews[wAcc.bufferView!];
-              if (
-                binChunkSubarray &&
-                bv &&
-                wAcc.componentType === 5126 &&
-                typeof bv.byteOffset === 'number' &&
-                typeof bv.byteLength === 'number'
-              ) {
-                const start = bv.byteOffset + (wAcc.byteOffset || 0);
-                const floatCount = Math.min((wAcc.count ?? 0) * 4, Math.floor((binChunkSubarray.byteLength - start) / 4));
-                if (floatCount >= 4) {
-                  const weightView = new DataView(
-                    binChunkSubarray.buffer,
-                    binChunkSubarray.byteOffset + start,
-                    floatCount * 4
-                  );
-                  let nonZeroWeightFound = false;
-                  for (let i = 0; i < floatCount; i += 4) {
-                    const sum =
-                      weightView.getFloat32(i * 4, true) +
-                      weightView.getFloat32((i + 1) * 4, true) +
-                      weightView.getFloat32((i + 2) * 4, true) +
-                      weightView.getFloat32((i + 3) * 4, true);
-                    if (sum > 0.01 && Number.isFinite(sum)) {
-                      nonZeroWeightFound = true;
-                      break;
-                    }
-                  }
-                  if (nonZeroWeightFound) {
-                    hasUsableVertexWeights = true;
-                  }
-                }
-              } else if ((wAcc.count ?? 0) > 0) {
-                hasUsableVertexWeights = true;
+          if (jointsAccIdx === undefined && weightsAccIdx === undefined) {
+            continue;
+          }
+
+          if (
+            !isValidAccessorIndex(posAccIdx) ||
+            !isValidAccessorIndex(jointsAccIdx) ||
+            !isValidAccessorIndex(weightsAccIdx)
+          ) {
+            allSkinnedPrimitivesValid = false;
+            skinningErrors.push(
+              `Mesh "${m.name || mIdx}" primitive has missing or out-of-range POSITION/JOINTS_0/WEIGHTS_0 accessor index`
+            );
+            continue;
+          }
+
+          const pAcc = accessors[posAccIdx];
+          const jAcc = accessors[jointsAccIdx];
+          const wAcc = accessors[weightsAccIdx];
+
+          const countMatches =
+            (pAcc.count ?? 0) > 0 &&
+            pAcc.count === jAcc.count &&
+            jAcc.count === wAcc.count;
+          const validJointCompType =
+            jAcc.type === 'VEC4' &&
+            (jAcc.componentType === 5121 || jAcc.componentType === 5123);
+          const validWeightCompType =
+            wAcc.type === 'VEC4' &&
+            (wAcc.componentType === 5126 ||
+              wAcc.componentType === 5121 ||
+              wAcc.componentType === 5123);
+
+          if (!countMatches) {
+            allSkinnedPrimitivesValid = false;
+            skinningErrors.push(
+              `Mesh "${m.name || mIdx}" primitive accessor count mismatch (POSITION=${pAcc.count}, JOINTS_0=${jAcc.count}, WEIGHTS_0=${wAcc.count})`
+            );
+            continue;
+          }
+
+          if (!validJointCompType) {
+            allSkinnedPrimitivesValid = false;
+            skinningErrors.push(
+              `Mesh "${m.name || mIdx}" JOINTS_0 accessor must be VEC4 UNSIGNED_BYTE (5121) or UNSIGNED_SHORT (5123)`
+            );
+            continue;
+          }
+
+          if (!validWeightCompType) {
+            allSkinnedPrimitivesValid = false;
+            skinningErrors.push(
+              `Mesh "${m.name || mIdx}" WEIGHTS_0 accessor must be VEC4 FLOAT (5126), UNSIGNED_BYTE (5121), or UNSIGNED_SHORT (5123)`
+            );
+            continue;
+          }
+
+          const pBounds = validateAccessorBinaryBounds(
+            pAcc,
+            bufferViews[pAcc.bufferView!],
+            binByteLength
+          );
+          const jBounds = validateAccessorBinaryBounds(
+            jAcc,
+            bufferViews[jAcc.bufferView!],
+            binByteLength
+          );
+          const wBounds = validateAccessorBinaryBounds(
+            wAcc,
+            bufferViews[wAcc.bufferView!],
+            binByteLength
+          );
+
+          if (!binChunkSubarray || !pBounds.valid || !jBounds.valid || !wBounds.valid) {
+            allSkinnedPrimitivesValid = false;
+            skinningErrors.push(
+              `Mesh "${m.name || mIdx}" skinning accessor bufferView offset/byteLength/byteStride exceeds binary chunk bounds`
+            );
+            continue;
+          }
+
+          const binView = new DataView(
+            binChunkSubarray.buffer,
+            binChunkSubarray.byteOffset,
+            binChunkSubarray.byteLength
+          );
+          const vertexCount = jAcc.count ?? 0;
+
+          // Inspect binary JOINTS_0 indices against skin.joints.length
+          let jointsInRange = maxJointsInSkin > 0;
+          for (let v = 0; v < vertexCount; v++) {
+            const base = jBounds.startOffset + v * jBounds.stride;
+            for (let c = 0; c < 4; c++) {
+              const jVal =
+                jAcc.componentType === 5121
+                  ? binView.getUint8(base + c)
+                  : binView.getUint16(base + c * 2, true);
+              if (jVal < 0 || jVal >= maxJointsInSkin) {
+                jointsInRange = false;
+                break;
               }
             }
+            if (!jointsInRange) break;
+          }
+
+          if (jointsInRange) {
+            hasValidJointsAttribute = true;
+          } else {
+            allSkinnedPrimitivesValid = false;
+            skinningErrors.push(
+              `Mesh "${m.name || mIdx}" JOINTS_0 contains vertex joint index >= skin.joints.length (${maxJointsInSkin})`
+            );
+          }
+
+          hasValidWeightsAttribute = true;
+
+          // Inspect binary WEIGHTS_0 values (must be finite, non-negative, non-zero, and normalized per vertex)
+          let weightsValidForPrimitive = vertexCount > 0;
+          for (let v = 0; v < vertexCount; v++) {
+            const base = wBounds.startOffset + v * wBounds.stride;
+            let sum = 0;
+            for (let c = 0; c < 4; c++) {
+              let wVal = 0;
+              if (wAcc.componentType === 5126) {
+                wVal = binView.getFloat32(base + c * 4, true);
+              } else if (wAcc.componentType === 5121) {
+                wVal = binView.getUint8(base + c) / 255;
+              } else {
+                wVal = binView.getUint16(base + c * 2, true) / 65535;
+              }
+              if (!Number.isFinite(wVal) || wVal < -1e-5) {
+                weightsValidForPrimitive = false;
+                break;
+              }
+              sum += wVal;
+            }
+            if (!weightsValidForPrimitive || !Number.isFinite(sum) || sum <= 0.01 || sum < 0.5 || sum > 1.5) {
+              weightsValidForPrimitive = false;
+              break;
+            }
+          }
+
+          if (weightsValidForPrimitive) {
+            hasUsableVertexWeights = true;
+          } else {
+            allSkinnedPrimitivesValid = false;
+            skinningErrors.push(
+              `Mesh "${m.name || mIdx}" WEIGHTS_0 contains zero, NaN/Infinity, negative, or unnormalized vertex weights`
+            );
           }
         }
       }
@@ -536,28 +835,177 @@ export class CharacterAssetValidator {
       const skinningValid =
         validSkins &&
         totalJoints > 0 &&
+        allSkinnedPrimitivesValid &&
         hasValidJointsAttribute &&
         hasValidWeightsAttribute &&
         hasUsableVertexWeights;
 
-      // Animation validity
+      // =========================================================================
+      // Section 5: Strengthened Animation Channel, Sampler & Binary Keyframe Validation
+      // =========================================================================
       const documentedAnimations: string[] = [];
-      let validAnimationChannels = true;
-      for (const anim of animations) {
+      let validAnimationChannels = animations.length > 0;
+      const animationValidationErrors: string[] = [];
+
+      const validTargetPaths = new Set(['translation', 'rotation', 'scale', 'weights']);
+
+      for (let aIdx = 0; aIdx < animations.length; aIdx++) {
+        const anim = animations[aIdx];
+        const animLabel = anim.name || `anim_${aIdx}`;
         if (anim.name) {
           documentedAnimations.push(anim.name);
         }
-        if (!Array.isArray(anim.channels) || anim.channels.length === 0) {
+
+        const samplers = Array.isArray(anim.samplers) ? anim.samplers : [];
+        const channels = Array.isArray(anim.channels) ? anim.channels : [];
+
+        if (channels.length === 0 || samplers.length === 0) {
           validAnimationChannels = false;
-        } else {
-          for (const ch of anim.channels) {
-            const nodeIdx = ch.target?.node;
-            if (
-              typeof nodeIdx !== 'number' ||
-              nodeIdx < 0 ||
-              nodeIdx >= nodes.length
-            ) {
+          animationValidationErrors.push(
+            `Animation "${animLabel}" has empty channels (${channels.length}) or samplers (${samplers.length})`
+          );
+          continue;
+        }
+
+        for (const ch of channels) {
+          const samplerIdx = ch.sampler;
+          const nodeIdx = ch.target?.node;
+          const targetPath = ch.target?.path || '';
+
+          if (
+            typeof samplerIdx !== 'number' ||
+            !Number.isInteger(samplerIdx) ||
+            samplerIdx < 0 ||
+            samplerIdx >= samplers.length
+          ) {
+            validAnimationChannels = false;
+            animationValidationErrors.push(
+              `Animation "${animLabel}" channel references invalid sampler index (${String(samplerIdx)})`
+            );
+            continue;
+          }
+
+          if (
+            typeof nodeIdx !== 'number' ||
+            !Number.isInteger(nodeIdx) ||
+            nodeIdx < 0 ||
+            nodeIdx >= nodes.length
+          ) {
+            validAnimationChannels = false;
+            animationValidationErrors.push(
+              `Animation "${animLabel}" channel references invalid target node index (${String(nodeIdx)})`
+            );
+            continue;
+          }
+
+          if (!validTargetPaths.has(targetPath)) {
+            validAnimationChannels = false;
+            animationValidationErrors.push(
+              `Animation "${animLabel}" channel has unsupported target path "${targetPath}"`
+            );
+            continue;
+          }
+
+          const sampler = samplers[samplerIdx];
+          if (
+            !sampler ||
+            !isValidAccessorIndex(sampler.input) ||
+            !isValidAccessorIndex(sampler.output)
+          ) {
+            validAnimationChannels = false;
+            animationValidationErrors.push(
+              `Animation "${animLabel}" sampler[${samplerIdx}] references invalid input/output accessor`
+            );
+            continue;
+          }
+
+          const inAcc = accessors[sampler.input];
+          const outAcc = accessors[sampler.output];
+          const inCount = inAcc.count ?? 0;
+          const outCount = outAcc.count ?? 0;
+
+          if (inAcc.type !== 'SCALAR' || inAcc.componentType !== 5126 || inCount < 1) {
+            validAnimationChannels = false;
+            animationValidationErrors.push(
+              `Animation "${animLabel}" sampler[${samplerIdx}] input accessor must be SCALAR FLOAT (5126) with count >= 1`
+            );
+            continue;
+          }
+
+          const expectedOutType =
+            targetPath === 'rotation'
+              ? 'VEC4'
+              : targetPath === 'translation' || targetPath === 'scale'
+              ? 'VEC3'
+              : 'SCALAR';
+          const expectedOutCount =
+            sampler.interpolation === 'CUBICSPLINE' ? inCount * 3 : inCount;
+
+          if (outAcc.type !== expectedOutType || outCount !== expectedOutCount) {
+            validAnimationChannels = false;
+            animationValidationErrors.push(
+              `Animation "${animLabel}" sampler[${samplerIdx}] output accessor type/count (${outAcc.type}/${outCount}) does not match path "${targetPath}" (expected ${expectedOutType}/${expectedOutCount})`
+            );
+            continue;
+          }
+
+          // Inspect binary keyframe timestamps and output values in BIN chunk
+          if (binChunkSubarray) {
+            const inBounds = validateAccessorBinaryBounds(
+              inAcc,
+              bufferViews[inAcc.bufferView!],
+              binByteLength
+            );
+            const outBounds = validateAccessorBinaryBounds(
+              outAcc,
+              bufferViews[outAcc.bufferView!],
+              binByteLength
+            );
+            if (!inBounds.valid || !outBounds.valid) {
               validAnimationChannels = false;
+              animationValidationErrors.push(
+                `Animation "${animLabel}" sampler[${samplerIdx}] accessor exceeds binary buffer bounds`
+              );
+              continue;
+            }
+
+            const binView = new DataView(
+              binChunkSubarray.buffer,
+              binChunkSubarray.byteOffset,
+              binChunkSubarray.byteLength
+            );
+
+            let prevTime = -Infinity;
+            for (let k = 0; k < inCount; k++) {
+              const t = binView.getFloat32(
+                inBounds.startOffset + k * inBounds.stride,
+                true
+              );
+              if (!Number.isFinite(t) || t < 0 || t < prevTime) {
+                validAnimationChannels = false;
+                animationValidationErrors.push(
+                  `Animation "${animLabel}" sampler[${samplerIdx}] has non-finite, negative, or non-monotonic keyframe timestamp at index ${k} (${t})`
+                );
+                break;
+              }
+              prevTime = t;
+            }
+
+            if (outAcc.componentType === 5126) {
+              for (let k = 0; k < outCount; k++) {
+                const elemOffset = outBounds.startOffset + k * outBounds.stride;
+                for (let c = 0; c < outBounds.numComponents; c++) {
+                  const val = binView.getFloat32(elemOffset + c * 4, true);
+                  if (!Number.isFinite(val)) {
+                    validAnimationChannels = false;
+                    animationValidationErrors.push(
+                      `Animation "${animLabel}" sampler[${samplerIdx}] has non-finite keyframe output value at key ${k}`
+                    );
+                    break;
+                  }
+                }
+                if (!validAnimationChannels) break;
+              }
             }
           }
         }
@@ -605,13 +1053,18 @@ export class CharacterAssetValidator {
         productionEligibilityReasons.push('Asset metadata explicitly flags model as a temporary placeholder');
       }
       if (!validSkins || skins.length === 0) {
-        productionEligibilityReasons.push('GLB contains no valid glTF skin definitions (`skins`)');
+        productionEligibilityReasons.push('GLB contains no valid glTF skin definitions (`skins`) or valid mesh-node skin bindings');
       }
-      if (!hasValidJointsAttribute) {
-        productionEligibilityReasons.push('Mesh primitives lack valid `JOINTS_0` skinning attribute');
+      if (!hasValidJointsAttribute || !allSkinnedPrimitivesValid) {
+        productionEligibilityReasons.push('Mesh primitives lack valid `JOINTS_0` skinning attribute or contain out-of-range joint indices');
       }
       if (!hasValidWeightsAttribute || !hasUsableVertexWeights) {
-        productionEligibilityReasons.push('Mesh primitives lack valid `WEIGHTS_0` vertex weight data');
+        productionEligibilityReasons.push('Mesh primitives lack valid normalized `WEIGHTS_0` vertex weight data');
+      }
+      for (const sErr of skinningErrors) {
+        if (!productionEligibilityReasons.includes(sErr)) {
+          productionEligibilityReasons.push(sErr);
+        }
       }
       if (missingHumanoidBones.length > 0) {
         productionEligibilityReasons.push(
@@ -627,6 +1080,8 @@ export class CharacterAssetValidator {
 
       const productionRigValid = productionEligibilityReasons.length === 0;
       const isPlaceholder = !productionRigValid;
+      const productionReady =
+        glbFileValid && productionRigValid && animationValid && !isPlaceholder;
 
       const errors: string[] = [];
       if (!glbFileValid) {
@@ -644,10 +1099,16 @@ export class CharacterAssetValidator {
       if (missingAnimations.length > 0) {
         errors.push(`Missing documented animation clips: ${missingAnimations.join(', ')}`);
       }
+      for (const aErr of animationValidationErrors) {
+        errors.push(aErr);
+      }
 
+      // Section 5: Do NOT mark a character as PRODUCTION_READY if required animations are invalid or missing!
       const productionStatus: CharacterAssetValidationReport['productionStatus'] =
-        productionRigValid
+        productionReady
           ? 'PRODUCTION_READY'
+          : productionRigValid && !animationValid
+          ? 'STAGE_2_INTEGRATED'
           : extras.productionStatus === 'VERTICAL_SLICE_COMPLETE'
           ? 'VERTICAL_SLICE_COMPLETE'
           : extras.productionStatus === 'STAGE_2_INTEGRATED'
@@ -660,13 +1121,18 @@ export class CharacterAssetValidator {
               '; '
             )}. Using procedural humanoid character rig until a skinned production GLB is supplied.`,
           ]
-        : [`Production skinned GLB verified for ${characterName} (${characterId}).`];
+        : !animationValid
+        ? [
+            `Production skinned GLB verified for ${characterName} (${characterId}), but animation set is incomplete/invalid (${missingAnimations.length} missing clips, ${animationValidationErrors.length} channel/sampler errors). Missing clips will use procedural bone fallback.`,
+          ]
+        : [`Production skinned GLB and full animation set verified for ${characterName} (${characterId}).`];
 
       return {
         isValid: errors.length === 0,
         glbFileValid,
         productionRigValid,
         animationValid,
+        productionReady,
         isPlaceholder,
         characterId,
         characterName,

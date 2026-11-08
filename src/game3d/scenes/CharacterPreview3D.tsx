@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { FighterId, FighterStateName } from '../../types/fighter';
 import {
   CharacterPreviewScene,
+  PreviewAudioTimerManager,
   PreviewTelemetrySnapshot,
 } from './CharacterPreviewScene';
 import { getCharacterAssetConfig } from '../../config/characterAssets';
@@ -35,6 +36,9 @@ export const CharacterPreview3D: React.FC<CharacterPreview3DProps> = ({
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const sceneControllerRef = useRef<CharacterPreviewScene | null>(null);
+  const audioTimerMgrRef = useRef<PreviewAudioTimerManager>(
+    new PreviewAudioTimerManager(characterId)
+  );
 
   const [selectedState, setSelectedState] = useState<FighterStateName>('idle');
   const [lodLevel, setLodLevel] = useState<0 | 1 | 2>(0);
@@ -47,6 +51,9 @@ export const CharacterPreview3D: React.FC<CharacterPreview3DProps> = ({
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
+
+    const timerMgr = new PreviewAudioTimerManager(characterId);
+    audioTimerMgrRef.current = timerMgr;
 
     const previewScene = new CharacterPreviewScene(
       canvas,
@@ -62,6 +69,7 @@ export const CharacterPreview3D: React.FC<CharacterPreview3DProps> = ({
     sceneControllerRef.current = previewScene;
 
     return () => {
+      timerMgr.dispose();
       previewScene.dispose();
       sceneControllerRef.current = null;
     };
@@ -70,6 +78,10 @@ export const CharacterPreview3D: React.FC<CharacterPreview3DProps> = ({
   }, []);
 
   useEffect(() => {
+    // Cancel any pending audio timers from previous character before loading new character
+    audioTimerMgrRef.current.setCharacterId(characterId);
+    audioTimerMgrRef.current.clearAll();
+
     const controller = sceneControllerRef.current;
     if (!controller) return;
     setSelectedState('idle');
@@ -77,6 +89,11 @@ export const CharacterPreview3D: React.FC<CharacterPreview3DProps> = ({
   }, [characterId]);
 
   const handleTriggerState = (state: FighterStateName) => {
+    // Cancel any pending special-attack audio timers from a previous state trigger
+    const timerMgr = audioTimerMgrRef.current;
+    timerMgr.setCharacterId(characterId);
+    timerMgr.clearAll();
+
     setSelectedState(state);
     sceneControllerRef.current?.triggerAnimationState(state);
 
@@ -86,17 +103,17 @@ export const CharacterPreview3D: React.FC<CharacterPreview3DProps> = ({
       const releaseDelayMs = Math.round((shotFrames.projectileReleaseFrame / 60) * 1000);
       const impactDelayMs = Math.round((shotFrames.specialImpactFrame / 60) * 1000);
       audio.playCharacterEvent(characterId, 'supershot-charge');
-      setTimeout(() => {
+      timerMgr.schedule(releaseDelayMs, characterId, () => {
         audio.playCharacterEvent(characterId, 'supershot-release');
-      }, releaseDelayMs);
-      setTimeout(() => {
+      });
+      timerMgr.schedule(impactDelayMs, characterId, () => {
         audio.playCharacterEvent(characterId, 'supershot-impact');
-      }, impactDelayMs);
+      });
     } else if (state === 'super_move') {
       audio.playCharacterEvent(characterId, 'supermove-charge');
-      setTimeout(() => {
+      timerMgr.schedule(360, characterId, () => {
         audio.playCharacterEvent(characterId, 'supermove-impact');
-      }, 360);
+      });
     } else if (state === 'punch' || state === 'kick') {
       audio.playCharacterEvent(characterId, 'normal-attack');
     } else {
@@ -112,6 +129,7 @@ export const CharacterPreview3D: React.FC<CharacterPreview3DProps> = ({
 
   const isPlaceholder =
     telemetry ? telemetry.isPlaceholderAsset : assetConfig.isTemporaryPlaceholder;
+  const isProductionActive = !isPlaceholder && Boolean(telemetry?.productionRigValid);
 
   return (
     <div className="relative w-full h-48 sm:h-60 rounded-lg overflow-hidden border border-[#D6A447]/60 bg-[#0D0B18] shadow-inner">
@@ -130,16 +148,16 @@ export const CharacterPreview3D: React.FC<CharacterPreview3DProps> = ({
             LOADING 3D RIG...
           </div>
         )}
-        {isPlaceholder ? (
+        {isProductionActive ? (
+          <div className="px-1.5 py-0.5 rounded border text-[8px] font-mono uppercase tracking-wider bg-[#14532D]/90 border-[#4ADE80] text-[#BBF7D0]">
+            PRODUCTION GLB ACTIVE
+          </div>
+        ) : (
           <div
             title={`Drop production GLB into public${assetConfig.modelPath}`}
             className="px-1.5 py-0.5 rounded border text-[8px] font-mono uppercase tracking-wider bg-amber-950/90 border-amber-400/70 text-amber-200"
           >
-            TEMP PLACEHOLDER RIG · GLB READY
-          </div>
-        ) : (
-          <div className="px-1.5 py-0.5 rounded border text-[8px] font-mono uppercase tracking-wider bg-[#14532D]/90 border-[#4ADE80] text-[#BBF7D0]">
-            PRODUCTION GLB ACTIVE
+            TEMPORARY PLACEHOLDER · PRODUCTION MODEL NOT INSTALLED
           </div>
         )}
         {telemetry?.loadError && (

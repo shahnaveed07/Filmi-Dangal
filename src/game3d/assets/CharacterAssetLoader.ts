@@ -72,6 +72,7 @@ export interface CharacterAssetLoadDiagnostics {
   hasEmbeddedAnimations: boolean;
   availableAnimationClips: string[];
   missingStandardClips: StandardAnimationClipId[];
+  hierarchyValid: boolean;
   skinningValid: boolean;
   productionRigEligible: boolean;
   productionEligibilityReasons: string[];
@@ -189,14 +190,20 @@ export function attachImportedGLBHierarchyToFacingNode(
     if (isTopLevelImportedRoot && !seenRoots.has(node)) {
       seenRoots.add(node);
       if (node.parent !== targetParentNode) {
-        node.parent = targetParentNode;
+        try {
+          node.parent = targetParentNode;
+        } catch {
+          // Unattachable root node will fail the descendant check below
+        }
       }
-      importedRoots.push(node);
+      if (node.parent === targetParentNode) {
+        importedRoots.push(node);
+      }
     }
   }
 
-  // Validate that every imported node is now a descendant of targetParentNode
-  let hierarchyValid = importedRoots.length > 0 || allImportedNodes.length === 0;
+  // Validate that at least one root was attached and EVERY imported node is a descendant of targetParentNode
+  let hierarchyValid = allImportedNodes.length > 0 && importedRoots.length > 0;
   for (const node of allImportedNodes) {
     if (!isNodeDescendantOf(node, targetParentNode)) {
       hierarchyValid = false;
@@ -467,6 +474,7 @@ export function computeRigWorldBounds(
 export function evaluateRuntimeProductionRigEligibility(params: {
   manifest: CharacterAssetConfig;
   glbLoaded: boolean;
+  hierarchyValid?: boolean;
   importedMeshes: Mesh[];
   allSkeletons: Skeleton[];
   missingHumanoidBones: string[];
@@ -479,6 +487,7 @@ export function evaluateRuntimeProductionRigEligibility(params: {
   const {
     manifest,
     glbLoaded,
+    hierarchyValid = true,
     importedMeshes,
     allSkeletons,
     missingHumanoidBones,
@@ -488,6 +497,12 @@ export function evaluateRuntimeProductionRigEligibility(params: {
 
   if (!glbLoaded) {
     reasons.push('GLB asset failed to load');
+  }
+
+  if (!hierarchyValid) {
+    reasons.push(
+      'Imported GLB hierarchy validation failed: not all imported roots and descendants are attached under modelTransformNode'
+    );
   }
 
   if (manifest.isTemporaryPlaceholder) {
@@ -506,24 +521,60 @@ export function evaluateRuntimeProductionRigEligibility(params: {
     reasons.push('Imported meshes have no assigned materials');
   }
 
+  const maxSkeletonBoneCount = allSkeletons.reduce(
+    (max, s) => Math.max(max, Array.isArray(s.bones) ? s.bones.length : 0),
+    0
+  );
+
   // Check for genuine vertex skinning (JOINTS_0 / MatricesIndicesKind and WEIGHTS_0 / MatricesWeightsKind)
   const hasSkinnedMeshVertices = meshesWithGeometry.some((m) => {
     const hasJoints = m.isVerticesDataPresent(VertexBuffer.MatricesIndicesKind);
     const hasWeights = m.isVerticesDataPresent(VertexBuffer.MatricesWeightsKind);
     if (!hasJoints || !hasWeights) return false;
     const weightsData = m.getVerticesData(VertexBuffer.MatricesWeightsKind);
-    if (!weightsData || weightsData.length < 4) return false;
-    for (let i = 0; i < Math.min(weightsData.length, 64); i += 4) {
-      const sum =
-        (weightsData[i] || 0) +
-        (weightsData[i + 1] || 0) +
-        (weightsData[i + 2] || 0) +
-        (weightsData[i + 3] || 0);
-      if (sum > 0.01 && Number.isFinite(sum)) {
-        return true;
-      }
+    const jointsData = m.getVerticesData(VertexBuffer.MatricesIndicesKind);
+    if (!weightsData || weightsData.length < 4 || !jointsData || jointsData.length < 4) {
+      return false;
     }
-    return false;
+    if (weightsData.length !== jointsData.length) {
+      return false;
+    }
+    const checkCount = Math.min(weightsData.length, 64);
+    let validVertexCount = 0;
+    for (let i = 0; i < checkCount; i += 4) {
+      const w0 = weightsData[i];
+      const w1 = weightsData[i + 1];
+      const w2 = weightsData[i + 2];
+      const w3 = weightsData[i + 3];
+      if (
+        !Number.isFinite(w0) ||
+        !Number.isFinite(w1) ||
+        !Number.isFinite(w2) ||
+        !Number.isFinite(w3) ||
+        w0 < -1e-5 ||
+        w1 < -1e-5 ||
+        w2 < -1e-5 ||
+        w3 < -1e-5
+      ) {
+        return false;
+      }
+      const sum = w0 + w1 + w2 + w3;
+      if (!Number.isFinite(sum) || sum <= 0.01 || sum < 0.5 || sum > 1.5) {
+        return false;
+      }
+      for (let c = 0; c < 4; c++) {
+        const jIdx = jointsData[i + c];
+        if (
+          !Number.isFinite(jIdx) ||
+          jIdx < 0 ||
+          (maxSkeletonBoneCount > 0 && jIdx >= maxSkeletonBoneCount)
+        ) {
+          return false;
+        }
+      }
+      validVertexCount++;
+    }
+    return validVertexCount > 0;
   });
 
   const hasValidSkeleton =
@@ -1386,14 +1437,31 @@ export class CharacterAssetLoader {
   ): LoadedGLBAnimationController {
     const groupMap = new Map<string, AnimationGroup>();
     for (const ag of animationGroups) {
-      if (ag && ag.name) {
-        groupMap.set(ag.name, ag);
-        // Also index stripped Anim_Common_ prefix for seamless compatibility
-        if (ag.name.startsWith('Anim_Common_')) {
-          const stripped = ag.name.replace(/^Anim_Common_/, '');
-          if (!groupMap.has(stripped)) {
-            groupMap.set(stripped, ag);
-          }
+      if (!ag || !ag.name) continue;
+      const targeted = Array.isArray(ag.targetedAnimations) ? ag.targetedAnimations : [];
+      const hasValidTargets =
+        targeted.length > 0 &&
+        targeted.some((ta) => {
+          if (!ta || !ta.target || !ta.animation) return false;
+          const keys =
+            typeof ta.animation.getKeys === 'function' ? ta.animation.getKeys() : [];
+          return Array.isArray(keys) && keys.length > 0;
+        });
+
+      if (!hasValidTargets) {
+        emitOnceAssetWarning(
+          `[CharacterAssetLoader] Skipping unusable AnimationGroup "${ag.name}" for "${characterId}" (0 valid targeted animations or keyframes).`,
+          warnings
+        );
+        continue;
+      }
+
+      groupMap.set(ag.name, ag);
+      // Also index stripped Anim_Common_ prefix for seamless compatibility
+      if (ag.name.startsWith('Anim_Common_')) {
+        const stripped = ag.name.replace(/^Anim_Common_/, '');
+        if (!groupMap.has(stripped)) {
+          groupMap.set(stripped, ag);
         }
       }
     }
@@ -1618,10 +1686,11 @@ export class CharacterAssetLoader {
     // Measure imported model bounds before deciding Path A vs Path B
     const importedDimensions = computeRigWorldBounds(rootNode, importedMeshes);
 
-    // Section 5: Evaluate production character eligibility
+    // Section 5: Evaluate production character eligibility (requiring hierarchyAttachment.hierarchyValid)
     const eligibility = evaluateRuntimeProductionRigEligibility({
       manifest,
       glbLoaded,
+      hierarchyValid: hierarchyAttachment.hierarchyValid,
       importedMeshes,
       allSkeletons: boneResolution.allSkeletons,
       missingHumanoidBones: boneResolution.missingBones,
@@ -1629,7 +1698,10 @@ export class CharacterAssetLoader {
     });
 
     const useProductionPathB =
-      glbLoaded && !manifest.isTemporaryPlaceholder && eligibility.isProductionReady;
+      glbLoaded &&
+      hierarchyAttachment.hierarchyValid &&
+      !manifest.isTemporaryPlaceholder &&
+      eligibility.isProductionReady;
 
     // Collect imported materials for diagnostics and disposal
     const importedMaterialSet = new Set<Material>();
@@ -1704,6 +1776,7 @@ export class CharacterAssetLoader {
         hasEmbeddedAnimations: false,
         availableAnimationClips: [],
         missingStandardClips: [],
+        hierarchyValid: hierarchyAttachment.hierarchyValid,
         skinningValid: eligibility.skinningValid,
         productionRigEligible: false,
         productionEligibilityReasons: eligibility.reasons,
@@ -1852,9 +1925,10 @@ export class CharacterAssetLoader {
       resolvedBones: boneResolution.resolvedBones,
       missingBones: boneResolution.missingBones,
       missingFacialBones: boneResolution.missingFacialBones,
-      hasEmbeddedAnimations: importedAnimGroups.length > 0,
+      hasEmbeddedAnimations: availableAnimationClips.length > 0,
       availableAnimationClips,
       missingStandardClips,
+      hierarchyValid: hierarchyAttachment.hierarchyValid,
       skinningValid: eligibility.skinningValid,
       productionRigEligible: true,
       productionEligibilityReasons: [],

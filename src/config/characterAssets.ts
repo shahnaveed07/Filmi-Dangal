@@ -344,6 +344,36 @@ function createCoreClipMappings(
 }
 
 /**
+ * Section 9: Production GLB Asset Contract for Final 3D Character Replacement.
+ *
+ * All four characters currently ship with `isTemporaryPlaceholder: true` and `PLACEHOLDER` status.
+ * To replace a temporary character with a final production 3D model, drop a compliant `.glb` file
+ * into `modelPath` and set `isTemporaryPlaceholder: false` in `CHARACTER_ASSET_MANIFEST`:
+ *
+ * 1. Exact File Path:
+ *    - Action Sultan : `public/assets/characters/action-sultan/model.glb`
+ *    - Romance Raja  : `public/assets/characters/romance-raja/model.glb`
+ *    - Duggu         : `public/assets/characters/duggu/model.glb`
+ *    - Bhidu         : `public/assets/characters/bhidu/model.glb`
+ * 2. Format: glTF 2.0 binary container (`.glb`, magic `0x46546C67`, version `2`) with valid JSON and BIN chunks.
+ * 3. Hierarchy: Single clean character root or valid multi-root hierarchy where every imported node attaches cleanly under `modelTransformNode`.
+ * 4. Skinning: At least one glTF `skin` with valid `joints`, mesh-node skin binding, and primitives containing valid `POSITION`, `JOINTS_0`, and normalized non-zero `WEIGHTS_0`.
+ * 5. Humanoid Bones: All 20 canonical humanoid bones (`Root`, `Hips`, `Spine`, `Chest`, `Neck`, `Head`, `LeftShoulder`, `LeftUpperArm`, `LeftForeArm`, `LeftHand`, `RightShoulder`, `RightUpperArm`, `RightForeArm`, `RightHand`, `LeftUpLeg`, `LeftLeg`, `LeftFoot`, `RightUpLeg`, `RightLeg`, `RightFoot`) or supported Mixamo/Rigify/Biped aliases in `DEFAULT_HUMANOID_BONE_ALIASES`.
+ * 6. Ground Origin: Root/feet positioned at local ground origin `(0, 0, 0)`.
+ * 7. Scale & Bounds: Consistent meter-scale humanoid proportions (width `0.15m–4.0m`, height `0.5m–4.5m`, depth `0.08m–4.0m`).
+ * 8. Forward Axis: Consistent `+Z` local forward axis (rotated onto the 2D `XY` fighting plane via `facingRotationY`).
+ * 9. Materials: Valid glTF PBR materials (`pbrMetallicRoughness`) and embedded textures.
+ * 10. Animations & Fallback: Embedded `AnimationGroup` clips matching `ALL_STANDARD_ANIMATION_CLIP_IDS` plus character-specific SuperShot/SuperMove clips; any omitted clips automatically fall back to procedural bone poses without crashing or freezing.
+ */
+export const PRODUCTION_GLB_ASSET_CONTRACT = {
+  format: 'glTF 2.0 Binary (.glb)',
+  requiredAttributes: ['POSITION', 'JOINTS_0', 'WEIGHTS_0'] as const,
+  groundOrigin: [0, 0, 0] as const,
+  forwardAxis: '+Z',
+  heightRangeMeters: [0.5, 4.5] as const,
+} as const;
+
+/**
  * Centralized Character Asset Manifest for all four Filmi Dangal fighters:
  * - action_sultan (Action Sultan — Salman Khan-inspired)
  * - romance_raja  (Romance Raja — Shah Rukh Khan-inspired)
