@@ -33,6 +33,7 @@ import {
   MeshBuilder,
   NullEngine,
   Scene,
+  SceneLoader,
   Skeleton,
   TargetedAnimation,
   TransformNode,
@@ -1677,6 +1678,84 @@ test('17. Section 3 & 10 Hierarchy Discovery, Unattachable Root Rejection, Bone 
       meshCountBeforeLoad,
       'rig.dispose() releases all character meshes from scene with zero leaked meshes'
     );
+  }
+
+  // 5. Verify full cleanup of imported meshes, transformNodes, skeletons, and animationGroups when an imported GLB fails hierarchy attachment / eligibility
+  const origImportMeshAsync = SceneLoader.ImportMeshAsync;
+  let importedBrokenRoot: TransformNode | null = null;
+  let importedChildMesh: ReturnType<typeof MeshBuilder.CreateBox> | null = null;
+  let importedExtraNode: TransformNode | null = null;
+  let importedAnimGroup: AnimationGroup | null = null;
+
+  try {
+    SceneLoader.ImportMeshAsync = (async () => {
+      importedBrokenRoot = new TransformNode('__root__', scene);
+      Object.defineProperty(importedBrokenRoot, 'parent', {
+        get() {
+          return null;
+        },
+        set() {
+          throw new Error('Simulated broken root parent setter during ImportMeshAsync');
+        },
+      });
+      importedChildMesh = MeshBuilder.CreateBox('ImportedFailedMesh', { size: 1 }, scene);
+      importedExtraNode = new TransformNode('ImportedFailedNode', scene);
+      importedAnimGroup = new AnimationGroup('ImportedFailedAnimGroup', scene);
+      const importedSkel = new Skeleton('ImportedFailedSkeleton', 'failed_skel', scene);
+
+      return {
+        meshes: [importedChildMesh],
+        particleSystems: [],
+        skeletons: [importedSkel],
+        animationGroups: [importedAnimGroup],
+        transformNodes: [importedBrokenRoot, importedExtraNode],
+        geometries: [],
+        lights: [],
+        spriteManagers: [],
+      };
+    }) as unknown as typeof SceneLoader.ImportMeshAsync;
+
+    const fallbackResult = await CharacterAssetLoader.loadCharacterFromManifest(
+      scene,
+      CHARACTERS.action_sultan,
+      'cleanup_test',
+      null
+    );
+
+    assert.equal(
+      fallbackResult.diagnostics.hierarchyValid,
+      false,
+      'loadCharacterFromManifest records hierarchyValid = false when imported root fails attachment'
+    );
+    assert.equal(
+      fallbackResult.isPlaceholderAsset,
+      true,
+      'loadCharacterFromManifest falls back to Path A placeholder when hierarchy attachment fails'
+    );
+    assert.equal(
+      fallbackResult.diagnostics.usedTemporaryPlaceholder,
+      true,
+      'loadCharacterFromManifest sets usedTemporaryPlaceholder = true on Path A fallback'
+    );
+    assert.equal(
+      importedChildMesh!.isDisposed(),
+      true,
+      'Imported mesh from failed hierarchy is disposed on Path A fallback'
+    );
+    assert.equal(
+      importedBrokenRoot!.isDisposed(),
+      true,
+      'Imported broken root from failed hierarchy is disposed on Path A fallback'
+    );
+    assert.equal(
+      importedExtraNode!.isDisposed(),
+      true,
+      'Imported TransformNode from failed hierarchy is disposed on Path A fallback'
+    );
+
+    fallbackResult.dispose();
+  } finally {
+    SceneLoader.ImportMeshAsync = origImportMeshAsync;
   }
 
   scene.dispose();
