@@ -71,6 +71,22 @@ export class GLBAnimationGroupController implements LoadedGLBAnimationController
     return this.inner.activeClipName;
   }
 
+  public get staticPoseClipNames(): string[] {
+    return this.inner.staticPoseClipNames ?? [];
+  }
+
+  public get hasUsableTargets(): boolean {
+    return Boolean(this.inner.hasUsableTargets);
+  }
+
+  public getClipCount(): number {
+    return this.inner.availableClipNames.length;
+  }
+
+  public getStaticPoseClipNames(): string[] {
+    return this.inner.staticPoseClipNames ?? [];
+  }
+
   public hasClip(clipId: StandardAnimationClipId): boolean {
     return this.inner.hasClip(clipId);
   }
@@ -125,6 +141,14 @@ export interface CharacterRig3D {
   isPlaceholderAsset: boolean;
   isVisualOnly: boolean;
   renderState: CharacterRenderState;
+  hasRenderableGeometry?: boolean;
+  hasValidSkinning?: boolean;
+  hasUsableSkeleton?: boolean;
+  hasEmbeddedAnimationGroups?: boolean;
+  hasUsableAnimationTargets?: boolean;
+  hasCanonicalHumanoidMapping?: boolean;
+  canPlayImportedAnimations?: boolean;
+  canUseProceduralBoneFallback?: boolean;
   glbAnimationController?: LoadedGLBAnimationController | null;
   diagnostics?: CharacterAssetLoadDiagnostics;
   renderMode: 'stylized' | 'graybox';
@@ -225,6 +249,14 @@ export async function loadCharacterRig3D(
     isPlaceholderAsset: loaded.isPlaceholderAsset,
     isVisualOnly: loaded.isVisualOnly,
     renderState: loaded.renderState,
+    hasRenderableGeometry: loaded.diagnostics.hasRenderableGeometry,
+    hasValidSkinning: loaded.diagnostics.hasValidSkinning,
+    hasUsableSkeleton: loaded.diagnostics.hasUsableSkeleton,
+    hasEmbeddedAnimationGroups: loaded.diagnostics.hasEmbeddedAnimationGroups,
+    hasUsableAnimationTargets: loaded.diagnostics.hasUsableAnimationTargets,
+    hasCanonicalHumanoidMapping: loaded.diagnostics.hasCanonicalHumanoidMapping,
+    canPlayImportedAnimations: loaded.diagnostics.canPlayImportedAnimations,
+    canUseProceduralBoneFallback: loaded.diagnostics.canUseProceduralBoneFallback,
     glbAnimationController: loaded.glbAnimationController,
     diagnostics: loaded.diagnostics,
     get renderMode() {

@@ -1,4 +1,4 @@
-import { Vector3 } from '@babylonjs/core';
+import { Quaternion, Vector3 } from '@babylonjs/core';
 import {
   BoneAttachmentName,
   FighterId,
@@ -38,6 +38,7 @@ const CORE_COMPATIBLE_BONES = [
 export function hasCompatibleProceduralBones(
   bones: Record<string, unknown>
 ): boolean {
+  if (!bones) return false;
   let count = 0;
   for (const name of CORE_COMPATIBLE_BONES) {
     if (bones[name]) count++;
@@ -47,11 +48,10 @@ export function hasCompatibleProceduralBones(
 
 /**
  * 3D Skeletal Animation State Machine for Filmi Dangal 2.0.
- * Distinguishes between:
- * 1. Valid production GLB with usable AnimationGroups
- * 2. Production GLB with missing/incomplete AnimationGroups (falls back to procedural pose on compatible bones or safe visible state)
- * 3. Temporary procedural placeholder rig
- * 4. Invalid or partially loaded character
+ * Enforces explicit priority order:
+ * Priority 1: Valid imported Blender/Mixamo AnimationGroups with dynamic motion
+ * Priority 2: Procedural skeletal bone fallback on resolved humanoid bones (supporting both Quaternion glTF bones and Euler placeholder bones)
+ * Priority 3: Safe root-level visual presentation when no skeleton/bones exist
  */
 export class AnimationController3D {
   private warnedMissingClips = new Set<string>();
@@ -91,14 +91,8 @@ export class AnimationController3D {
     meta.lastAnimState = state;
     meta.lastAnimStateTimeSec = stateTimeSec;
 
-    // Case 0: Visual-Only imported GLB (valid geometry & textures, no skeleton/skinning)
-    if ((rig.isVisualOnly || rig.renderState === 'VISUAL_ONLY') && !rig.productionRigValid) {
-      this.updateVisualOnlyPresentation(rig, characterId, state, stateTimeSec, dt);
-      return;
-    }
-
-    // Case 1 & Case 2: Production GLB rig (!isPlaceholderAsset && productionRigValid)
-    if (!rig.isPlaceholderAsset && rig.productionRigValid) {
+    // Priority 1: Imported Blender/GLB AnimationGroups (regardless of whether renderState is PRODUCTION_SKINNED or VISUAL_ONLY)
+    if (!rig.isPlaceholderAsset && (rig.productionRigValid || rig.glbAnimationController)) {
       const standardClipId = mapStateToStandardClipId(state);
       const animSpeed = manifest?.animationSpeed || 1.0;
       const played =
@@ -112,45 +106,133 @@ export class AnimationController3D {
         return;
       }
 
-      // Case 2: Production GLB is missing a usable clip for this state
+      // Priority 2 handoff: Imported GLB is missing a usable dynamic clip for this state
       rig.glbAnimationController?.stopAll();
-      const warnKey = `${characterId}:${standardClipId}`;
-      if (!this.warnedMissingClips.has(warnKey)) {
-        this.warnedMissingClips.add(warnKey);
-        const msg = `Production GLB for '${characterId}' is missing usable AnimationGroup for state '${state}' (${standardClipId}); falling back to procedural bone pose.`;
-        console.warn(`[AnimationController3D] ${msg}`);
-        if (
-          rig.diagnostics &&
-          !rig.diagnostics.warnings.includes(msg)
-        ) {
-          rig.diagnostics.warnings.push(msg);
+      if (rig.productionRigValid) {
+        const warnKey = `${characterId}:${standardClipId}`;
+        if (!this.warnedMissingClips.has(warnKey)) {
+          this.warnedMissingClips.add(warnKey);
+          const msg = `Production GLB for '${characterId}' is missing usable AnimationGroup for state '${state}' (${standardClipId}); falling back to procedural bone pose.`;
+          console.warn(`[AnimationController3D] ${msg}`);
+          if (
+            rig.diagnostics &&
+            !rig.diagnostics.warnings.includes(msg)
+          ) {
+            rig.diagnostics.warnings.push(msg);
+          }
         }
-      }
-
-      if (!hasCompatibleProceduralBones(rig.bones)) {
-        // Keep character in safe visible state without throwing
-        return;
       }
     }
 
-    // Case 3 (Temporary procedural placeholder) or Case 2 fallback with compatible bones
-    if (!rig.bones || Object.keys(rig.bones).length === 0) {
+    // Priority 2: Procedural Skeletal Bone Fallback (when compatible humanoid bones exist)
+    const canDriveBones =
+      rig.isPlaceholderAsset ||
+      rig.canUseProceduralBoneFallback === true ||
+      hasCompatibleProceduralBones(rig.bones);
+
+    if (canDriveBones && hasCompatibleProceduralBones(rig.bones)) {
+      const pose = this.computeTargetPose(
+        characterId,
+        state,
+        stateTimeSec,
+        heightScale,
+        0
+      );
+      const blendSpeed = Math.min(1, dt * 18);
+      this.applyProceduralPoseToRigBones(rig, pose, heightScale, blendSpeed);
       return;
     }
 
-    const pose = this.computeTargetPose(
-      characterId,
-      state,
-      stateTimeSec,
-      heightScale,
-      0
-    );
+    // Priority 3: Safe Visual-Only Presentation (only when neither imported clips nor resolved humanoid bones exist)
+    if (rig.isVisualOnly || rig.renderState === 'VISUAL_ONLY') {
+      this.updateVisualOnlyPresentation(rig, characterId, state, stateTimeSec, dt);
+    }
+  }
 
-    const blendSpeed = Math.min(1, dt * 18);
+  /**
+   * Drives resolved humanoid bones on either an imported glTF Quaternion rig (Mixamo/Blender)
+   * or a procedural Euler placeholder rig without mutating calibrated model scale or groundOffset.
+   */
+  public applyProceduralPoseToRigBones(
+    rig: CharacterRig3D,
+    pose: RigPoseMap,
+    heightScale: number,
+    blendSpeed: number
+  ): void {
+    if (!rig.bones || Object.keys(rig.bones).length === 0) return;
+
+    // Preserve calibrated scale and groundOffset on modelTransformNode
+    if (rig.modelTransformNode && !rig.isPlaceholderAsset) {
+      const calScale =
+        (rig.modelTransformNode.metadata?.calibratedScale as number) ??
+        (rig.rootNode.metadata?.manifestScale as number) ??
+        rig.modelTransformNode.scaling.y;
+      const calOffset =
+        (rig.modelTransformNode.metadata?.calibratedGroundOffset as number) ??
+        (rig.rootNode.metadata?.groundOffset as number) ??
+        rig.modelTransformNode.position.y;
+      rig.modelTransformNode.scaling.setAll(calScale);
+      rig.modelTransformNode.position.set(0, calOffset, 0);
+      rig.modelTransformNode.rotation.set(0, 0, 0);
+    }
 
     for (const [boneName, target] of Object.entries(pose)) {
       const node = rig.bones[boneName];
       if (!node) continue;
+
+      const isImportedBone = Boolean(node.metadata?.isImportedBone);
+      if (isImportedBone) {
+        const standLocalQuat =
+          (node.metadata?.standLocalQuat as Quaternion | undefined) ||
+          node.rotationQuaternion ||
+          Quaternion.Identity();
+        const standRootQuat =
+          (node.metadata?.standRootQuat as Quaternion | undefined) ||
+          Quaternion.Identity();
+        const standLocalPos =
+          (node.metadata?.standLocalPos as Vector3 | undefined) || node.position;
+
+        // Convert character-space target rotation into bone local frame via root-space similarity transform
+        const qDeltaRoot = Quaternion.RotationYawPitchRoll(
+          -target.ry,
+          target.rx,
+          -target.rz
+        );
+        const qRootInv = Quaternion.Inverse(standRootQuat);
+        const qLocalDelta = qRootInv.multiply(qDeltaRoot).multiply(standRootQuat);
+        const qTargetLocal = standLocalQuat.multiply(qLocalDelta);
+
+        if (!node.rotationQuaternion) {
+          node.rotationQuaternion = qTargetLocal.clone();
+        } else {
+          Quaternion.SlerpToRef(
+            node.rotationQuaternion,
+            qTargetLocal,
+            blendSpeed,
+            node.rotationQuaternion
+          );
+        }
+
+        // Also update Euler vector properties for telemetry and test compatibility
+        node.rotation.x = lerp(node.rotation.x, target.rx, blendSpeed);
+        node.rotation.y = lerp(node.rotation.y, target.ry, blendSpeed);
+        node.rotation.z = lerp(node.rotation.z, target.rz, blendSpeed);
+
+        if (boneName === 'Hips') {
+          const baseHipsY = 0.95 * heightScale;
+          const targetHipsY = target.py ?? baseHipsY;
+          const desiredLocalY =
+            standLocalPos.y + (targetHipsY - baseHipsY) * 0.34;
+          node.position.x = lerp(
+            node.position.x,
+            standLocalPos.x + (target.px ?? 0) * 0.34,
+            blendSpeed
+          );
+          node.position.y = lerp(node.position.y, desiredLocalY, blendSpeed);
+          node.position.z = standLocalPos.z;
+        }
+        continue;
+      }
 
       node.rotation.x = lerp(node.rotation.x, target.rx, blendSpeed);
       node.rotation.y = lerp(node.rotation.y, target.ry, blendSpeed);
@@ -182,10 +264,18 @@ export class AnimationController3D {
   ): void {
     if (!rig.modelTransformNode) return;
     const manifest = getCharacterAssetConfig(characterId);
-    const baseGroundOffset = manifest?.groundOffset ?? 0.0;
-    const baseScale = manifest?.scale ?? 1.94;
+    const baseGroundOffset =
+      (rig.modelTransformNode.metadata?.calibratedGroundOffset as number) ??
+      (rig.rootNode.metadata?.groundOffset as number) ??
+      manifest?.groundOffset ??
+      0.0;
+    const baseScale =
+      (rig.modelTransformNode.metadata?.calibratedScale as number) ??
+      (rig.rootNode.metadata?.manifestScale as number) ??
+      manifest?.scale ??
+      1.94;
 
-    // Maintain base scale
+    // Maintain calibrated base scale
     rig.modelTransformNode.scaling.setAll(baseScale);
 
     // Compute state-based dynamic offsets relative to base ground offset

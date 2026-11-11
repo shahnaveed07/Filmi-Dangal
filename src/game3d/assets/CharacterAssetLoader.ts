@@ -1,12 +1,14 @@
 import {
   AbstractMesh,
   AnimationGroup,
+  Axis,
   Color3,
   Material,
   Mesh,
   MeshBuilder,
   Node,
   PBRMaterial,
+  Quaternion,
   Scene,
   SceneLoader,
   ShadowGenerator,
@@ -35,8 +37,12 @@ import {
 
 export interface LoadedGLBAnimationController {
   availableClipNames: string[];
+  staticPoseClipNames?: string[];
+  hasUsableTargets?: boolean;
   activeClipId: StandardAnimationClipId | null;
   activeClipName: string | null;
+  getClipCount: () => number;
+  getStaticPoseClipNames: () => string[];
   hasClip: (clipId: StandardAnimationClipId) => boolean;
   playClip: (
     clipId: StandardAnimationClipId,
@@ -79,11 +85,27 @@ export interface CharacterAssetLoadDiagnostics {
   missingFacialBones: string[];
   hasEmbeddedAnimations: boolean;
   availableAnimationClips: string[];
+  staticPoseClips?: string[];
   missingStandardClips: StandardAnimationClipId[];
   hierarchyValid: boolean;
   skinningValid: boolean;
   productionRigEligible: boolean;
   productionEligibilityReasons: string[];
+  hasRenderableGeometry: boolean;
+  hasValidSkinning: boolean;
+  hasUsableSkeleton: boolean;
+  hasEmbeddedAnimationGroups: boolean;
+  hasUsableAnimationTargets: boolean;
+  hasCanonicalHumanoidMapping: boolean;
+  canPlayImportedAnimations: boolean;
+  canUseProceduralBoneFallback: boolean;
+  measuredLocalBounds?: {
+    width: number;
+    height: number;
+    depth: number;
+    minY: number;
+    maxY: number;
+  };
   modelDimensions: CharacterModelDimensions;
   scale: number;
   groundOffset: number;
@@ -472,6 +494,209 @@ export function computeRigWorldBounds(
     minY: Number(minY.toFixed(3)),
     maxY: Number(maxY.toFixed(3)),
     plausibleBounds,
+  };
+}
+
+/**
+ * Computes the accumulated rotation quaternion of `boneNode` in `__root__` / `modelTransformNode` space.
+ */
+export function computeBoneRootSpaceQuaternion(
+  boneNode: TransformNode,
+  modelTransformNode: TransformNode
+): Quaternion {
+  const chain: Quaternion[] = [];
+  let cur: Node | null = boneNode;
+  const visited = new Set<Node>();
+  while (cur && cur.name !== '__root__' && cur !== modelTransformNode) {
+    if (visited.has(cur)) break;
+    visited.add(cur);
+    if (cur instanceof TransformNode) {
+      const q = cur.rotationQuaternion
+        ? cur.rotationQuaternion.clone()
+        : Quaternion.FromEulerVector(cur.rotation);
+      chain.unshift(q);
+    }
+    cur = cur.parent;
+  }
+  let acc = Quaternion.Identity();
+  for (const q of chain) {
+    acc = acc.multiply(q);
+  }
+  return acc;
+}
+
+/**
+ * Captures bind-pose transforms on imported humanoid bones and converts any horizontal T-pose
+ * arm bind orientation into a natural relaxed standing reference pose for quaternion retargeting.
+ */
+export function prepareImportedHumanoidBoneRestPoses(
+  modelTransformNode: TransformNode,
+  resolvedBoneMap: Record<string, TransformNode>,
+  allSkeletons: Skeleton[],
+  meshes: AbstractMesh[]
+): void {
+  const uniqueBones = new Set<TransformNode>(Object.values(resolvedBoneMap).filter(Boolean));
+  if (uniqueBones.size === 0) return;
+
+  for (const tn of uniqueBones) {
+    const bindPos = tn.position.clone();
+    const bindQuat = tn.rotationQuaternion
+      ? tn.rotationQuaternion.clone()
+      : Quaternion.FromEulerVector(tn.rotation);
+    if (!tn.rotationQuaternion) {
+      tn.rotationQuaternion = bindQuat.clone();
+    }
+    tn.metadata = {
+      ...(tn.metadata || {}),
+      isImportedBone: true,
+      bindPosition: bindPos,
+      bindQuaternion: bindQuat,
+    };
+  }
+
+  // Detect if LeftUpperArm / RightUpperArm are in a horizontal T-pose (bone shaft +Y pointing along world ±X)
+  const leftArm = resolvedBoneMap.LeftUpperArm;
+  const rightArm = resolvedBoneMap.RightUpperArm;
+  if (leftArm && rightArm) {
+    leftArm.computeWorldMatrix(true);
+    const worldAxisY = Vector3.TransformNormal(
+      Axis.Y,
+      leftArm.getWorldMatrix()
+    ).normalize();
+    if (Math.abs(worldAxisY.x) > 0.78) {
+      // Rotate arms down from horizontal T-pose to natural relaxed standing reference pose
+      const lBind: Quaternion = leftArm.metadata.bindQuaternion;
+      const rBind: Quaternion = rightArm.metadata.bindQuaternion;
+      leftArm.rotationQuaternion = lBind.multiply(Quaternion.RotationAxis(Axis.X, 1.3));
+      rightArm.rotationQuaternion = rBind.multiply(Quaternion.RotationAxis(Axis.X, 1.3));
+    }
+  }
+
+  modelTransformNode.computeWorldMatrix(true);
+  for (const tn of uniqueBones) {
+    tn.computeWorldMatrix(true);
+  }
+
+  for (const tn of uniqueBones) {
+    const standLocalPos = tn.position.clone();
+    const standLocalQuat = tn.rotationQuaternion
+      ? tn.rotationQuaternion.clone()
+      : Quaternion.FromEulerVector(tn.rotation);
+    const standRootQuat = computeBoneRootSpaceQuaternion(tn, modelTransformNode);
+    tn.metadata = {
+      ...(tn.metadata || {}),
+      isImportedBone: true,
+      standLocalPos,
+      standLocalQuat,
+      standRootQuat,
+    };
+  }
+
+  for (const skel of allSkeletons) {
+    skel.prepare();
+  }
+  for (const m of meshes) {
+    if (m && !m.isDisposed() && m.getTotalVertices() > 0) {
+      m.computeWorldMatrix(true);
+      m.refreshBoundingInfo({ applySkeleton: true });
+    }
+  }
+}
+
+/**
+ * Phase 2: Automatic Model Calibration.
+ * Measures actual unscaled local bounds of an imported character model before applying
+ * `modelTransformNode` scale/groundOffset, then computes and applies:
+ *   `uniformScale = targetCharacterHeight / measuredCharacterHeight`
+ *   `groundOffsetY = -measuredMinimumY * uniformScale`
+ * exactly once to `modelTransformNode`.
+ */
+export function calibrateImportedModelTransform(
+  rootNode: TransformNode,
+  modelTransformNode: TransformNode,
+  meshes: AbstractMesh[],
+  manifest: CharacterAssetConfig,
+  targetCharacterHeight = 1.924
+): {
+  calibratedScale: number;
+  calibratedGroundOffset: number;
+  measuredLocalBounds: {
+    width: number;
+    height: number;
+    depth: number;
+    minY: number;
+    maxY: number;
+  };
+} {
+  // Temporarily set identity transform on modelTransformNode to measure true local bounds
+  modelTransformNode.position.set(0, 0, 0);
+  modelTransformNode.scaling.setAll(1.0);
+  rootNode.computeWorldMatrix(true);
+
+  const localDims = computeRigWorldBounds(rootNode, meshes);
+  const rootY = rootNode.getAbsolutePosition().y;
+  const localMinY = Number((localDims.minY - rootY).toFixed(4));
+  const localMaxY = Number((localDims.maxY - rootY).toFixed(4));
+  const localHeight = Number(Math.max(0, localMaxY - localMinY).toFixed(4));
+
+  let calibratedScale = manifest.scale;
+  let calibratedGroundOffset = manifest.groundOffset;
+
+  if (!manifest.isTemporaryPlaceholder && localHeight > 0.1) {
+    const mathScale = Number((targetCharacterHeight / localHeight).toFixed(2));
+    calibratedScale =
+      manifest.scale > 0 && Math.abs(manifest.scale - mathScale) <= 0.15
+        ? manifest.scale
+        : mathScale;
+
+    const mathGroundOffset = Number((-localMinY * calibratedScale).toFixed(3));
+    calibratedGroundOffset =
+      manifest.groundOffset !== 0 &&
+      Math.abs(manifest.groundOffset - mathGroundOffset) <= 0.02
+        ? manifest.groundOffset
+        : mathGroundOffset;
+  }
+
+  modelTransformNode.scaling.setAll(calibratedScale);
+  modelTransformNode.position.set(0, calibratedGroundOffset, 0);
+  modelTransformNode.metadata = {
+    ...(modelTransformNode.metadata || {}),
+    calibratedScale,
+    calibratedGroundOffset,
+    measuredLocalBounds: {
+      width: localDims.width,
+      height: localHeight,
+      depth: localDims.depth,
+      minY: localMinY,
+      maxY: localMaxY,
+    },
+  };
+  rootNode.metadata = {
+    ...(rootNode.metadata || {}),
+    manifestScale: calibratedScale,
+    groundOffset: calibratedGroundOffset,
+    calibratedScale,
+    calibratedGroundOffset,
+  };
+
+  modelTransformNode.computeWorldMatrix(true);
+  for (const m of meshes) {
+    if (m && !m.isDisposed() && m.getTotalVertices() > 0) {
+      m.computeWorldMatrix(true);
+      m.refreshBoundingInfo({ applySkeleton: true });
+    }
+  }
+
+  return {
+    calibratedScale,
+    calibratedGroundOffset,
+    measuredLocalBounds: {
+      width: localDims.width,
+      height: localHeight,
+      depth: localDims.depth,
+      minY: localMinY,
+      maxY: localMaxY,
+    },
   };
 }
 
@@ -1444,6 +1669,9 @@ export class CharacterAssetLoader {
     warnings?: string[]
   ): LoadedGLBAnimationController {
     const groupMap = new Map<string, AnimationGroup>();
+    const staticPoseClipNames: string[] = [];
+    let hasUsableTargets = false;
+
     for (const ag of animationGroups) {
       if (!ag || !ag.name) continue;
       const targeted = Array.isArray(ag.targetedAnimations) ? ag.targetedAnimations : [];
@@ -1464,12 +1692,60 @@ export class CharacterAssetLoader {
         continue;
       }
 
+      hasUsableTargets = true;
+
+      // Verify whether the AnimationGroup has actual dynamic motion (at least 1 channel whose keyframe values change over time)
+      const hasDynamicMotion = targeted.some((ta) => {
+        if (!ta || !ta.target || !ta.animation) return false;
+        const keys =
+          typeof ta.animation.getKeys === 'function' ? ta.animation.getKeys() : [];
+        if (!Array.isArray(keys) || keys.length < 2) return false;
+        const firstVal = keys[0]?.value;
+        for (let i = 1; i < keys.length; i++) {
+          const val = keys[i]?.value;
+          if (typeof firstVal === 'number' && typeof val === 'number') {
+            if (Math.abs(val - firstVal) > 1e-4) return true;
+          } else if (
+            firstVal &&
+            val &&
+            typeof firstVal === 'object' &&
+            typeof val === 'object'
+          ) {
+            if (
+              ('x' in firstVal && Math.abs((val.x ?? 0) - (firstVal.x ?? 0)) > 1e-4) ||
+              ('y' in firstVal && Math.abs((val.y ?? 0) - (firstVal.y ?? 0)) > 1e-4) ||
+              ('z' in firstVal && Math.abs((val.z ?? 0) - (firstVal.z ?? 0)) > 1e-4) ||
+              ('w' in firstVal && Math.abs((val.w ?? 0) - (firstVal.w ?? 0)) > 1e-4)
+            ) {
+              return true;
+            }
+          }
+        }
+        return false;
+      });
+
+      if (!hasDynamicMotion) {
+        ag.stop();
+        staticPoseClipNames.push(ag.name);
+        emitOnceAssetWarning(
+          `[CharacterAssetLoader] Skipping static single-pose AnimationGroup "${ag.name}" for "${characterId}" (0 dynamic channels across ${targeted.length} targeted animations); using procedural skeletal bone animation fallback.`,
+          warnings
+        );
+        continue;
+      }
+
       groupMap.set(ag.name, ag);
-      // Also index stripped Anim_Common_ prefix for seamless compatibility
+      // Also index stripped Anim_Common_ and Armature| prefixes for seamless compatibility
       if (ag.name.startsWith('Anim_Common_')) {
         const stripped = ag.name.replace(/^Anim_Common_/, '');
         if (!groupMap.has(stripped)) {
           groupMap.set(stripped, ag);
+        }
+      }
+      if (ag.name.includes('|')) {
+        const strippedPipe = ag.name.split('|').pop() || '';
+        if (strippedPipe && !groupMap.has(strippedPipe)) {
+          groupMap.set(strippedPipe, ag);
         }
       }
     }
@@ -1505,7 +1781,7 @@ export class CharacterAssetLoader {
         (msg) => emitOnceAssetWarning(msg, warnings)
       );
       // If a non-idle state fell all the way back to generic Idle because its clip is missing,
-      // return false so AnimationController3D Case 2 can fall back to procedural bone poses.
+      // return false so AnimationController3D Priority 2 can fall back to procedural bone poses.
       if (resolved.usedFallback && clipId !== 'idle') {
         return false;
       }
@@ -1550,12 +1826,16 @@ export class CharacterAssetLoader {
 
     return {
       availableClipNames,
+      staticPoseClipNames,
+      hasUsableTargets,
       get activeClipId() {
         return activeClipId;
       },
       get activeClipName() {
         return activeClipName;
       },
+      getClipCount: () => availableClipNames.length,
+      getStaticPoseClipNames: () => staticPoseClipNames,
       hasClip,
       playClip,
       stopAll,
@@ -1564,9 +1844,10 @@ export class CharacterAssetLoader {
 
   /**
    * Loads a character rig from the manifest path (`modelPath`, falling back to `legacyModelPath`).
-   * Implements two explicit, non-overlapping rendering paths (Section 6):
+   * Implements explicit rendering paths with independent rendering and animation capability flags:
    * - Path A: Temporary Placeholder (`isTemporaryPlaceholder: true` or non-production GLB)
-   * - Path B: Production Character (`isTemporaryPlaceholder: false` and valid skinned GLB)
+   * - Path B: Production Skinned Character (`isTemporaryPlaceholder: false` and valid skinned GLB)
+   * - Path C: Valid Visual-Only Character (`isTemporaryPlaceholder: false` and valid mesh geometry)
    */
   public static async loadCharacterFromManifest(
     scene: Scene,
@@ -1619,7 +1900,7 @@ export class CharacterAssetLoader {
     facingNode.position.set(0, 0, 0);
     facingNode.scaling.setAll(1);
 
-    // 3. ModelTransformNode: applies manifest.scale and manifest.groundOffset EXACTLY ONCE
+    // 3. ModelTransformNode: applies calibrated scale and groundOffset EXACTLY ONCE
     const modelTransformNode = new TransformNode(
       `${instancePrefix}_${charDef.id}_modelTransform`,
       scene
@@ -1627,12 +1908,18 @@ export class CharacterAssetLoader {
     modelTransformNode.parent = facingNode;
     modelTransformNode.position.set(0, manifest.groundOffset, 0);
     modelTransformNode.scaling.setAll(manifest.scale);
+    modelTransformNode.metadata = {
+      calibratedScale: manifest.scale,
+      calibratedGroundOffset: manifest.groundOffset,
+    };
 
     rootNode.metadata = {
       characterId: charDef.id,
       heightScale: charDef.visuals.proportions.heightScale,
       manifestScale: manifest.scale,
       groundOffset: manifest.groundOffset,
+      calibratedScale: manifest.scale,
+      calibratedGroundOffset: manifest.groundOffset,
     };
 
     let importedMeshes: Mesh[] = [];
@@ -1686,6 +1973,12 @@ export class CharacterAssetLoader {
           importedSkeletons = result.skeletons || [];
           importedAnimGroups = result.animationGroups || [];
 
+          // Immediately stop any auto-started AnimationGroups on import so static/offset clips
+          // (such as "mixamo_com" setting Hips.y = 0.5569) never corrupt bind-pose ground calibration.
+          for (const ag of importedAnimGroups) {
+            ag.stop();
+          }
+
           // Neutralize FBX/Blender 0.01 unit-mismatch scale on imported root containers
           // (e.g. Three.js GLTFExporter wrapping Mixamo FBX in FBX_Root scaled to 0.01 while vertices/bones are in meters)
           for (const tn of importedTransformNodes) {
@@ -1732,7 +2025,36 @@ export class CharacterAssetLoader {
       instancePrefix
     );
 
-    // Measure imported model bounds before deciding Path A vs Path B
+    // Phase 2: Calibrate model scale and groundOffset mathematically from actual unscaled local bounds
+    let calibratedScale = manifest.scale;
+    let calibratedGroundOffset = manifest.groundOffset;
+    let measuredLocalBounds: CharacterAssetLoadDiagnostics['measuredLocalBounds'] = undefined;
+
+    if (
+      glbLoaded &&
+      hierarchyAttachment.hierarchyValid &&
+      !manifest.isTemporaryPlaceholder &&
+      importedMeshes.some((m) => m.getTotalVertices() > 0)
+    ) {
+      const calibration = calibrateImportedModelTransform(
+        rootNode,
+        modelTransformNode,
+        importedMeshes,
+        manifest
+      );
+      calibratedScale = calibration.calibratedScale;
+      calibratedGroundOffset = calibration.calibratedGroundOffset;
+      measuredLocalBounds = calibration.measuredLocalBounds;
+
+      prepareImportedHumanoidBoneRestPoses(
+        modelTransformNode,
+        boneResolution.resolvedBoneMap,
+        boneResolution.allSkeletons,
+        importedMeshes
+      );
+    }
+
+    // Measure imported model bounds after calibration before deciding Path A vs Path B
     const importedDimensions = computeRigWorldBounds(rootNode, importedMeshes);
 
     // Section 5: Evaluate production character eligibility (requiring hierarchyAttachment.hierarchyValid)
@@ -1845,11 +2167,20 @@ export class CharacterAssetLoader {
         missingFacialBones: [],
         hasEmbeddedAnimations: false,
         availableAnimationClips: [],
+        staticPoseClips: [],
         missingStandardClips: [],
         hierarchyValid: hierarchyAttachment.hierarchyValid,
         skinningValid: eligibility.skinningValid,
         productionRigEligible: false,
         productionEligibilityReasons: eligibility.reasons,
+        hasRenderableGeometry: placeholder.meshes.length > 0,
+        hasValidSkinning: false,
+        hasUsableSkeleton: false,
+        hasEmbeddedAnimationGroups: false,
+        hasUsableAnimationTargets: false,
+        hasCanonicalHumanoidMapping: true,
+        canPlayImportedAnimations: false,
+        canUseProceduralBoneFallback: true,
         modelDimensions: placeholderDimensions,
         scale: manifest.scale,
         groundOffset: manifest.groundOffset,
@@ -1914,7 +2245,7 @@ export class CharacterAssetLoader {
 
     // =========================================================================
     // PATH C: VALID VISUAL-ONLY CHARACTER (Section 4 - B)
-    // Keeps imported character geometry and materials visible!
+    // Keeps imported character geometry, materials, resolved bones, and animations!
     // =========================================================================
     if (renderState === 'VISUAL_ONLY') {
       emitOnceAssetWarning(
@@ -1944,32 +2275,81 @@ export class CharacterAssetLoader {
       }
 
       const visualSockets: Record<BoneAttachmentName, TransformNode> = {
-        Head: new TransformNode(`${instancePrefix}_socket_Head`, scene),
-        Chest: new TransformNode(`${instancePrefix}_socket_Chest`, scene),
-        RightHand: new TransformNode(`${instancePrefix}_socket_RightHand`, scene),
-        LeftHand: new TransformNode(`${instancePrefix}_socket_LeftHand`, scene),
-        RightFoot: new TransformNode(`${instancePrefix}_socket_RightFoot`, scene),
-        LeftFoot: new TransformNode(`${instancePrefix}_socket_LeftFoot`, scene),
-        Hips: new TransformNode(`${instancePrefix}_socket_Hips`, scene),
-        Projectile: new TransformNode(`${instancePrefix}_socket_Projectile`, scene),
+        Head:
+          boneResolution.resolvedBoneMap.Head ||
+          new TransformNode(`${instancePrefix}_socket_Head`, scene),
+        Chest:
+          boneResolution.resolvedBoneMap.Chest ||
+          new TransformNode(`${instancePrefix}_socket_Chest`, scene),
+        RightHand:
+          boneResolution.resolvedBoneMap.RightHand ||
+          new TransformNode(`${instancePrefix}_socket_RightHand`, scene),
+        LeftHand:
+          boneResolution.resolvedBoneMap.LeftHand ||
+          new TransformNode(`${instancePrefix}_socket_LeftHand`, scene),
+        RightFoot:
+          boneResolution.resolvedBoneMap.RightFoot ||
+          new TransformNode(`${instancePrefix}_socket_RightFoot`, scene),
+        LeftFoot:
+          boneResolution.resolvedBoneMap.LeftFoot ||
+          new TransformNode(`${instancePrefix}_socket_LeftFoot`, scene),
+        Hips:
+          boneResolution.resolvedBoneMap.Hips ||
+          new TransformNode(`${instancePrefix}_socket_Hips`, scene),
+        Projectile:
+          boneResolution.resolvedBoneMap.RightHand ||
+          boneResolution.resolvedBoneMap.Chest ||
+          new TransformNode(`${instancePrefix}_socket_Projectile`, scene),
       };
 
-      visualSockets.Head.parent = modelTransformNode;
-      visualSockets.Head.position.set(0, 0.44, 0.02);
-      visualSockets.Chest.parent = modelTransformNode;
-      visualSockets.Chest.position.set(0, 0.16, 0.02);
-      visualSockets.RightHand.parent = modelTransformNode;
-      visualSockets.RightHand.position.set(0.24, -0.02, 0.06);
-      visualSockets.LeftHand.parent = modelTransformNode;
-      visualSockets.LeftHand.position.set(-0.24, -0.02, 0.06);
-      visualSockets.RightFoot.parent = modelTransformNode;
-      visualSockets.RightFoot.position.set(0.12, -0.48, 0.02);
-      visualSockets.LeftFoot.parent = modelTransformNode;
-      visualSockets.LeftFoot.position.set(-0.12, -0.48, 0.02);
-      visualSockets.Hips.parent = modelTransformNode;
-      visualSockets.Hips.position.set(0, 0, 0);
-      visualSockets.Projectile.parent = modelTransformNode;
-      visualSockets.Projectile.position.set(0.24, -0.02, 0.06);
+      if (!boneResolution.resolvedBoneMap.Head) {
+        visualSockets.Head.parent = modelTransformNode;
+        visualSockets.Head.position.set(0, 0.44, 0.02);
+      }
+      if (!boneResolution.resolvedBoneMap.Chest) {
+        visualSockets.Chest.parent = modelTransformNode;
+        visualSockets.Chest.position.set(0, 0.16, 0.02);
+      }
+      if (!boneResolution.resolvedBoneMap.RightHand) {
+        visualSockets.RightHand.parent = modelTransformNode;
+        visualSockets.RightHand.position.set(0.24, -0.02, 0.06);
+      }
+      if (!boneResolution.resolvedBoneMap.LeftHand) {
+        visualSockets.LeftHand.parent = modelTransformNode;
+        visualSockets.LeftHand.position.set(-0.24, -0.02, 0.06);
+      }
+      if (!boneResolution.resolvedBoneMap.RightFoot) {
+        visualSockets.RightFoot.parent = modelTransformNode;
+        visualSockets.RightFoot.position.set(0.12, -0.48, 0.02);
+      }
+      if (!boneResolution.resolvedBoneMap.LeftFoot) {
+        visualSockets.LeftFoot.parent = modelTransformNode;
+        visualSockets.LeftFoot.position.set(-0.12, -0.48, 0.02);
+      }
+      if (!boneResolution.resolvedBoneMap.Hips) {
+        visualSockets.Hips.parent = modelTransformNode;
+        visualSockets.Hips.position.set(0, 0, 0);
+      }
+      if (!boneResolution.resolvedBoneMap.RightHand && !boneResolution.resolvedBoneMap.Chest) {
+        visualSockets.Projectile.parent = modelTransformNode;
+        visualSockets.Projectile.position.set(0.24, -0.02, 0.06);
+      }
+
+      // Phase 3.2: Preserve imported AnimationGroups even when renderState is VISUAL_ONLY
+      const visualAnimController = CharacterAssetLoader.createAnimationGroupController(
+        charDef.id,
+        importedAnimGroups,
+        warnings
+      );
+      const visualAvailableClips = visualAnimController.availableClipNames;
+      const visualMissingClips = ALL_STANDARD_ANIMATION_CLIP_IDS.filter((clipId) => {
+        const res = resolveCharacterAnimationClip(
+          charDef.id,
+          clipId,
+          visualAvailableClips
+        );
+        return res.usedFallback;
+      });
 
       let totalTextures = 0;
       let allTexturesReady = true;
@@ -1990,6 +2370,7 @@ export class CharacterAssetLoader {
           : 'PENDING_OR_FAILED';
 
       const visualDimensions = computeRigWorldBounds(rootNode, importedMeshes);
+      const hasCanonicalBones = boneResolution.missingBones.length === 0 && boneResolution.resolvedBones.length >= REQUIRED_HUMANOID_BONES.length;
 
       const diagnostics: CharacterAssetLoadDiagnostics = {
         characterId: charDef.id,
@@ -2003,20 +2384,30 @@ export class CharacterAssetLoader {
         importedMeshCount: importedMeshes.length,
         importedTransformNodeCount: importedTransformNodes.length,
         skeletonCount: boneResolution.allSkeletons.length,
-        resolvedBoneCount: 0,
-        resolvedBones: [],
+        resolvedBoneCount: boneResolution.resolvedBones.length,
+        resolvedBones: boneResolution.resolvedBones,
         missingBones: boneResolution.missingBones,
         missingFacialBones: boneResolution.missingFacialBones,
-        hasEmbeddedAnimations: false,
-        availableAnimationClips: [],
-        missingStandardClips: [...ALL_STANDARD_ANIMATION_CLIP_IDS],
+        hasEmbeddedAnimations: visualAvailableClips.length > 0,
+        availableAnimationClips: visualAvailableClips,
+        staticPoseClips: visualAnimController.staticPoseClipNames || [],
+        missingStandardClips: visualMissingClips,
         hierarchyValid: hierarchyAttachment.hierarchyValid,
-        skinningValid: false,
+        skinningValid: eligibility.skinningValid,
         productionRigEligible: false,
         productionEligibilityReasons: eligibility.reasons,
+        hasRenderableGeometry: true,
+        hasValidSkinning: eligibility.skinningValid,
+        hasUsableSkeleton: boneResolution.allSkeletons.some((s) => s.bones.length > 0),
+        hasEmbeddedAnimationGroups: importedAnimGroups.length > 0,
+        hasUsableAnimationTargets: Boolean(visualAnimController.hasUsableTargets),
+        hasCanonicalHumanoidMapping: hasCanonicalBones,
+        canPlayImportedAnimations: visualAvailableClips.length > 0,
+        canUseProceduralBoneFallback: hasCanonicalBones,
+        measuredLocalBounds,
         modelDimensions: visualDimensions,
-        scale: manifest.scale,
-        groundOffset: manifest.groundOffset,
+        scale: calibratedScale,
+        groundOffset: calibratedGroundOffset,
         materialCount: importedMaterialSet.size,
         textureLoadingStatus,
         errors,
@@ -2040,6 +2431,8 @@ export class CharacterAssetLoader {
         bones: {
           Root: modelTransformNode,
           ...visualSockets,
+          ...boneResolution.rawNodeLookup,
+          ...boneResolution.resolvedBoneMap,
         },
         sockets: visualSockets,
         meshes: importedMeshes,
@@ -2047,7 +2440,7 @@ export class CharacterAssetLoader {
         isPlaceholderAsset: false,
         isVisualOnly: true,
         renderState: 'VISUAL_ONLY',
-        glbAnimationController: null,
+        glbAnimationController: visualAnimController,
         diagnostics,
         setRenderMode: (mode: 'stylized' | 'graybox') => {
           for (const m of importedMeshes) {
@@ -2056,6 +2449,16 @@ export class CharacterAssetLoader {
         },
         setLODLevel: () => {},
         dispose: () => {
+          visualAnimController.stopAll();
+          for (const ag of importedAnimGroups) {
+            ag.dispose();
+          }
+          for (const skel of boneResolution.allSkeletons) {
+            skel.dispose();
+          }
+          for (const proxyTn of boneResolution.createdProxyNodes) {
+            proxyTn.dispose();
+          }
           grayboxMat.dispose();
           for (const mat of importedMaterialSet) {
             mat.dispose();
@@ -2074,7 +2477,7 @@ export class CharacterAssetLoader {
       m.receiveShadows = hasVerts;
       m.alwaysSelectAsActiveMesh = true;
       m.computeWorldMatrix(true);
-      m.refreshBoundingInfo(true);
+      m.refreshBoundingInfo({ applySkeleton: true });
       if (m.material) {
         m.material.backFaceCulling = false;
         if (m.material instanceof PBRMaterial) {
@@ -2105,7 +2508,10 @@ export class CharacterAssetLoader {
       RightFoot: boneResolution.resolvedBoneMap.RightFoot || fallbackNode,
       LeftFoot: boneResolution.resolvedBoneMap.LeftFoot || fallbackNode,
       Hips: boneResolution.resolvedBoneMap.Hips || fallbackNode,
-      Projectile: boneResolution.resolvedBoneMap.Chest || fallbackNode,
+      Projectile:
+        boneResolution.resolvedBoneMap.RightHand ||
+        boneResolution.resolvedBoneMap.Chest ||
+        fallbackNode,
     };
 
     const glbAnimationController = CharacterAssetLoader.createAnimationGroupController(
@@ -2145,6 +2551,9 @@ export class CharacterAssetLoader {
         : 'PENDING_OR_FAILED';
 
     const productionDimensions = computeRigWorldBounds(rootNode, importedMeshes);
+    const hasCanonicalHumanoidMapping =
+      boneResolution.missingBones.length === 0 &&
+      boneResolution.resolvedBones.length >= REQUIRED_HUMANOID_BONES.length;
 
     const diagnostics: CharacterAssetLoadDiagnostics = {
       characterId: charDef.id,
@@ -2164,19 +2573,38 @@ export class CharacterAssetLoader {
       missingFacialBones: boneResolution.missingFacialBones,
       hasEmbeddedAnimations: availableAnimationClips.length > 0,
       availableAnimationClips,
+      staticPoseClips: glbAnimationController.staticPoseClipNames || [],
       missingStandardClips,
       hierarchyValid: hierarchyAttachment.hierarchyValid,
       skinningValid: eligibility.skinningValid,
       productionRigEligible: true,
       productionEligibilityReasons: [],
+      hasRenderableGeometry: true,
+      hasValidSkinning: eligibility.skinningValid,
+      hasUsableSkeleton: boneResolution.allSkeletons.some((s) => s.bones.length > 0),
+      hasEmbeddedAnimationGroups: importedAnimGroups.length > 0,
+      hasUsableAnimationTargets: Boolean(glbAnimationController.hasUsableTargets),
+      hasCanonicalHumanoidMapping,
+      canPlayImportedAnimations: availableAnimationClips.length > 0,
+      canUseProceduralBoneFallback: hasCanonicalHumanoidMapping,
+      measuredLocalBounds,
       modelDimensions: productionDimensions,
-      scale: manifest.scale,
-      groundOffset: manifest.groundOffset,
+      scale: calibratedScale,
+      groundOffset: calibratedGroundOffset,
       materialCount: importedMaterialSet.size,
       textureLoadingStatus,
       errors,
       warnings,
     };
+
+    const originalMaterials = new Map<Mesh, Material | null>();
+    for (const m of importedMeshes) {
+      originalMaterials.set(m, m.material);
+    }
+    const grayboxMat = new PBRMaterial(`${instancePrefix}_prod_graybox`, scene);
+    grayboxMat.albedoColor = Color3.FromHexString('#71717A');
+    grayboxMat.roughness = 0.5;
+    grayboxMat.metallic = 0.1;
 
     return {
       rootNode,
@@ -2195,7 +2623,11 @@ export class CharacterAssetLoader {
       renderState: 'PRODUCTION_SKINNED',
       glbAnimationController,
       diagnostics,
-      setRenderMode: () => {},
+      setRenderMode: (mode: 'stylized' | 'graybox') => {
+        for (const m of importedMeshes) {
+          m.material = mode === 'graybox' ? grayboxMat : originalMaterials.get(m) ?? null;
+        }
+      },
       setLODLevel: () => {},
       dispose: () => {
         glbAnimationController.stopAll();
@@ -2208,6 +2640,7 @@ export class CharacterAssetLoader {
         for (const proxyTn of boneResolution.createdProxyNodes) {
           proxyTn.dispose();
         }
+        grayboxMat.dispose();
         for (const mat of importedMaterialSet) {
           mat.dispose();
         }

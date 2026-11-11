@@ -45,6 +45,7 @@ import {
 import {
   CharacterAssetLoader,
   attachImportedGLBHierarchyToFacingNode,
+  calibrateImportedModelTransform,
   computeRigWorldBounds,
   evaluateRuntimeProductionRigEligibility,
   resolveHumanoidSkeletonAndBones,
@@ -2112,5 +2113,207 @@ test('20. Section 10 Action Sultan GLB Replacement Activation & 12 Architectural
   scene.dispose();
   engine.dispose();
 });
+
+test('21. Phase 9 Action Sultan Blender Model Grounding Calibration, Independent Capability Flags & Quaternion Skeletal Animation', async () => {
+  const engine = new NullEngine();
+  const scene = new Scene(engine);
+  new UniversalCamera('testCam21', new Vector3(0, 1.5, -4), scene);
+
+  const sultanRig = await loadCharacterRig3D(
+    scene,
+    CHARACTERS.action_sultan,
+    'test_sultan_21'
+  );
+
+  // 1. Grounding & Calibration Tests
+  const diag = sultanRig.diagnostics;
+  assert.ok(diag, 'Action Sultan diagnostics must exist');
+  assert.ok(diag.measuredLocalBounds, 'Measured unscaled local bounds must be recorded');
+  assert.ok(
+    Math.abs(diag.measuredLocalBounds.minY - -0.4994) < 0.01,
+    `Expected unscaled local minY ~ -0.4994, got ${diag.measuredLocalBounds.minY}`
+  );
+  assert.ok(
+    Math.abs(diag.measuredLocalBounds.maxY - 0.4925) < 0.01,
+    `Expected unscaled local maxY ~ 0.4925, got ${diag.measuredLocalBounds.maxY}`
+  );
+  assert.ok(
+    Math.abs(diag.measuredLocalBounds.height - 0.9918) < 0.01,
+    `Expected unscaled local height ~ 0.9918, got ${diag.measuredLocalBounds.height}`
+  );
+
+  // Calibrated scale & groundOffset applied once to modelTransformNode, no double scaling
+  assert.equal(sultanRig.modelTransformNode.scaling.x, 1.94);
+  assert.equal(sultanRig.modelTransformNode.scaling.y, 1.94);
+  assert.equal(sultanRig.modelTransformNode.scaling.z, 1.94);
+  assert.equal(sultanRig.rootNode.scaling.x, 1);
+  assert.equal(sultanRig.rootNode.scaling.y, 1);
+  assert.equal(sultanRig.rootNode.scaling.z, 1);
+  assert.equal(sultanRig.facingNode.scaling.x, 1);
+  assert.equal(Number(sultanRig.modelTransformNode.position.y.toFixed(3)), 0.969);
+
+  // Direct mathematical calibration test
+  const recalib = calibrateImportedModelTransform(
+    sultanRig.rootNode,
+    sultanRig.modelTransformNode,
+    sultanRig.meshes,
+    getCharacterAssetConfig('action_sultan'),
+    1.924
+  );
+  assert.equal(recalib.calibratedScale, 1.94);
+  assert.ok(
+    Math.abs(recalib.calibratedGroundOffset - 0.969) < 0.005,
+    `Calibrated groundOffsetY must be ~0.969, got ${recalib.calibratedGroundOffset}`
+  );
+
+  // World-space foot contact check before and during animations
+  const initialBounds = computeRigWorldBounds(sultanRig.rootNode, sultanRig.meshes);
+  assert.equal(initialBounds.plausibleBounds, true, 'Action Sultan world bounds must be valid on the floor');
+  assert.ok(
+    Math.abs(initialBounds.minY - sultanRig.rootNode.position.y) <= 0.02,
+    `Initial foot minY (${initialBounds.minY}) must contact floor (rootY=${sultanRig.rootNode.position.y})`
+  );
+  assert.ok(
+    initialBounds.height >= 1.75 && initialBounds.height <= 2.1,
+    `World character height (${initialBounds.height}) must match fighter scale`
+  );
+
+  // 2. Independent Rendering & Animation Capability Flags
+  assert.equal(sultanRig.hasRenderableGeometry, true, 'hasRenderableGeometry must be true');
+  assert.equal(sultanRig.hasValidSkinning, true, 'hasValidSkinning must be true');
+  assert.equal(sultanRig.hasUsableSkeleton, true, 'hasUsableSkeleton must be true');
+  assert.equal(sultanRig.hasEmbeddedAnimationGroups, true, 'hasEmbeddedAnimationGroups must be true');
+  assert.equal(sultanRig.hasCanonicalHumanoidMapping, true, 'hasCanonicalHumanoidMapping must be true (20/20 bones)');
+  assert.equal(
+    sultanRig.canPlayImportedAnimations,
+    false,
+    'canPlayImportedAnimations must be false because embedded mixamo_com clip is a static 1-frame pose'
+  );
+  assert.equal(
+    sultanRig.canUseProceduralBoneFallback,
+    true,
+    'canUseProceduralBoneFallback must be true because 20/20 canonical mixamorig_* bones are resolved'
+  );
+  assert.ok(
+    sultanRig.glbAnimationController?.getStaticPoseClipNames().includes('mixamo_com'),
+    'mixamo_com must be detected and classified as a static pose clip'
+  );
+
+  // 3. Quaternion Skeletal Animation across states & Non-Floating verification
+  const anim3D = new AnimationController3D();
+  const charAnim = new CharacterAnimationController();
+
+  // Record bind T-pose quaternion of RightUpperArm before procedural pose
+  const rArmNode = sultanRig.bones.RightUpperArm;
+  const rLegNode = sultanRig.bones.RightUpperLeg;
+  const headNode = sultanRig.bones.Head;
+  assert.ok(rArmNode && rArmNode.rotationQuaternion, 'RightUpperArm must have rotationQuaternion');
+  assert.ok(rLegNode && rLegNode.rotationQuaternion, 'RightUpperLeg must have rotationQuaternion');
+  assert.ok(headNode && headNode.rotationQuaternion, 'Head must have rotationQuaternion');
+
+  // Step idle pose and verify non-T-pose arm lowering + grounded feet
+  for (let i = 0; i < 15; i++) {
+    anim3D.updateRigPose(sultanRig, 'action_sultan', 'idle', i / 60, 1 / 60, 1, 0);
+  }
+  const idleQuatArm = rArmNode.rotationQuaternion.clone();
+  const idleQuatLeg = rLegNode.rotationQuaternion.clone();
+  const idleBounds = computeRigWorldBounds(sultanRig.rootNode, sultanRig.meshes);
+  assert.ok(
+    Math.abs(idleBounds.minY) <= 0.04,
+    `Action Sultan must remain grounded during idle (minY=${idleBounds.minY})`
+  );
+  assert.ok(
+    idleBounds.width < 1.1,
+    `Action Sultan arms must be lowered from horizontal 1.94m T-pose into fighting stance (width=${idleBounds.width})`
+  );
+
+  // Step walk pose and verify legs articulate and feet remain grounded
+  for (let i = 0; i < 15; i++) {
+    anim3D.updateRigPose(sultanRig, 'action_sultan', 'walk', 0.18, 1 / 60, 1, 0);
+  }
+  const walkQuatLeg = rLegNode.rotationQuaternion.clone();
+  const legQuatDelta =
+    Math.abs(walkQuatLeg.x - idleQuatLeg.x) +
+    Math.abs(walkQuatLeg.y - idleQuatLeg.y) +
+    Math.abs(walkQuatLeg.z - idleQuatLeg.z) +
+    Math.abs(walkQuatLeg.w - idleQuatLeg.w);
+  assert.ok(legQuatDelta > 0.05, `RightUpperLeg quaternion must articulate from idle to walk (delta=${legQuatDelta})`);
+  const walkBounds = computeRigWorldBounds(sultanRig.rootNode, sultanRig.meshes);
+  assert.ok(
+    Math.abs(walkBounds.minY) <= 0.06,
+    `Action Sultan must not float during walk (minY=${walkBounds.minY})`
+  );
+
+  // Step punch pose and verify RightUpperArm quaternion changes significantly
+  for (let i = 0; i < 15; i++) {
+    anim3D.updateRigPose(sultanRig, 'action_sultan', 'punch', 0.2, 1 / 60, 1, 0);
+  }
+  const punchQuatArm = rArmNode.rotationQuaternion.clone();
+  const armQuatDelta =
+    Math.abs(punchQuatArm.x - idleQuatArm.x) +
+    Math.abs(punchQuatArm.y - idleQuatArm.y) +
+    Math.abs(punchQuatArm.z - idleQuatArm.z) +
+    Math.abs(punchQuatArm.w - idleQuatArm.w);
+  assert.ok(armQuatDelta > 0.1, `RightUpperArm quaternion must articulate during punch (delta=${armQuatDelta})`);
+
+  // Verify CharacterAnimationController (used in Preview) also drives Quaternion bones & SuperShot / SuperMove events
+  const emittedEvents: string[] = [];
+  charAnim.getEventsDispatcher().onEvent((evt) => {
+    emittedEvents.push(`${evt.state}:${evt.frame}:${evt.type}`);
+  });
+
+  for (let f = 0; f <= 36; f++) {
+    charAnim.updateRigPose(
+      sultanRig,
+      'action_sultan',
+      'super_shot',
+      f / 60,
+      1 / 60,
+      1,
+      0
+    );
+  }
+  assert.ok(
+    emittedEvents.includes('super_shot:10:ON_PROJECTILE_RELEASE'),
+    'SuperShot must emit ON_PROJECTILE_RELEASE at frame 10'
+  );
+  assert.ok(
+    emittedEvents.includes('super_shot:14:ON_SPECIAL_IMPACT'),
+    'SuperShot must emit ON_SPECIAL_IMPACT at frame 14'
+  );
+  assert.ok(
+    emittedEvents.includes('super_shot:36:ON_ANIMATION_COMPLETE'),
+    'SuperShot must emit ON_ANIMATION_COMPLETE at frame 36'
+  );
+
+  for (let f = 0; f <= 42; f++) {
+    charAnim.updateRigPose(
+      sultanRig,
+      'action_sultan',
+      'super_move',
+      f / 60,
+      1 / 60,
+      1,
+      0
+    );
+  }
+  assert.ok(
+    emittedEvents.includes('super_move:20:ON_SUPERMOVE_CLIMAX'),
+    'SuperMove must emit ON_SUPERMOVE_CLIMAX at frame 20'
+  );
+  assert.ok(
+    emittedEvents.includes('super_move:42:ON_ANIMATION_COMPLETE'),
+    'SuperMove must emit ON_ANIMATION_COMPLETE at frame 42'
+  );
+
+  // Verify modelTransformNode scale & groundOffset were never overwritten by animation frames
+  assert.equal(sultanRig.modelTransformNode.scaling.y, 1.94);
+  assert.equal(Number(sultanRig.modelTransformNode.position.y.toFixed(3)), 0.969);
+
+  sultanRig.dispose();
+  scene.dispose();
+  engine.dispose();
+});
+
 
 

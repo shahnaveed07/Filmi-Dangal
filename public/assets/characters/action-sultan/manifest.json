@@ -3,10 +3,10 @@
   "characterName": "ACTION SULTAN",
   "inspiration": "Salman Khan-inspired (Configurable Parody Persona)",
   "isPlaceholder": false,
-  "productionStatus": "VISUAL_ONLY",
+  "productionStatus": "STAGE_2_INTEGRATED",
   "format": "glTF 2.0 Binary (.glb)",
   "modelFile": "/assets/characters/action-sultan/model.glb",
-  "note": "Valid visual-only 3D character model. Actual character geometry (3978 vertices, 16332 indices, baseColor texture). glTF skins and humanoid skeleton not yet installed.",
+  "note": "Custom Blender/Mixamo skinned 3D character model (16,332 vertices, 39,402 indices, 1 PBR material with embedded baseColor PNG texture, 1 skin with 65 mixamorig_* joints). Embedded clip 'mixamo_com' is a 2-keyframe static bind pose; runtime drives all 20 resolved humanoid bones via quaternion skeletal animation.",
   "scale": 1.94,
   "groundOffset": 0.969,
   "groundOrigin": [
@@ -15,7 +15,7 @@
     0
   ],
   "forwardOrientation": "+Z",
-  "skeletonStandard": "None (Visual-Only)",
+  "skeletonStandard": "Mixamo 65-Joint Humanoid (mixamorig_*)",
   "bones": [
     "Root",
     "Hips",

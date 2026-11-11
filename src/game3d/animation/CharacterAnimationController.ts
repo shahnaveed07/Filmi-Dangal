@@ -88,19 +88,14 @@ export class CharacterAnimationController {
     meta.lastPreviewAnimState = state;
     meta.lastPreviewAnimStateTimeSec = stateTimeSec;
 
-    // Case 0: Visual-Only imported GLB (valid geometry & textures, no skeleton/skinning)
-    if ((rig.isVisualOnly || rig.renderState === 'VISUAL_ONLY') && !rig.productionRigValid) {
-      this.baseAnim.updateVisualOnlyPresentation(
-        rig,
-        characterId,
-        state,
-        stateTimeSec,
-        dt
-      );
-      return eventPayload;
-    }
+    // Priority 1: Play imported Blender/GLB AnimationGroup if available & genuinely animated
+    const hasEmbeddedController = Boolean(
+      !rig.isPlaceholderAsset &&
+        rig.glbAnimationController &&
+        rig.glbAnimationController.getClipCount() > 0
+    );
 
-    if (!rig.isPlaceholderAsset && rig.productionRigValid) {
+    if (hasEmbeddedController) {
       const standardClipId = mapStateToStandardClipId(state);
       const animSpeed = manifest?.animationSpeed || 1.0;
       const played =
@@ -127,44 +122,44 @@ export class CharacterAnimationController {
           rig.diagnostics.warnings.push(msg);
         }
       }
-
-      if (!hasCompatibleProceduralBones(rig.bones)) {
-        return eventPayload;
-      }
+    } else if (!rig.isPlaceholderAsset) {
+      rig.glbAnimationController?.stopAll();
     }
 
-    if (!rig.bones || Object.keys(rig.bones).length === 0) {
+    // Priority 2: Procedural skeletal bone fallback on resolved humanoid bones
+    const canDriveBones =
+      rig.canUseProceduralBoneFallback ||
+      hasCompatibleProceduralBones(rig.bones);
+
+    if (canDriveBones && rig.bones && Object.keys(rig.bones).length > 0) {
+      const pose = this.computeTargetPose(
+        characterId,
+        state,
+        stateTimeSec,
+        heightScale,
+        zVelocity,
+        eventPayload
+      );
+
+      const blendSpeed = Math.min(1, dt * 18);
+      this.baseAnim.applyProceduralPoseToRigBones(
+        rig,
+        pose,
+        heightScale,
+        blendSpeed
+      );
       return eventPayload;
     }
 
-    const pose = this.computeTargetPose(
-      characterId,
-      state,
-      stateTimeSec,
-      heightScale,
-      zVelocity,
-      eventPayload
-    );
-
-    const blendSpeed = Math.min(1, dt * 18);
-
-    for (const [boneName, target] of Object.entries(pose)) {
-      const node = rig.bones[boneName];
-      if (!node) continue;
-
-      node.rotation.x = lerp(node.rotation.x, target.rx, blendSpeed);
-      node.rotation.y = lerp(node.rotation.y, target.ry, blendSpeed);
-      node.rotation.z = lerp(node.rotation.z, target.rz, blendSpeed);
-
-      if (target.px !== undefined) {
-        node.position.x = lerp(node.position.x, target.px, blendSpeed);
-      }
-      if (target.py !== undefined) {
-        node.position.y = lerp(node.position.y, target.py, blendSpeed);
-      }
-      if (target.pz !== undefined) {
-        node.position.z = lerp(node.position.z, target.pz, blendSpeed);
-      }
+    // Priority 3: Safe visual presentation (only if neither imported animations nor procedural bones are available)
+    if (rig.isVisualOnly || rig.renderState === 'VISUAL_ONLY') {
+      this.baseAnim.updateVisualOnlyPresentation(
+        rig,
+        characterId,
+        state,
+        stateTimeSec,
+        dt
+      );
     }
 
     return eventPayload;
