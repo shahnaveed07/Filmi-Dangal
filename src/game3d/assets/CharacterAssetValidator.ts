@@ -208,7 +208,11 @@ export function stripBoneNamespacePrefix(rawName: string): string {
   const pipeIdx = rawName.lastIndexOf('|');
   const afterPipe = pipeIdx >= 0 ? rawName.slice(pipeIdx + 1) : rawName;
   const colonIdx = afterPipe.lastIndexOf(':');
-  return colonIdx >= 0 ? afterPipe.slice(colonIdx + 1) : afterPipe;
+  const afterColon = colonIdx >= 0 ? afterPipe.slice(colonIdx + 1) : afterPipe;
+  if (afterColon.startsWith('mixamorig_')) {
+    return afterColon.slice(10);
+  }
+  return afterColon;
 }
 
 export function doesNodeSetContainBone(
@@ -510,7 +514,10 @@ export class CharacterAssetValidator {
         (n) =>
           n.name === 'Root' ||
           n.name === 'Armature' ||
-          stripBoneNamespacePrefix(n.name || '') === 'Root'
+          n.name === 'FBX_Root' ||
+          n.name === 'empty_1' ||
+          stripBoneNamespacePrefix(n.name || '') === 'Root' ||
+          stripBoneNamespacePrefix(n.name || '') === 'Hips'
       );
       const groundOriginVerified = Boolean(
         rootNode &&

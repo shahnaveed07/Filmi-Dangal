@@ -1685,6 +1685,18 @@ export class CharacterAssetLoader {
           importedTransformNodes = result.transformNodes || [];
           importedSkeletons = result.skeletons || [];
           importedAnimGroups = result.animationGroups || [];
+
+          // Neutralize FBX/Blender 0.01 unit-mismatch scale on imported root containers
+          // (e.g. Three.js GLTFExporter wrapping Mixamo FBX in FBX_Root scaled to 0.01 while vertices/bones are in meters)
+          for (const tn of importedTransformNodes) {
+            if (
+              tn &&
+              (tn.name === 'FBX_Root' || tn.name.includes('FBX_Root')) &&
+              Math.abs(tn.scaling.x - 0.01) < 1e-4
+            ) {
+              tn.scaling.setAll(1.0);
+            }
+          }
           break;
         }
       } catch (err) {
@@ -1916,6 +1928,16 @@ export class CharacterAssetLoader {
         const hasVerts = m.getTotalVertices() > 0;
         m.isVisible = hasVerts;
         m.receiveShadows = hasVerts;
+        m.alwaysSelectAsActiveMesh = true;
+        m.computeWorldMatrix(true);
+        m.refreshBoundingInfo(true);
+        if (m.material) {
+          m.material.backFaceCulling = false;
+          if (m.material instanceof PBRMaterial) {
+            m.material.alpha = 1.0;
+            m.material.transparencyMode = Material.MATERIAL_OPAQUE;
+          }
+        }
         if (shadowGenerator && hasVerts) {
           shadowGenerator.addShadowCaster(m);
         }
@@ -2050,6 +2072,16 @@ export class CharacterAssetLoader {
       const hasVerts = m.getTotalVertices() > 0;
       m.isVisible = hasVerts;
       m.receiveShadows = hasVerts;
+      m.alwaysSelectAsActiveMesh = true;
+      m.computeWorldMatrix(true);
+      m.refreshBoundingInfo(true);
+      if (m.material) {
+        m.material.backFaceCulling = false;
+        if (m.material instanceof PBRMaterial) {
+          m.material.alpha = 1.0;
+          m.material.transparencyMode = Material.MATERIAL_OPAQUE;
+        }
+      }
       if (shadowGenerator && hasVerts) {
         shadowGenerator.addShadowCaster(m);
       }

@@ -182,14 +182,14 @@ export class CharacterPreviewScene {
     this.scene.clearColor = new Color4(0.06, 0.05, 0.11, 1);
     this.vfxManager = new VFXManager3D(this.scene);
 
-    // Centered full-body framing that prevents clipping head (Y~2.1) or pedestal feet (Y~-0.14)
+    // Centered full-body framing that frames head (Y~1.92) to pedestal feet (Y~0)
     this.camera = new UniversalCamera(
       'previewCam',
-      new Vector3(0, 1.15, -3.85),
+      new Vector3(0, 0.96, -3.6),
       this.scene
     );
-    this.camera.fov = 0.64;
-    this.camera.setTarget(new Vector3(0, 1.02, 0));
+    this.camera.fov = 0.72;
+    this.camera.setTarget(new Vector3(0, 0.96, 0));
 
     const hemi = new HemisphericLight('prevHemi', new Vector3(0, 1, 0), this.scene);
     hemi.intensity = 0.98;

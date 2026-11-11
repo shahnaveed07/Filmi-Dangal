@@ -146,7 +146,7 @@ export function validateGLBBuffer(
   buffer: Uint8Array
 ): GLBAssetValidationResult {
   const report = CharacterAssetValidator.validateGLBBuffer(buffer, characterId);
-  const renderState: CharacterRenderState = report.productionReady
+  const renderState: CharacterRenderState = (report.productionReady || report.productionRigValid)
     ? 'PRODUCTION_SKINNED'
     : report.isVisualOnly
     ? 'VISUAL_ONLY'
@@ -155,7 +155,11 @@ export function validateGLBBuffer(
     : 'LOAD_FAILED';
 
   return {
-    valid: report.glbFileValid && (report.missingHumanoidBones.length === 0 || report.isVisualOnly),
+    valid:
+      report.glbFileValid &&
+      (report.missingHumanoidBones.length === 0 ||
+        report.isVisualOnly ||
+        report.productionRigValid),
     glbFileValid: report.glbFileValid,
     productionRigValid: report.productionRigValid,
     animationValid: report.animationValid,

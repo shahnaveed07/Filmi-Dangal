@@ -182,7 +182,7 @@ export class AnimationController3D {
   ): void {
     if (!rig.modelTransformNode) return;
     const manifest = getCharacterAssetConfig(characterId);
-    const baseGroundOffset = manifest?.groundOffset ?? 0.969;
+    const baseGroundOffset = manifest?.groundOffset ?? 0.0;
     const baseScale = manifest?.scale ?? 1.94;
 
     // Maintain base scale
