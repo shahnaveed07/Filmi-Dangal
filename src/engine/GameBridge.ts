@@ -224,7 +224,7 @@ export class GameBridge {
   }
 
   public cycleTrainingDummyBehavior(): TrainingDummyBehavior {
-    const order: TrainingDummyBehavior[] = ['stand', 'crouch', 'block', 'jump', 'cpu_spar'];
+    const order: TrainingDummyBehavior[] = ['stand', 'block', 'crouch', 'jump', 'cpu_spar'];
     const idx = order.indexOf(this.trainingDummyBehavior);
     this.trainingDummyBehavior = order[(idx + 1) % order.length];
     return this.trainingDummyBehavior;

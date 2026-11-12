@@ -861,6 +861,7 @@ export function buildTemporaryPlaceholderHumanoidRig(
   sockets: Record<BoneAttachmentName, TransformNode>;
   meshes: Mesh[];
   originalMaterials: Map<Mesh, PBRMaterial>;
+  allCreatedMaterials: PBRMaterial[];
   meshMinLod: Map<Mesh, 0 | 1 | 2>;
   grayboxBodyMat: PBRMaterial;
   grayboxJointMat: PBRMaterial;
@@ -1625,11 +1626,26 @@ export function buildTemporaryPlaceholderHumanoidRig(
     Projectile: bChest,
   };
 
+  const allCreatedMaterials: PBRMaterial[] = [
+    skinMat,
+    primaryMat,
+    secondaryMat,
+    accentMat,
+    hairMat,
+    darkMat,
+    grayboxBodyMat,
+    grayboxJointMat,
+    pantsMat,
+    eyeWhiteMat,
+    pupilMat,
+  ];
+
   return {
     bones,
     sockets,
     meshes,
     originalMaterials,
+    allCreatedMaterials,
     meshMinLod,
     grayboxBodyMat,
     grayboxJointMat,
@@ -1945,7 +1961,8 @@ export class CharacterAssetLoader {
     for (const candidatePath of attemptedPaths) {
       try {
         let rootUrl = '';
-        let sceneFilename = candidatePath;
+        let sceneFilename: string | Uint8Array = candidatePath;
+        let pluginExtension: string | undefined = undefined;
 
         if (typeof window === 'undefined') {
           try {
@@ -1955,18 +1972,28 @@ export class CharacterAssetLoader {
               rootUrl = '';
               sceneFilename = candidatePath;
             } else {
-              const localRel = candidatePath.replace(/^\//, '');
-              const localCandidates = [
-                path.resolve(process.cwd(), 'public', localRel),
-                path.resolve(process.cwd(), localRel),
-              ];
-              for (const loc of localCandidates) {
-                if (fs.existsSync(loc)) {
-                  const buf = fs.readFileSync(loc);
-                  rootUrl = '';
-                  sceneFilename = 'data:model/gltf-binary;base64,' + buf.toString('base64');
-                  break;
+              const globalCache = ((globalThis as Record<string, unknown>).__FIGHT_FUN_GLB_CACHE ??=
+                new Map<string, Uint8Array>()) as Map<string, Uint8Array>;
+              let cachedBytes = globalCache.get(candidatePath);
+              if (!cachedBytes) {
+                const localRel = candidatePath.replace(/^\//, '');
+                const localCandidates = [
+                  path.resolve(process.cwd(), 'public', localRel),
+                  path.resolve(process.cwd(), localRel),
+                ];
+                for (const loc of localCandidates) {
+                  if (fs.existsSync(loc)) {
+                    const buf = fs.readFileSync(loc);
+                    cachedBytes = new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength);
+                    globalCache.set(candidatePath, cachedBytes);
+                    break;
+                  }
                 }
+              }
+              if (cachedBytes) {
+                rootUrl = '';
+                sceneFilename = cachedBytes;
+                pluginExtension = '.glb';
               }
             }
           } catch {
@@ -1974,14 +2001,21 @@ export class CharacterAssetLoader {
           }
         }
 
-        if (!sceneFilename.startsWith('data:')) {
+        if (typeof sceneFilename === 'string' && !sceneFilename.startsWith('data:')) {
           const lastSlash = candidatePath.lastIndexOf('/');
           rootUrl = candidatePath.substring(0, lastSlash + 1);
           sceneFilename = candidatePath.substring(lastSlash + 1);
         }
 
         const matsBeforeImport = new Set<Material>(scene.materials);
-        const result = await SceneLoader.ImportMeshAsync('', rootUrl, sceneFilename, scene);
+        const result = await SceneLoader.ImportMeshAsync(
+          '',
+          rootUrl,
+          sceneFilename,
+          scene,
+          null,
+          pluginExtension
+        );
         for (const mat of scene.materials) {
           if (!matsBeforeImport.has(mat)) {
             newlyCreatedSceneMaterials.add(mat);
@@ -2274,9 +2308,10 @@ export class CharacterAssetLoader {
         setRenderMode,
         setLODLevel,
         dispose: () => {
-          const uniqueMats = new Set(placeholder.originalMaterials.values());
-          uniqueMats.add(placeholder.grayboxBodyMat);
-          uniqueMats.add(placeholder.grayboxJointMat);
+          const uniqueMats = new Set<Material>(placeholder.allCreatedMaterials);
+          for (const mat of placeholder.originalMaterials.values()) {
+            uniqueMats.add(mat);
+          }
           rootNode.dispose();
           for (const mat of uniqueMats) {
             mat.dispose();

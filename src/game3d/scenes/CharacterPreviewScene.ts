@@ -323,8 +323,9 @@ export class CharacterPreviewScene {
     let lastTime = performance.now();
     let turntableAngle = 0;
 
-    this.engine.runRenderLoop(() => {
-      if (this.isDisposed) return;
+    if (canvas) {
+      this.engine.runRenderLoop(() => {
+        if (this.isDisposed) return;
       const now = performance.now();
       const dt = Math.min(0.05, Math.max(0.001, (now - lastTime) / 1000));
       lastTime = now;
@@ -428,7 +429,8 @@ export class CharacterPreviewScene {
       outerRing.rotation.y -= dt * 0.5;
       this.vfxManager.syncProjectiles([], dt);
       this.scene.render();
-    });
+      });
+    }
 
     this.boundResize = () => {
       if (!this.isDisposed) this.engine.resize();
@@ -483,6 +485,10 @@ export class CharacterPreviewScene {
     this.shockMat.emissiveColor = Color3.FromHexString(charDef.visuals.primaryColor).scale(0.95);
 
     try {
+      await Promise.resolve();
+      if (this.isDisposed || token !== this.loadToken) {
+        return null;
+      }
       const rig = await loadCharacterRig3D(this.scene, charDef, `preview_${token}`, null);
       if (this.isDisposed || token !== this.loadToken) {
         rig.dispose();
@@ -588,6 +594,7 @@ export class CharacterPreviewScene {
     if (this.isDisposed) return;
     this.isDisposed = true;
     this.loadToken++;
+    this.engine.stopRenderLoop();
     if (typeof window !== 'undefined') {
       window.removeEventListener('resize', this.boundResize);
     }
