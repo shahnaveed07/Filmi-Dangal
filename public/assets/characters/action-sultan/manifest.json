@@ -1,95 +1,101 @@
 {
   "characterId": "action_sultan",
-  "characterName": "ACTION SULTAN",
-  "inspiration": "Salman Khan-inspired (Configurable Parody Persona)",
-  "isPlaceholder": false,
-  "productionStatus": "STAGE_2_INTEGRATED",
+  "slug": "action-sultan",
+  "displayName": "Action Sultan",
+  "realLifeInspiration": "Salman Khan",
+  "modelPath": "/assets/characters/action-sultan/model.glb",
   "format": "glTF 2.0 Binary (.glb)",
-  "modelFile": "/assets/characters/action-sultan/model.glb",
-  "note": "Custom Blender/Mixamo skinned 3D character model (16,332 vertices, 39,402 indices, 1 PBR material with embedded baseColor PNG texture, 1 skin with 65 mixamorig_* joints). Embedded clip 'mixamo_com' is a 2-keyframe static bind pose; runtime drives all 20 resolved humanoid bones via quaternion skeletal animation.",
+  "version": "3.0.0",
+  "assetStatus": "PRODUCTION_SKINNED",
+  "renderState": "PRODUCTION_SKINNED",
+  "isPlaceholder": false,
+  "isTemporaryPlaceholder": false,
+  "productionReady": false,
+  "productionRigValid": true,
+  "skinningValid": true,
+  "animationValid": false,
+  "note": "Production skinned 3D character mesh (Ch33 Mixamo rig: 16,133 vertices, 24,522 triangles, 1 skin with 52 Mixamo joints, 1 PBR material 'Material.001' with embedded JPEG diffuse and PNG normal maps). The GLB contains only 1 static bind-pose clip ('mixamo_com'), which is automatically excluded at runtime so all 15 combat states and signature specials run via quaternion-safe procedural bone animation on the 52-bone Mixamo skeleton.",
   "scale": 1.94,
   "groundOffset": 0.969,
-  "groundOrigin": [
-    0,
-    0,
-    0
-  ],
-  "forwardOrientation": "+Z",
-  "skeletonStandard": "Mixamo 65-Joint Humanoid (mixamorig_*)",
-  "bones": [
-    "Root",
-    "Hips",
-    "Spine",
-    "Chest",
-    "Neck",
-    "Head",
-    "Hair",
-    "Jaw",
-    "LeftBrow",
-    "RightBrow",
-    "LeftEyelid",
-    "RightEyelid",
-    "LeftShoulder",
-    "LeftUpperArm",
-    "LeftForeArm",
-    "LeftHand",
-    "RightShoulder",
-    "RightUpperArm",
-    "RightForeArm",
-    "RightHand",
-    "LeftUpLeg",
-    "LeftLeg",
-    "LeftFoot",
-    "RightUpLeg",
-    "RightLeg",
-    "RightFoot"
-  ],
-  "facialRigNodes": [
-    "Jaw",
-    "LeftBrow",
-    "RightBrow",
-    "LeftEyelid",
-    "RightEyelid"
-  ],
-  "lodLevels": [
-    "LOD0_High",
-    "LOD1_Medium",
-    "LOD2_Low"
-  ],
-  "materials": [
-    "action_sultan_Pants_PBR",
-    "action_sultan_Costume_Primary_PBR",
-    "action_sultan_Skin_Subsurface_PBR",
-    "action_sultan_Hair_And_Boots_PBR",
-    "action_sultan_Signature_Accessory_PBR"
-  ],
-  "specialAttacks": {
-    "superShot": {
-      "name": "BLACKBUCK GUNSHOT",
-      "animationClip": "Anim_AS_SuperShot_BlackbuckGunshot"
-    },
-    "superMove": {
-      "name": "SULTAN BREAKER",
-      "animationClip": "Anim_AS_SuperMove_SultanBreaker"
+  "forwardAxis": "+Z",
+  "skeleton": {
+    "skinName": "Armature",
+    "jointCount": 52,
+    "canonicalHumanoidBonesResolved": 20,
+    "bonePrefix": "mixamorig:",
+    "boneAliases": {
+      "Root": ["FBX_Root", "Armature", "Root", "mixamorig:Hips"],
+      "Hips": ["mixamorig:Hips", "Hips"],
+      "Spine": ["mixamorig:Spine", "Spine"],
+      "Chest": ["mixamorig:Spine2", "mixamorig:Spine1", "Chest"],
+      "Neck": ["mixamorig:Neck", "Neck"],
+      "Head": ["mixamorig:Head", "Head"],
+      "LeftShoulder": ["mixamorig:LeftShoulder", "LeftShoulder"],
+      "LeftUpperArm": ["mixamorig:LeftArm", "LeftUpperArm"],
+      "LeftForeArm": ["mixamorig:LeftForeArm", "LeftForeArm", "LeftLowerArm"],
+      "LeftHand": ["mixamorig:LeftHand", "LeftHand"],
+      "RightShoulder": ["mixamorig:RightShoulder", "RightShoulder"],
+      "RightUpperArm": ["mixamorig:RightArm", "RightUpperArm"],
+      "RightForeArm": ["mixamorig:RightForeArm", "RightForeArm", "RightLowerArm"],
+      "RightHand": ["mixamorig:RightHand", "RightHand"],
+      "LeftUpLeg": ["mixamorig:LeftUpLeg", "LeftUpLeg", "LeftUpperLeg"],
+      "LeftLeg": ["mixamorig:LeftLeg", "LeftLeg", "LeftLowerLeg"],
+      "LeftFoot": ["mixamorig:LeftFoot", "LeftFoot"],
+      "RightUpLeg": ["mixamorig:RightUpLeg", "RightUpLeg", "RightUpperLeg"],
+      "RightLeg": ["mixamorig:RightLeg", "RightLeg", "RightLowerLeg"],
+      "RightFoot": ["mixamorig:RightFoot", "RightFoot"]
     }
   },
-  "documentedAnimations": [
-    "Idle",
-    "Walk",
-    "Run",
-    "Jump",
-    "Crouch",
-    "Block",
-    "Punch",
-    "Kick",
-    "Grab",
-    "HitReaction",
-    "Knockback",
-    "Knockdown",
-    "Recovery",
-    "Victory",
-    "Defeat",
-    "Anim_AS_SuperShot_BlackbuckGunshot",
-    "Anim_AS_SuperMove_SultanBreaker"
-  ]
+  "materials": [
+    {
+      "name": "Material.001",
+      "type": "pbrMetallicRoughness",
+      "embeddedTextures": ["diffuse_baseColor (image/jpeg)", "normalMap (image/png)"]
+    }
+  ],
+  "animations": {
+    "embeddedAnimations": ["mixamo_com"],
+    "staticPoseClipsExcludedAtRuntime": ["mixamo_com"],
+    "canPlayImportedAnimations": false,
+    "canUseProceduralBoneFallback": true,
+    "embeddedAnimationNote": "Do not assume standard combat clips are embedded in action-sultan/model.glb. Only 'mixamo_com' (a static bind-pose clip) is embedded in the binary GLB; all combat and special animations execute via CharacterAnimationController procedural bone poses.",
+    "proceduralFallbackAnimations": [
+      "Idle",
+      "Walk",
+      "Run",
+      "Jump",
+      "Landing",
+      "Crouch",
+      "Block",
+      "Punch",
+      "Kick",
+      "HitReact",
+      "Knockout",
+      "Victory",
+      "Defeat",
+      "Anim_AS_SuperShot_BlackbuckGunshot",
+      "Anim_AS_SuperMove_SultanBreaker"
+    ],
+    "specialAttackAnimations": {
+      "superShot": {
+        "title": "BLACKBUCK GUNSHOT",
+        "clipName": "Anim_AS_SuperShot_BlackbuckGunshot",
+        "executionMode": "PROCEDURAL_BONE_FALLBACK",
+        "embeddedInGlb": false,
+        "chargeStartFrame": 5,
+        "projectileReleaseFrame": 12,
+        "specialImpactFrame": 18,
+        "animationCompleteFrame": 34
+      },
+      "superMove": {
+        "title": "SULTAN BREAKER",
+        "clipName": "Anim_AS_SuperMove_SultanBreaker",
+        "executionMode": "PROCEDURAL_BONE_FALLBACK",
+        "embeddedInGlb": false,
+        "chargeStartFrame": 8,
+        "climaxImpactFrame": 22,
+        "animationCompleteFrame": 48
+      }
+    }
+  }
 }

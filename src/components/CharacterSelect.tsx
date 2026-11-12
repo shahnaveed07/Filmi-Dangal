@@ -4,7 +4,10 @@ import { Difficulty, FighterId, TrainingDummyBehavior } from '../types/fighter';
 import { GameBridge } from '../engine/GameBridge';
 import { AudioManager } from '../engine/AudioManager';
 import { CharacterPreview3D } from '../game3d/scenes/CharacterPreview3D';
-import { getCharacterMonogram } from '../game3d/characters/CharacterRoster3D';
+import {
+  applyFighterSelection,
+  getCharacterMonogram,
+} from '../game3d/characters/CharacterRoster3D';
 import { getCharacterAssetConfig } from '../config/characterAssets';
 import { ArrowLeft, Swords, Sparkles, Crosshair, Flame, Dumbbell } from 'lucide-react';
 
@@ -36,31 +39,11 @@ export const CharacterSelect: React.FC<CharacterSelectProps> = ({ onBack, onProc
 
   const handleSelectFighter = (id: FighterId) => {
     audio.playSound('click');
-    if (selectingFor === 'p1') {
-      const prevP1 = p1Id;
-      setP1Id(id);
-      bridge.p1CharacterId = id;
-      if (p2Id === id) {
-        const replacement =
-          prevP1 !== id
-            ? prevP1
-            : CHARACTER_LIST.find((c) => c.id !== id)!.id;
-        setP2Id(replacement);
-        bridge.p2CharacterId = replacement;
-      }
-    } else {
-      const prevP2 = p2Id;
-      setP2Id(id);
-      bridge.p2CharacterId = id;
-      if (p1Id === id) {
-        const replacement =
-          prevP2 !== id
-            ? prevP2
-            : CHARACTER_LIST.find((c) => c.id !== id)!.id;
-        setP1Id(replacement);
-        bridge.p1CharacterId = replacement;
-      }
-    }
+    const next = applyFighterSelection({ p1Id, p2Id, selectingFor }, id);
+    setP1Id(next.p1Id);
+    setP2Id(next.p2Id);
+    bridge.p1CharacterId = next.p1Id;
+    bridge.p2CharacterId = next.p2Id;
   };
 
   const handleDifficultyChange = (diff: Difficulty) => {
@@ -82,7 +65,13 @@ export const CharacterSelect: React.FC<CharacterSelectProps> = ({ onBack, onProc
   };
 
   return (
-    <div className="relative w-full h-full min-h-screen bg-[#10111B] flex flex-col justify-between p-2.5 sm:p-5 select-none overflow-y-auto">
+    <div
+      data-testid="character-select-screen"
+      data-p1-id={p1Id}
+      data-p2-id={p2Id}
+      data-selecting-for={selectingFor}
+      className="relative w-full h-full min-h-screen bg-[#10111B] flex flex-col justify-between p-2.5 sm:p-5 select-none overflow-y-auto"
+    >
       {/* TOP HEADER */}
       <div className="w-full max-w-6xl mx-auto flex flex-wrap items-center justify-between gap-2 border-b border-[#D6A447]/30 pb-2.5">
         <button
@@ -155,6 +144,7 @@ export const CharacterSelect: React.FC<CharacterSelectProps> = ({ onBack, onProc
           {/* PLAYER 1 vs OPPONENT SELECTOR TOGGLE */}
           <div className="flex gap-2">
             <button
+              data-testid="select-slot-p1"
               onClick={() => setSelectingFor('p1')}
               className={`flex-1 py-2 px-3 rounded font-['Rajdhani'] font-black text-xs sm:text-sm tracking-wider uppercase border-2 transition-all cursor-pointer ${
                 selectingFor === 'p1'
@@ -166,6 +156,7 @@ export const CharacterSelect: React.FC<CharacterSelectProps> = ({ onBack, onProc
             </button>
 
             <button
+              data-testid="select-slot-p2"
               onClick={() => setSelectingFor('p2')}
               className={`flex-1 py-2 px-3 rounded font-['Rajdhani'] font-black text-xs sm:text-sm tracking-wider uppercase border-2 transition-all cursor-pointer ${
                 selectingFor === 'p2'
@@ -187,6 +178,10 @@ export const CharacterSelect: React.FC<CharacterSelectProps> = ({ onBack, onProc
               return (
                 <button
                   key={char.id}
+                  data-testid={`fighter-card-${char.id}`}
+                  data-fighter-id={char.id}
+                  data-selected-p1={isP1}
+                  data-selected-p2={isP2}
                   onClick={() => handleSelectFighter(char.id)}
                   className={`relative p-2.5 sm:p-3 rounded-lg border-2 text-left transition-all cursor-pointer overflow-hidden group ${
                     isCurrent

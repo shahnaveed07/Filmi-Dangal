@@ -48,6 +48,8 @@ export const CharacterPreview3D: React.FC<CharacterPreview3DProps> = ({
   const assetConfig = getCharacterAssetConfig(characterId);
   const audio = AudioManager.getInstance();
 
+  const prevCharacterIdRef = useRef<FighterId>(characterId);
+
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -60,7 +62,7 @@ export const CharacterPreview3D: React.FC<CharacterPreview3DProps> = ({
       characterId,
       (snap) => {
         const now = performance.now();
-        if (now - lastTelemetryRef.current > 90) {
+        if (!snap.isLoading || now - lastTelemetryRef.current > 90) {
           lastTelemetryRef.current = now;
           setTelemetry(snap);
         }
@@ -78,6 +80,11 @@ export const CharacterPreview3D: React.FC<CharacterPreview3DProps> = ({
   }, []);
 
   useEffect(() => {
+    if (prevCharacterIdRef.current === characterId) {
+      return;
+    }
+    prevCharacterIdRef.current = characterId;
+
     // Cancel any pending audio timers from previous character before loading new character
     audioTimerMgrRef.current.setCharacterId(characterId);
     audioTimerMgrRef.current.clearAll();
@@ -127,17 +134,26 @@ export const CharacterPreview3D: React.FC<CharacterPreview3DProps> = ({
     sceneControllerRef.current?.setLODLevel(next);
   };
 
+  const matchingTelemetry =
+    telemetry && telemetry.characterId === characterId ? telemetry : null;
+
   const renderState =
-    telemetry?.renderState ||
-    telemetry?.diagnostics?.renderState ||
-    (telemetry?.isVisualOnly || (!assetConfig.isTemporaryPlaceholder && telemetry?.glbLoaded)
-      ? 'VISUAL_ONLY'
-      : telemetry?.loadError
+    matchingTelemetry?.renderState ||
+    matchingTelemetry?.diagnostics?.renderState ||
+    (matchingTelemetry?.loadError
       ? 'LOAD_FAILED'
-      : 'TEMPORARY_PLACEHOLDER');
+      : assetConfig.isTemporaryPlaceholder
+      ? 'TEMPORARY_PLACEHOLDER'
+      : 'PRODUCTION_SKINNED');
 
   return (
-    <div className="relative w-full h-48 sm:h-60 rounded-lg overflow-hidden border border-[#D6A447]/60 bg-[#0D0B18] shadow-inner">
+    <div
+      data-testid="character-preview-3d-container"
+      data-preview-character-id={characterId}
+      data-loaded-rig-id={matchingTelemetry?.characterId ?? ''}
+      data-render-state={renderState}
+      className="relative w-full h-48 sm:h-60 rounded-lg overflow-hidden border border-[#D6A447]/60 bg-[#0D0B18] shadow-inner"
+    >
       <canvas
         ref={canvasRef}
         data-testid="character-preview-3d-canvas"
@@ -148,7 +164,7 @@ export const CharacterPreview3D: React.FC<CharacterPreview3DProps> = ({
 
       {/* TOP LEFT: ASSET PIPELINE STATUS & ANIMATION TELEMETRY */}
       <div className="absolute top-1.5 left-1.5 flex flex-wrap items-center gap-1 pointer-events-none">
-        {telemetry?.isLoading && (
+        {(!matchingTelemetry || matchingTelemetry.isLoading) && (
           <div className="px-1.5 py-0.5 rounded border text-[8px] font-mono uppercase tracking-wider bg-sky-950/90 border-sky-400/70 text-sky-200">
             LOADING 3D RIG...
           </div>
@@ -164,8 +180,11 @@ export const CharacterPreview3D: React.FC<CharacterPreview3DProps> = ({
           >
             VISUAL-ONLY MODEL ACTIVE · NO SKELETON
           </div>
-        ) : renderState === 'LOAD_FAILED' || telemetry?.loadError ? (
-          <div className="px-1.5 py-0.5 rounded border text-[8px] font-mono uppercase tracking-wider bg-rose-950/90 border-rose-400/70 text-rose-200">
+        ) : renderState === 'LOAD_FAILED' || matchingTelemetry?.loadError ? (
+          <div
+            title={matchingTelemetry?.loadError || 'Failed to load GLB model; procedural fallback rig active'}
+            className="px-1.5 py-0.5 rounded border text-[8px] font-mono uppercase tracking-wider bg-rose-950/90 border-rose-400/70 text-rose-200"
+          >
             LOAD FAILED · FALLBACK RIG ACTIVE
           </div>
         ) : (
@@ -176,10 +195,10 @@ export const CharacterPreview3D: React.FC<CharacterPreview3DProps> = ({
             TEMPORARY PLACEHOLDER · PRODUCTION MODEL NOT INSTALLED
           </div>
         )}
-        {telemetry && (
+        {matchingTelemetry && (
           <div className="px-1.5 py-0.5 rounded bg-black/80 border border-white/15 text-[8px] font-mono text-[#E2E8F0] flex items-center gap-1">
-            <span>{telemetry.activeClipName}</span>
-            <span className="text-[#F59E0B]">{telemetry.phase}</span>
+            <span>{matchingTelemetry.activeClipName}</span>
+            <span className="text-[#F59E0B]">{matchingTelemetry.phase}</span>
           </div>
         )}
       </div>

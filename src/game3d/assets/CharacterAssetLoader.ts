@@ -1853,7 +1853,11 @@ export class CharacterAssetLoader {
     scene: Scene,
     charDef: CharacterDef,
     instancePrefix: string,
-    shadowGenerator?: ShadowGenerator | null
+    shadowGenerator?: ShadowGenerator | null,
+    options?: {
+      modelPathOverride?: string;
+      isTemporaryPlaceholderOverride?: boolean;
+    }
   ): Promise<{
     rootNode: TransformNode;
     facingNode: TransformNode;
@@ -1872,17 +1876,25 @@ export class CharacterAssetLoader {
     setLODLevel: (level: 0 | 1 | 2) => void;
     dispose: () => void;
   }> {
-    const manifest = getCharacterAssetConfig(charDef.id);
+    const baseManifest = getCharacterAssetConfig(charDef.id);
+    const manifest: CharacterAssetConfig = {
+      ...baseManifest,
+      modelPath: options?.modelPathOverride ?? baseManifest.modelPath,
+      isTemporaryPlaceholder:
+        options?.isTemporaryPlaceholderOverride ?? baseManifest.isTemporaryPlaceholder,
+    };
     const warnings: string[] = [];
     const errors: string[] = [];
     const attemptedPaths = [manifest.modelPath];
     if (
+      !options?.modelPathOverride &&
       manifest.legacyModelPath &&
       manifest.legacyModelPath !== manifest.modelPath
     ) {
       attemptedPaths.push(manifest.legacyModelPath);
     }
     if (
+      !options?.modelPathOverride &&
       charDef.visuals.glbModelPath &&
       !attemptedPaths.includes(charDef.visuals.glbModelPath)
     ) {
@@ -1938,17 +1950,22 @@ export class CharacterAssetLoader {
           try {
             const fs = await import('node:fs');
             const path = await import('node:path');
-            const localRel = candidatePath.replace(/^\//, '');
-            const localCandidates = [
-              path.resolve(process.cwd(), 'public', localRel),
-              path.resolve(process.cwd(), localRel),
-            ];
-            for (const loc of localCandidates) {
-              if (fs.existsSync(loc)) {
-                const buf = fs.readFileSync(loc);
-                rootUrl = '';
-                sceneFilename = 'data:model/gltf-binary;base64,' + buf.toString('base64');
-                break;
+            if (candidatePath.startsWith('data:')) {
+              rootUrl = '';
+              sceneFilename = candidatePath;
+            } else {
+              const localRel = candidatePath.replace(/^\//, '');
+              const localCandidates = [
+                path.resolve(process.cwd(), 'public', localRel),
+                path.resolve(process.cwd(), localRel),
+              ];
+              for (const loc of localCandidates) {
+                if (fs.existsSync(loc)) {
+                  const buf = fs.readFileSync(loc);
+                  rootUrl = '';
+                  sceneFilename = 'data:model/gltf-binary;base64,' + buf.toString('base64');
+                  break;
+                }
               }
             }
           } catch {
@@ -2025,6 +2042,20 @@ export class CharacterAssetLoader {
       instancePrefix
     );
 
+    // Detect if the imported GLB is a generated 5-box placeholder proxy (LOD0_High/LOD1_Medium/LOD2_Low + 24-vertex boxes + 0 skins)
+    const meshesWithVerts = importedMeshes.filter((m) => m.getTotalVertices() > 0);
+    const isGeneratedBoxPlaceholderProxy =
+      glbLoaded &&
+      boneResolution.allSkeletons.length === 0 &&
+      meshesWithVerts.length > 0 &&
+      meshesWithVerts.every((m) => m.getTotalVertices() === 24) &&
+      importedTransformNodes.some(
+        (tn) =>
+          tn.name === 'LOD0_High' ||
+          tn.name === 'LOD1_Medium' ||
+          tn.name === 'LOD2_Low'
+      );
+
     // Phase 2: Calibrate model scale and groundOffset mathematically from actual unscaled local bounds
     let calibratedScale = manifest.scale;
     let calibratedGroundOffset = manifest.groundOffset;
@@ -2034,7 +2065,8 @@ export class CharacterAssetLoader {
       glbLoaded &&
       hierarchyAttachment.hierarchyValid &&
       !manifest.isTemporaryPlaceholder &&
-      importedMeshes.some((m) => m.getTotalVertices() > 0)
+      !isGeneratedBoxPlaceholderProxy &&
+      meshesWithVerts.length > 0
     ) {
       const calibration = calibrateImportedModelTransform(
         rootNode,
@@ -2068,15 +2100,24 @@ export class CharacterAssetLoader {
       dimensions: importedDimensions,
     });
 
+    if (isGeneratedBoxPlaceholderProxy && !manifest.isTemporaryPlaceholder) {
+      eligibility.reasons.unshift(
+        'Imported GLB is a generated box-primitive placeholder proxy, not a production character model'
+      );
+      eligibility.isProductionReady = false;
+    }
+
     const hasValidGeometry =
       glbLoaded &&
       hierarchyAttachment.hierarchyValid &&
-      importedMeshes.some((m) => m.getTotalVertices() > 0);
+      !isGeneratedBoxPlaceholderProxy &&
+      meshesWithVerts.length > 0;
 
     const isProductionSkinned =
       glbLoaded &&
       hierarchyAttachment.hierarchyValid &&
       !manifest.isTemporaryPlaceholder &&
+      !isGeneratedBoxPlaceholderProxy &&
       eligibility.isProductionReady;
 
     const isVisualOnly =

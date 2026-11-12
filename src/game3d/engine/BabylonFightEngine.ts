@@ -4,10 +4,14 @@ import { CHARACTERS } from '../../data/characters';
 import { GameBridge, GameHUDState, MatchLifecycleCommand } from '../../engine/GameBridge';
 import { EMPTY_INPUT_FRAME } from '../../engine/InputManager';
 import { GameSettings, SettingsManager } from '../../engine/SettingsManager';
-import { BoneAttachmentName, InputFrame } from '../../types/fighter';
+import { BoneAttachmentName, CharacterDef, InputFrame } from '../../types/fighter';
 import { AnimationController3D } from '../animation/AnimationController3D';
 import { ArenaBuilder3D, ArenaSceneHandle3D } from '../arenas/ArenaBuilder3D';
-import { CharacterRig3D, loadCharacterRig3D } from '../assets/AssetLoader3D';
+import {
+  buildFallbackCharacterRig3D,
+  CharacterRig3D,
+  loadCharacterRig3D,
+} from '../assets/AssetLoader3D';
 import { AudioManager, AudioManager3D } from '../audio/AudioManager3D';
 import { DynamicFightCamera3D } from '../cameras/DynamicFightCamera3D';
 import { CombatSystem3D } from '../combat/CombatSystem3D';
@@ -48,6 +52,7 @@ export class BabylonFightEngine {
   private p1Rig: CharacterRig3D | null = null;
   private p2Rig: CharacterRig3D | null = null;
   private rigLoadToken = 0;
+  private activeRigLoadPromise: Promise<void> | null = null;
 
   public readonly p1: Fighter3D;
   public readonly p2: Fighter3D;
@@ -130,7 +135,6 @@ export class BabylonFightEngine {
     });
 
     this.applySettingsToEngine(settings);
-    this.loadFighterRigs();
     this.initializeFullMatch();
 
     this.unsubscribeCommand = bridge.subscribeCommand((cmd: MatchLifecycleCommand) => {
@@ -168,6 +172,20 @@ export class BabylonFightEngine {
     this.startLoop();
   }
 
+  public getP1Rig(): CharacterRig3D | null {
+    return this.p1Rig;
+  }
+
+  public getP2Rig(): CharacterRig3D | null {
+    return this.p2Rig;
+  }
+
+  public async waitForFighterRigs(): Promise<void> {
+    if (this.activeRigLoadPromise) {
+      await this.activeRigLoadPromise;
+    }
+  }
+
   private applySettingsToEngine(settings: GameSettings): void {
     this.screenShakeEnabled = settings.screenShake;
 
@@ -200,14 +218,17 @@ export class BabylonFightEngine {
     }
   }
 
-  private async loadFighterRigs(): Promise<void> {
+  private async loadFighterRigs(
+    requestedP1Def?: CharacterDef,
+    requestedP2Def?: CharacterDef
+  ): Promise<void> {
     const loadToken = ++this.rigLoadToken;
     const bridge = GameBridge.getInstance();
-    const p1Def = CHARACTERS[bridge.p1CharacterId] || CHARACTERS.action_sultan;
-    const p2Def = CHARACTERS[bridge.p2CharacterId] || CHARACTERS.romance_raja;
+    const p1Def = requestedP1Def || CHARACTERS[bridge.p1CharacterId] || CHARACTERS.action_sultan;
+    const p2Def = requestedP2Def || CHARACTERS[bridge.p2CharacterId] || CHARACTERS.romance_raja;
 
     const safeLoadRig = async (
-      def: typeof p1Def,
+      def: CharacterDef,
       slotPrefix: string
     ): Promise<CharacterRig3D> => {
       try {
@@ -219,14 +240,15 @@ export class BabylonFightEngine {
         );
       } catch (err) {
         console.warn(
-          `[BabylonFightEngine] Unexpected error loading ${slotPrefix} (${def.id}); retrying procedural fallback:`,
+          `[BabylonFightEngine] Unexpected error loading ${slotPrefix} (${def.id}); building procedural fallback rig for ${def.id}:`,
           err
         );
-        return await loadCharacterRig3D(
+        return await buildFallbackCharacterRig3D(
           this.scene,
-          CHARACTERS.action_sultan,
+          def,
           `${slotPrefix}_fallback_${loadToken}`,
-          this.arenaHandle.shadowGenerator
+          this.arenaHandle.shadowGenerator,
+          err
         );
       }
     };
@@ -261,13 +283,13 @@ export class BabylonFightEngine {
     this.p2Rig = rig2;
 
     this.p1.boneWorldPositionProvider = (bone: BoneAttachmentName) => {
-      if (!this.p1Rig) return null;
+      if (!this.p1Rig || this.p1Rig.characterId !== this.p1.id) return null;
       const v = this.animController.getSocketWorldPosition(this.p1Rig, bone);
       return { x: v.x, y: v.y, z: v.z };
     };
 
     this.p2.boneWorldPositionProvider = (bone: BoneAttachmentName) => {
-      if (!this.p2Rig) return null;
+      if (!this.p2Rig || this.p2Rig.characterId !== this.p2.id) return null;
       const v = this.animController.getSocketWorldPosition(this.p2Rig, bone);
       return { x: v.x, y: v.y, z: v.z };
     };
@@ -292,16 +314,32 @@ export class BabylonFightEngine {
       );
     }
 
+    const p1RigMismatch = !this.p1Rig || this.p1Rig.characterId !== p1Def.id;
+    const p2RigMismatch = !this.p2Rig || this.p2Rig.characterId !== p2Def.id;
+
     if (
       this.p1.id !== p1Def.id ||
       this.p2.id !== p2Def.id ||
       arenaChanged ||
-      !this.p1Rig ||
-      !this.p2Rig
+      p1RigMismatch ||
+      p2RigMismatch
     ) {
+      if (this.p1Rig && this.p1Rig.characterId !== p1Def.id) {
+        this.p1Rig.dispose();
+        this.p1Rig = null;
+      }
+      if (this.p2Rig && this.p2Rig.characterId !== p2Def.id) {
+        this.p2Rig.dispose();
+        this.p2Rig = null;
+      }
       this.p1.setCharacterDef(p1Def);
       this.p2.setCharacterDef(p2Def);
-      this.loadFighterRigs();
+      const loadPromise = this.loadFighterRigs(p1Def, p2Def).finally(() => {
+        if (this.activeRigLoadPromise === loadPromise) {
+          this.activeRigLoadPromise = null;
+        }
+      });
+      this.activeRigLoadPromise = loadPromise;
     }
 
     this.p1.applyGameplaySettings(settings.startingHealthPercent, settings.controlSensitivity);

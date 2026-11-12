@@ -6,6 +6,7 @@ import {
   HemisphericLight,
   Mesh,
   MeshBuilder,
+  NullEngine,
   PBRMaterial,
   Scene,
   UniversalCamera,
@@ -157,7 +158,7 @@ export class CharacterPreviewScene {
   private resizeObserver: ResizeObserver | null = null;
 
   constructor(
-    canvas: HTMLCanvasElement,
+    canvas: HTMLCanvasElement | null,
     initialCharacterId: FighterId,
     onTelemetryUpdate?: (snap: PreviewTelemetrySnapshot) => void,
     existingEngine?: Engine
@@ -167,6 +168,8 @@ export class CharacterPreviewScene {
 
     if (existingEngine) {
       this.engine = existingEngine;
+    } else if (!canvas) {
+      this.engine = new NullEngine();
     } else {
       const isSoftwareGL = detectSoftwareWebGL(canvas);
       this.engine = new Engine(canvas, !isSoftwareGL, {
@@ -313,7 +316,7 @@ export class CharacterPreviewScene {
         this.stateDurationSec = 0;
       }
 
-      if (this.currentRig) {
+      if (this.currentRig && this.currentRig.characterId === this.characterId) {
         // Bounded jump vertical arc in preview so head never clips top of viewport
         if (this.activeState === 'jump') {
           const jumpProgress = Math.min(1, this.stateElapsedSec / Math.max(0.01, this.stateDurationSec));
@@ -426,6 +429,15 @@ export class CharacterPreviewScene {
     this.characterId = characterId;
     this.isLoading = true;
     this.loadError = null;
+    this.activeHitboxSphere.isVisible = false;
+    this.previewProjectileMesh.isVisible = false;
+    this.previewShockwaveRing.isVisible = false;
+
+    // Immediately dispose any previous character's rig so an old model never lingers during async loading
+    if (this.currentRig && this.currentRig.characterId !== characterId) {
+      this.currentRig.dispose();
+      this.currentRig = null;
+    }
 
     const charDef = CHARACTERS[characterId] || CHARACTERS.action_sultan;
 
@@ -450,6 +462,41 @@ export class CharacterPreviewScene {
       this.stateElapsedSec = 0;
       this.stateDurationSec = 0;
       this.isLoading = false;
+      if (rig.renderState === 'LOAD_FAILED' && rig.diagnostics?.errors.length) {
+        this.loadError = rig.diagnostics.errors.join('; ');
+      }
+      const evtPayload = this.animController.updateRigPose(
+        this.currentRig,
+        this.characterId,
+        this.activeState,
+        0,
+        1 / 60,
+        1,
+        0
+      );
+      this.onTelemetryUpdate?.({
+        characterId: this.characterId,
+        isLoading: false,
+        glbLoaded: rig.glbLoaded,
+        glbFileValid: rig.glbFileValid,
+        productionRigValid: rig.productionRigValid,
+        animationValid: rig.animationValid,
+        isPlaceholderAsset: rig.isPlaceholderAsset,
+        isVisualOnly: rig.isVisualOnly,
+        renderState: rig.renderState,
+        validationReport: this.validationReport,
+        diagnostics: rig.diagnostics ?? null,
+        loadError: this.loadError,
+        activeState: this.activeState,
+        activeClipName: evtPayload.clipName,
+        phase: evtPayload.phase,
+        frame: evtPayload.frame,
+        totalFrames: evtPayload.totalFrames,
+        activeBone: evtPayload.activeBone,
+        facialExpression: evtPayload.facialExpression,
+        renderMode: this.renderMode,
+        lodLevel: this.lodLevel,
+      });
       return rig;
     } catch (err) {
       if (!this.isDisposed && token === this.loadToken) {
@@ -462,6 +509,10 @@ export class CharacterPreviewScene {
 
   public getCurrentRig(): CharacterRig3D | null {
     return this.currentRig;
+  }
+
+  public getScene(): Scene {
+    return this.scene;
   }
 
   public getLoadToken(): number {
