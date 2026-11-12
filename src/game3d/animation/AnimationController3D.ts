@@ -9,6 +9,10 @@ import {
   mapStateToStandardClipId,
 } from '../../config/characterAssets';
 import { CharacterRig3D } from '../assets/AssetLoader3D';
+import {
+  FighterAnimationEventPayload,
+  FighterAnimationEvents,
+} from './FighterAnimationEvents';
 
 export interface BonePoseTransform {
   rx: number;
@@ -47,7 +51,7 @@ export function hasCompatibleProceduralBones(
 }
 
 /**
- * 3D Skeletal Animation State Machine for Filmi Dangal 2.0.
+ * 3D Skeletal Animation State Machine for Fight Fun 2.0.
  * Enforces explicit priority order:
  * Priority 1: Valid imported Blender/Mixamo AnimationGroups with dynamic motion
  * Priority 2: Procedural skeletal bone fallback on resolved humanoid bones (supporting both Quaternion glTF bones and Euler placeholder bones)
@@ -422,8 +426,9 @@ export class AnimationController3D {
     characterId: FighterId,
     state: FighterStateName,
     t: number,
-    heightScale: number,
-    _zVel = 0
+    heightScale = 1.0,
+    _zVel = 0,
+    eventPayload?: FighterAnimationEventPayload
   ): RigPoseMap {
     const baseHipsY = 0.95 * heightScale;
     const pose: RigPoseMap = {
@@ -962,6 +967,178 @@ export class AnimationController3D {
       }
     }
 
+    const payload =
+      eventPayload ||
+      FighterAnimationEvents.computeFrameSnapshot(
+        characterId,
+        state,
+        Math.floor(t * 60)
+      );
+
+    // Apply 5-node Facial Expression Rig poses (Jaw, LeftBrow, RightBrow, LeftEyelid, RightEyelid)
+    const facialPoses = this.computeFacialRigPose(
+      payload.facialExpression,
+      t
+    );
+    Object.assign(pose, facialPoses);
+
+    // Apply multi-phase SuperMove choreography if in SuperMove state
+    if (
+      state === 'super_move' ||
+      state === 'super' ||
+      state === 'special'
+    ) {
+      this.applyMultiPhaseSpecialPose(
+        pose,
+        characterId,
+        state,
+        payload,
+        heightScale
+      );
+    }
+
     return pose;
+  }
+
+  public computeFacialRigPose(
+    expression: FighterAnimationEventPayload['facialExpression'],
+    t: number
+  ): Record<string, BonePoseTransform> {
+    const blink = Math.sin(t * 2.7) > 0.96 ? 0.08 : 0;
+
+    switch (expression) {
+      case 'EFFORT':
+        return {
+          Jaw: { rx: 0.22, ry: 0, rz: 0, px: 0, py: 0.032, pz: 0.03 },
+          LeftBrow: { rx: 0.12, ry: 0, rz: -0.22 },
+          RightBrow: { rx: 0.12, ry: 0, rz: 0.22 },
+          LeftEyelid: { rx: 0.08, ry: 0, rz: 0 },
+          RightEyelid: { rx: 0.08, ry: 0, rz: 0 },
+        };
+      case 'SUPER_ROAR':
+        return {
+          Jaw: { rx: 0.42, ry: 0, rz: 0, px: 0, py: 0.024, pz: 0.032 },
+          LeftBrow: { rx: 0.18, ry: 0, rz: -0.32 },
+          RightBrow: { rx: 0.18, ry: 0, rz: 0.32 },
+          LeftEyelid: { rx: -0.05, ry: 0, rz: 0 },
+          RightEyelid: { rx: -0.05, ry: 0, rz: 0 },
+        };
+      case 'PAIN':
+        return {
+          Jaw: { rx: 0.28, ry: 0.06, rz: 0, px: 0, py: 0.03, pz: 0.028 },
+          LeftBrow: { rx: -0.15, ry: 0, rz: 0.25 },
+          RightBrow: { rx: -0.15, ry: 0, rz: -0.25 },
+          LeftEyelid: { rx: 0.25, ry: 0, rz: 0 },
+          RightEyelid: { rx: 0.25, ry: 0, rz: 0 },
+        };
+      case 'VICTORY_SMILE':
+        return {
+          Jaw: { rx: 0.12, ry: 0, rz: 0, px: 0, py: 0.036, pz: 0.032 },
+          LeftBrow: { rx: -0.12, ry: 0, rz: 0.1 },
+          RightBrow: { rx: -0.12, ry: 0, rz: -0.1 },
+          LeftEyelid: { rx: blink, ry: 0, rz: 0 },
+          RightEyelid: { rx: blink, ry: 0, rz: 0 },
+        };
+      case 'NEUTRAL':
+      default:
+        return {
+          Jaw: { rx: 0.02, ry: 0, rz: 0, px: 0, py: 0.04, pz: 0.03 },
+          LeftBrow: { rx: 0, ry: 0, rz: -0.06 },
+          RightBrow: { rx: 0, ry: 0, rz: 0.06 },
+          LeftEyelid: { rx: blink, ry: 0, rz: 0 },
+          RightEyelid: { rx: blink, ry: 0, rz: 0 },
+        };
+    }
+  }
+
+  public applyMultiPhaseSpecialPose(
+    pose: RigPoseMap,
+    characterId: FighterId,
+    _state: FighterStateName,
+    payload: FighterAnimationEventPayload,
+    heightScale: number
+  ): void {
+    const baseHipsY = 0.95 * heightScale;
+    const nt = payload.normalizedTime;
+
+    if (characterId === 'action_sultan') {
+      if (payload.superMovePhase === 'CHARGE_POSE') {
+        pose.Hips.py = baseHipsY * 0.92;
+        pose.Chest.rx = -0.22;
+        pose.LeftUpperArm = { rx: -0.95, ry: 0.45, rz: 0.85 };
+        pose.RightUpperArm = { rx: -0.95, ry: -0.45, rz: -0.85 };
+        pose.LeftLowerArm = { rx: -1.65, ry: 0, rz: 0 };
+        pose.RightLowerArm = { rx: -1.65, ry: 0, rz: 0 };
+      } else if (payload.superMovePhase === 'BURST_ENGAGE') {
+        pose.Hips.py = baseHipsY * 0.82;
+        pose.Chest.rx = 0.48;
+        pose.Chest.ry = 0.38;
+        pose.RightUpperArm = { rx: -0.65, ry: -0.55, rz: -0.25 };
+        pose.LeftUpperArm = { rx: -1.35, ry: 0.3, rz: 0.4 };
+      } else {
+        pose.Hips.py = baseHipsY * 0.72;
+        pose.Chest.rx = 0.55;
+        pose.LeftUpperArm = { rx: -1.85, ry: 0.25, rz: 0.2 };
+        pose.RightUpperArm = { rx: -1.85, ry: -0.25, rz: -0.2 };
+        pose.LeftLowerArm = { rx: -0.15, ry: 0, rz: 0 };
+        pose.RightLowerArm = { rx: -0.15, ry: 0, rz: 0 };
+      }
+      return;
+    }
+
+    if (characterId === 'romance_raja') {
+      if (payload.superMovePhase === 'CHARGE_POSE') {
+        pose.Hips.ry = nt * Math.PI * 4;
+        pose.Chest.rx = -0.18;
+      } else if (payload.superMovePhase === 'BURST_ENGAGE') {
+        pose.Hips.py = baseHipsY * 0.9;
+        pose.Chest.ry = Math.sin(nt * 40) * 0.55;
+        pose.RightUpperArm = { rx: -1.55, ry: -0.2, rz: -0.15 };
+        pose.LeftUpperArm = { rx: -1.55, ry: 0.2, rz: 0.15 };
+      } else {
+        pose.Hips.py = baseHipsY + 0.18;
+        pose.Chest.rx = -0.32;
+        pose.Head.rx = -0.24;
+        pose.LeftUpperArm = { rx: -0.22, ry: -0.45, rz: 1.52 };
+        pose.RightUpperArm = { rx: -0.22, ry: 0.45, rz: -1.52 };
+      }
+      return;
+    }
+
+    if (characterId === 'duggu') {
+      if (payload.superMovePhase === 'CHARGE_POSE') {
+        pose.Hips.py = baseHipsY * 0.78;
+        pose.Chest.rx = 0.28;
+      } else if (payload.superMovePhase === 'BURST_ENGAGE') {
+        pose.Hips.py = baseHipsY + 0.25;
+        pose.Hips.ry = nt * Math.PI * 8;
+        pose.RightUpperLeg = { rx: -1.65, ry: 0, rz: -0.45 };
+        pose.LeftUpperLeg = { rx: -1.25, ry: 0, rz: 0.45 };
+      } else {
+        pose.Hips.py = baseHipsY * 0.85;
+        pose.RightUpperLeg = { rx: -1.75, ry: 0.1, rz: -0.25 };
+        pose.RightLowerLeg = { rx: 0.05, ry: 0, rz: 0 };
+      }
+      return;
+    }
+
+    if (characterId === 'bhidu') {
+      if (payload.superMovePhase === 'CHARGE_POSE') {
+        pose.Hips.py = baseHipsY * 0.94;
+        pose.Chest.rx = -0.28;
+        pose.LeftUpperArm = { rx: -0.65, ry: -0.4, rz: 1.1 };
+        pose.RightUpperArm = { rx: -0.65, ry: 0.4, rz: -1.1 };
+      } else if (payload.superMovePhase === 'BURST_ENGAGE') {
+        pose.Hips.py = baseHipsY * 0.88;
+        pose.Chest.rx = 0.35;
+        pose.RightUpperArm = { rx: -1.55, ry: 0.1, rz: -1.25 };
+        pose.RightLowerArm = { rx: -0.1, ry: 0, rz: 0 };
+      } else {
+        pose.Hips.py = baseHipsY * 0.72;
+        pose.Chest.rx = 0.58;
+        pose.LeftUpperArm = { rx: -2.15, ry: 0.25, rz: 0.18 };
+        pose.RightUpperArm = { rx: -2.15, ry: -0.25, rz: -0.18 };
+      }
+    }
   }
 }

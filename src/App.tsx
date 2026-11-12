@@ -237,7 +237,7 @@ export default function App() {
             ROTATE FOR WIDESCREEN ACTION
           </h2>
           <p className="text-xs text-[#F1E7D0]/80 max-w-xs leading-relaxed font-['Rajdhani'] font-bold mb-5">
-            Filmi Dangal is optimized for landscape widescreen combat, or you can continue playing in portrait mode below.
+            Fight Fun is optimized for landscape widescreen combat, or you can continue playing in portrait mode below.
           </p>
           <button
             onClick={() => setDismissedPortraitPrompt(true)}

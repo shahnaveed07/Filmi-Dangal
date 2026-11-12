@@ -113,7 +113,7 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
         {/* BESPOKE RETRO SVG POSTER TITLE */}
         <div className="relative py-1 sm:py-2 px-2">
           <h1 className="font-['Bungee'] text-4xl sm:text-6xl md:text-8xl font-black text-transparent bg-clip-text bg-gradient-to-b from-[#FFFBEB] via-[#F59E0B] to-[#BE123C] drop-shadow-[0_8px_16px_rgba(0,0,0,0.95)] tracking-wider leading-none">
-            FILMI DANGAL
+            FIGHT FUN
           </h1>
           <div className="absolute -inset-1 border-y-2 border-[#D6A447]/40 pointer-events-none transform -skew-y-1" />
         </div>

@@ -1,4 +1,4 @@
-name: Filmi Dangal CI
+name: Fight Fun CI
 
 on:
   push:

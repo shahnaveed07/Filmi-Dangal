@@ -1,4 +1,4 @@
-# Filmi Dangal — 3D Character Asset Drop-In Guide
+# Fight Fun — 3D Character Asset Drop-In Guide
 
 Drop production rigged `.glb` (glTF 2.0 binary) models and portraits into the character folders below:
 

@@ -4,7 +4,7 @@ import { getCharacterAssetConfig } from '../../config/characterAssets';
 /**
  * FighterAnimationEvents
  *
- * Frame-accurate animation event system for all 4 fighters:
+ * Frame-accurate animation event system for all 4 Fight Fun fighters:
  * - action_sultan (Action Sultan — Salman Khan)
  * - romance_raja  (Romance Raja — Shah Rukh Khan)
  * - duggu         (Duggu — Hrithik Roshan)
@@ -495,10 +495,11 @@ export class FighterAnimationEvents {
   }
 
   /**
-   * Evaluates current state and frame, returning the current phase, superMovePhase,
-   * and facial expression, while firing discrete edge-triggered events to listeners.
+   * Pure stateless snapshot calculation of animation phase, superMovePhase, and facial expression
+   * for a given character, state, and frame. Safe to call from both preview and gameplay pose
+   * evaluators without mutating event dispatcher state or firing duplicate combat events.
    */
-  public evaluateFrame(
+  public static computeFrameSnapshot(
     characterId: FighterId,
     state: FighterStateName,
     stateFrame: number
@@ -549,7 +550,7 @@ export class FighterAnimationEvents {
       facialExpression = 'EFFORT';
     }
 
-    const basePayload: FighterAnimationEventPayload = {
+    return {
       characterId,
       state,
       clipName: spec.clipName,
@@ -563,6 +564,24 @@ export class FighterAnimationEvents {
       hitboxRadius: spec.hitboxRadius,
       facialExpression,
     };
+  }
+
+  /**
+   * Evaluates current state and frame, returning the current phase, superMovePhase,
+   * and facial expression, while firing discrete edge-triggered events to listeners.
+   */
+  public evaluateFrame(
+    characterId: FighterId,
+    state: FighterStateName,
+    stateFrame: number
+  ): FighterAnimationEventPayload {
+    const spec = FighterAnimationEvents.getMoveSpec(characterId, state);
+    const basePayload = FighterAnimationEvents.computeFrameSnapshot(
+      characterId,
+      state,
+      stateFrame
+    );
+    const frame = basePayload.frame;
 
     const isNewFrame =
       this.lastDispatchedState !== state || this.lastDispatchedFrame !== frame;
