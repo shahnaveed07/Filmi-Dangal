@@ -82,6 +82,7 @@ import {
   PreviewAudioTimerManager,
   PreviewTelemetrySnapshot,
 } from '../../game3d/scenes/CharacterPreviewScene';
+import { ArenaBuilder3D } from '../../game3d/arenas/ArenaBuilder3D';
 import { FighterStateName } from '../../types/fighter';
 
 test('1. Character Loading & Binary GLB 2.0 Asset Validation for all 4 fighters', () => {
@@ -2689,6 +2690,140 @@ test('25. Phase 6.4 — All 6 Gameplay Matchups, Rematch, Reselection, Arcade La
   scene.dispose();
   engine.dispose();
 });
+
+test('26. Phase 3, 4, 6 & 7 — Preview vs. Gameplay Animation Parity, Reverse P2/P1 Matchups, Arena Switching Disposal & Fight Fun Branding Verification', async () => {
+  const engine = new NullEngine();
+  const scene = new Scene(engine);
+  const anim3D = new AnimationController3D();
+  const charAnim = new CharacterAnimationController();
+
+  // 1. Verify Preview (CharacterAnimationController) and Gameplay (AnimationController3D) produce IDENTICAL
+  // multi-phase SuperMove poses, SuperShot poses, and 5-bone facial rig poses across all 4 fighters
+  const testStates: FighterStateName[] = ['idle', 'walk', 'punch', 'kick', 'super_shot', 'super_move', 'victory'];
+  const sampleTimes = [0.05, 0.22, 0.45, 0.68];
+
+  for (const id of ALL_FIGHTER_IDS) {
+    for (const st of testStates) {
+      for (const t of sampleTimes) {
+        const gameplayPose = anim3D.computeTargetPose(id, st, t, 1.0, 0);
+        const previewPose = charAnim.computeTargetPose(id, st, t, 1.0, 0);
+        assert.deepEqual(
+          gameplayPose,
+          previewPose,
+          `Gameplay and Preview poses must match for fighter="${id}", state="${st}", t=${t}`
+        );
+        assert.ok(gameplayPose.Jaw, `Facial rig Jaw bone must be populated for ${id} (${st})`);
+        assert.ok(gameplayPose.LeftBrow, `Facial rig LeftBrow bone must be populated for ${id} (${st})`);
+        assert.ok(gameplayPose.RightBrow, `Facial rig RightBrow bone must be populated for ${id} (${st})`);
+      }
+    }
+  }
+
+  // 2. Verify Reverse Player Assignments (P2 vs P1) for all 6 matchups
+  const REVERSE_SIX_MATCHUPS: ReadonlyArray<readonly [typeof ALL_FIGHTER_IDS[number], typeof ALL_FIGHTER_IDS[number]]> = [
+    ['romance_raja', 'action_sultan'],
+    ['duggu', 'action_sultan'],
+    ['bhidu', 'action_sultan'],
+    ['duggu', 'romance_raja'],
+    ['bhidu', 'romance_raja'],
+    ['bhidu', 'duggu'],
+  ];
+
+  for (const [p1Id, p2Id] of REVERSE_SIX_MATCHUPS) {
+    const [p1Rig, p2Rig] = await Promise.all([
+      loadCharacterRig3D(scene, CHARACTERS[p1Id], `rev_p1_${p1Id}`),
+      loadCharacterRig3D(scene, CHARACTERS[p2Id], `rev_p2_${p2Id}`),
+    ]);
+    assert.equal(p1Rig.characterId, p1Id);
+    assert.equal(p2Rig.characterId, p2Id);
+    p1Rig.dispose();
+    p2Rig.dispose();
+  }
+
+  // 3. Verify Arena Switching (award_night <-> film_city) disposes all meshes, lights, and materials cleanly
+  const baseMeshes = scene.meshes.length;
+  const baseLights = scene.lights.length;
+  const baseMaterials = scene.materials.length;
+
+  const awardHandle = ArenaBuilder3D.buildArena(scene, 'award_night', true);
+  assert.equal(awardHandle.arenaId, 'award_night');
+  assert.ok(scene.meshes.length > baseMeshes, 'Award Night arena creates 3D stage meshes');
+  awardHandle.update(1 / 60);
+  awardHandle.setBlackoutIntensity(0.5);
+  awardHandle.dispose();
+
+  assert.equal(scene.meshes.length, baseMeshes, 'Disposing Award Night arena removes all stage meshes');
+  assert.equal(scene.lights.length, baseLights, 'Disposing Award Night arena removes all stage lights');
+  assert.equal(scene.materials.length, baseMaterials, 'Disposing Award Night arena removes all stage materials');
+
+  const filmCityHandle = ArenaBuilder3D.buildArena(scene, 'film_city', true);
+  assert.equal(filmCityHandle.arenaId, 'film_city');
+  assert.ok(scene.meshes.length > baseMeshes, 'Film City arena creates 3D stage meshes');
+  filmCityHandle.update(1 / 60);
+  filmCityHandle.setBlackoutIntensity(0);
+  filmCityHandle.dispose();
+
+  assert.equal(scene.meshes.length, baseMeshes, 'Disposing Film City arena removes all stage meshes');
+  assert.equal(scene.lights.length, baseLights, 'Disposing Film City arena removes all stage lights');
+  assert.equal(scene.materials.length, baseMaterials, 'Disposing Film City arena removes all stage materials');
+
+  scene.dispose();
+  engine.dispose();
+
+  // 4. Verify Fight Fun Rebranding & Dependency Synchronization (Phase 6, 7 & 8)
+  const indexHtml = fs.readFileSync(path.resolve(process.cwd(), 'index.html'), 'utf8');
+  assert.ok(
+    indexHtml.includes('<title>Fight Fun — Lights. Camera. Knockout!</title>'),
+    'index.html must have <title>Fight Fun — Lights. Camera. Knockout!</title>'
+  );
+  assert.ok(!indexHtml.includes('Filmi Dangal'), 'index.html must not contain old Filmi Dangal title');
+
+  const metadataJson = JSON.parse(fs.readFileSync(path.resolve(process.cwd(), 'metadata.json'), 'utf8'));
+  assert.equal(metadataJson.name, 'Fight Fun — Lights. Camera. Knockout!');
+
+  const titleScreenTsx = fs.readFileSync(path.resolve(process.cwd(), 'src/components/TitleScreen.tsx'), 'utf8');
+  assert.ok(titleScreenTsx.includes('FIGHT FUN'), 'TitleScreen.tsx must display FIGHT FUN');
+  assert.ok(titleScreenTsx.includes('LIGHTS. CAMERA. KNOCKOUT!'), 'TitleScreen.tsx must display tagline');
+  assert.ok(!titleScreenTsx.includes('FILMI DANGAL'), 'TitleScreen.tsx must not display FILMI DANGAL');
+
+  const disclaimerTsx = fs.readFileSync(path.resolve(process.cwd(), 'src/components/DisclaimerModal.tsx'), 'utf8');
+  assert.ok(disclaimerTsx.includes('FIGHT FUN'), 'DisclaimerModal.tsx must display FIGHT FUN');
+  assert.ok(!disclaimerTsx.includes('FILMI DANGAL'), 'DisclaimerModal.tsx must not display FILMI DANGAL');
+
+  const pkgJson = JSON.parse(fs.readFileSync(path.resolve(process.cwd(), 'package.json'), 'utf8'));
+  const bunLock = fs.readFileSync(path.resolve(process.cwd(), 'bun.lock'), 'utf8');
+  assert.equal(pkgJson.name, 'fight-fun', 'package.json name must be fight-fun');
+  assert.ok(bunLock.includes('"name": "fight-fun"'), 'bun.lock workspace name must match package.json');
+  assert.ok(
+    bunLock.includes(`"esbuild": "${pkgJson.devDependencies.esbuild}"`),
+    'bun.lock esbuild version must match package.json devDependencies.esbuild'
+  );
+
+  const projectGuide = fs.readFileSync(path.resolve(process.cwd(), 'PROJECT_GUIDE.md'), 'utf8');
+  assert.ok(projectGuide.includes('# Fight Fun'), 'PROJECT_GUIDE.md must be titled for Fight Fun');
+  for (const sectionHeading of [
+    '## 1. Project Overview',
+    '## 2. Installation and Development',
+    '## 3. Complete Folder Structure',
+    '## 4. Character Management',
+    '## 5. 3D Model Replacement',
+    '## 6. Animation Management',
+    '## 7. Arena Management',
+    '## 8. Combat Management',
+    '## 9. Audio and VFX Management',
+    '## 10. UI Management',
+    '## 11. Common Maintenance Tasks',
+    '## 12. Troubleshooting',
+    '## 13. Testing',
+    '## 14. Safe Development Rules',
+  ]) {
+    assert.ok(
+      projectGuide.includes(sectionHeading),
+      `PROJECT_GUIDE.md must include section "${sectionHeading}"`
+    );
+  }
+});
+
 
 
 

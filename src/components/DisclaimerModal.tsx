@@ -33,7 +33,7 @@ export const DisclaimerModal: React.FC<DisclaimerModalProps> = ({ onClose }) => 
 
         <div className="space-y-3 text-xs sm:text-sm text-[#F1E7D0]/85 leading-relaxed font-['Rajdhani']">
           <p>
-            <strong className="text-[#FEF08A]">FILMI DANGAL</strong> is an original work of fictional
+            <strong className="text-[#FEF08A]">FIGHT FUN</strong> is an original work of fictional
             arcade parody inspired by classic 1990s fighting games and celebratory cinema tropes.
           </p>
           <p>

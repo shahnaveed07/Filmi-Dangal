@@ -173,7 +173,16 @@ export class ArenaBuilder3D {
         hemiLight.dispose();
         keyLight.dispose();
         accentLight.dispose();
+        const materials = new Set(
+          rootNode
+            .getChildMeshes(false)
+            .map((m) => m.material)
+            .filter(Boolean)
+        );
         rootNode.dispose();
+        for (const mat of materials) {
+          mat?.dispose();
+        }
       },
     };
   }

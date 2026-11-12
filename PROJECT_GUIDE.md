@@ -1,525 +1,420 @@
-# Filmi Dangal — Developer & Maintainer Project Guide (`PROJECT_GUIDE.md`)
+# Fight Fun — Developer & Architecture Guide (`PROJECT_GUIDE.md`)
 
-**Filmi Dangal: Lights. Camera. Knockout!** is a 3D Bollywood arcade fighting game built with **React 19**, **TypeScript**, **Vite**, **Tailwind CSS**, and **Babylon.js (`@babylonjs/core`, `@babylonjs/loaders`)**.
+**Official Game Title:** FIGHT FUN (`Fight Fun`)  
+**Tagline:** Lights. Camera. Knockout!
 
-This document is the authoritative developer handbook for maintaining, debugging, and extending **Filmi Dangal** without breaking existing combat, animation, audio, UI, or 3D asset-loading systems.
+This document is the authoritative developer reference for **Fight Fun**, a 3D cinematic Bollywood arcade fighting game built with React 19, TypeScript, Tailwind CSS, and Babylon.js 9 on a classic 2D fighting plane (`X` horizontal, `Y` vertical, `Z = 0` stage plane).
 
----
-
-## Table of Contents
-
-1. [Project Overview](#section-1--project-overview)
-2. [Full Directory & File Map](#section-2--full-directory--file-map)
-3. [Complete Game Flow](#section-3--complete-game-flow)
-4. [Character System Architecture](#section-4--character-system-architecture)
-5. [How 3D Character Loading Works](#section-5--how-3d-character-loading-works)
-6. [How to Replace a Character's 3D Model](#section-6--how-to-replace-a-characters-3d-model)
-7. [How to Add or Update Character Animations](#section-7--how-to-add-or-update-character-animations)
-8. [How to Modify Character Stats, Moves & Special Attacks](#section-8--how-to-modify-character-stats-moves--special-attacks)
-9. [How to Modify Audio](#section-9--how-to-modify-audio)
-10. [How to Modify Arenas & Lighting](#section-10--how-to-modify-arenas--lighting)
-11. [How to Modify UI Screens](#section-11--how-to-modify-ui-screens)
-12. [How to Add a Brand-New Fighter](#section-12--how-to-add-a-brand-new-fighter)
-13. [Testing & Verification Guide](#section-13--testing--verification-guide)
-14. [Common Pitfalls & Do-Not-Break Rules](#section-14--common-pitfalls--do-not-break-rules)
+Use this guide to understand the runtime execution flow, locate the exact file responsible for any feature, replace 3D character models or animations, add new fighters or arenas, tune combat balance, and avoid regressions across interdependent systems.
 
 ---
 
-## Section 1 — Project Overview
+## 1. Project Overview
 
-### What Filmi Dangal Is
-Filmi Dangal is a 60fps deterministic 2.5D fighting game rendered in a real-time 3D Babylon.js stage. Fighters move and battle along the 2D `X/Y` gameplay plane (`Z = 0`) while full 3D skeletal rigs, dynamic cameras, PBR materials, volumetric stage lighting, and 3D particle/mesh VFX render in 3D space.
+### 1.1 High-Level Architecture
+**Fight Fun** separates UI presentation, shared game state, deterministic 60Hz 2D combat simulation, and 3D Babylon.js rendering into four cleanly decoupled layers:
 
-### Playable Roster (4 Fighters)
-| `FighterId` | Display Name | Slug | Real-Life Parody Inspiration | Current 3D Asset Status |
-| :--- | :--- | :--- | :--- | :--- |
-| `action_sultan` | **Action Sultan** | `action-sultan` | Salman Khan | **Production Skinned GLB** (`isTemporaryPlaceholder: false`, `PRODUCTION_SKINNED`, 52-bone Mixamo rig, 16,133 vertices, procedural bone animation fallback) |
-| `romance_raja` | **Romance Raja** | `romance-raja` | Shah Rukh Khan | **Temporary Placeholder** (`isTemporaryPlaceholder: true`, `TEMPORARY_PLACEHOLDER`, Path A articulated 20-bone + 5-facial-bone procedural rig) |
-| `duggu` | **Duggu** | `duggu` | Hrithik Roshan | **Temporary Placeholder** (`isTemporaryPlaceholder: true`, `TEMPORARY_PLACEHOLDER`, Path A articulated 20-bone + 5-facial-bone procedural rig) |
-| `bhidu` | **Bhidu** | `bhidu` | Jackie Shroff | **Temporary Placeholder** (`isTemporaryPlaceholder: true`, `TEMPORARY_PLACEHOLDER`, Path A articulated 20-bone + 5-facial-bone procedural rig) |
+1. **React UI & Screen Router Layer (`src/App.tsx`, `src/components/*`)**:
+   - Renders the title screen (`FIGHT FUN`), character selection screen, arena selection screen, in-match arcade HUD overlay, mobile virtual controls, pause menu, settings modal, controls modal, disclaimer modal, and post-match results screen.
+   - Communicates with the game engine exclusively through the singleton `GameBridge` (`src/engine/GameBridge.ts`). Never mutates 3D scene meshes directly.
+2. **State & Event Bridge (`src/engine/GameBridge.ts`)**:
+   - Holds the authoritative match configuration: `screen`, `gameMode` (`arcade` | `vs_cpu` | `training`), `p1CharacterId`, `p2CharacterId`, `arenaId`, `arcadeStageIndex`, `trainingDummyBehavior`, and `lastMatchWinner`.
+   - Publishes 60Hz HUD snapshots (`GameHUDState`) and match lifecycle commands (`startMatch`, `rematch`, `advanceArcadeTower`, `restartRound`, `returnToMenu`) via typed subscriptions.
+3. **60Hz Deterministic Combat & Match Core (`src/game3d/combat/*`, `src/game3d/hitboxes/*`, `src/game3d/cpu/*`, `src/game3d/managers/*`)**:
+   - Runs inside `BabylonFightEngine` on a fixed `1/60s` (`FIXED_DT`) accumulator loop.
+   - All fighter movement, jump arcs, pushbox separation, attack frame windows (`startup`, `active`, `recovery`), hitstun/blockstun, combo scaling, SuperShot projectiles, and SuperMove impacts operate on the 2D `X/Y` plane (`Z = 0`).
+4. **3D Babylon.js Scene, Asset Loader & Skeletal Animation Layer (`src/game3d/engine/*`, `src/game3d/assets/*`, `src/game3d/animation/*`, `src/game3d/arenas/*`, `src/game3d/cameras/*`, `src/game3d/vfx/*`)**:
+   - Loads character rigs via `CharacterAssetLoader` (`src/game3d/assets/CharacterAssetLoader.ts`) and `AssetLoader3D` (`src/game3d/assets/AssetLoader3D.ts`).
+   - Synchronizes 3D rig world coordinates (`rootNode.position.set(fighter.x, fighter.y, 0)`), facing yaw (`facingNode.rotation.y`), skeletal bone poses (`AnimationController3D`), 3D arenas (`ArenaBuilder3D`), dynamic framing camera (`DynamicFightCamera3D`), and 3D VFX (`VFXManager3D`).
 
-### Game Modes
-- **Versus CPU (`vs_cpu`)**: Single best-of-3 round match against a chosen CPU fighter (`easy`, `normal`, or `hard`).
-- **Arcade Mode (`arcade`)**: 3-stage tournament ladder against the 3 remaining roster fighters (`bridge.arcadeLadder`), automatically advancing via `bridge.advanceArcadeStage()`.
-- **Training Mode (`training`)**: Infinite-time, auto-regenerating health & meter practice mode with configurable dummy behavior (`stand`, `block`, `crouch`, `jump`, `cpu_spar`).
-
-### Architecture Split: React UI vs. GameBridge vs. 3D Engine
-1. **React UI Layer (`src/App.tsx`, `src/components/*`)**:
-   Renders menus, HUD overlays, modals, and mobile touch controls. React **never** runs a 60fps state loop directly; during active combat it subscribes to throttled HUD snapshots (`GameHUDState`) pushed from the 3D engine every 3 simulation frames (or immediately on hit/phase events).
-2. **`GameBridge` Singleton (`src/engine/GameBridge.ts`)**:
-   The single source of truth linking React UI screens and the Babylon.js engine. Stores `screen`, `gameMode`, `p1CharacterId`, `p2CharacterId`, `arenaId`, `difficulty`, `arcadeLadder`, `arcadeStageIndex`, `trainingDummyBehavior`, `isPaused`, and `lastMatchStats`.
-3. **3D Gameplay & Preview Engines (`src/game3d/*`)**:
-   - `CharacterPreviewScene.ts`: Powers the interactive 3D fighter turntable and 8-state animation/SFX verification deck on the Character Select screen.
-   - `BabylonFightEngine.ts`: Runs the fixed-timestep 60Hz combat simulation (`Fighter3D`, `CombatSystem3D`, `HitboxSystem3D`, `CPUController3D`, `MatchManager3D`) and synchronizes the 3D rigs (`CharacterRig3D`), arena (`ArenaBuilder3D`), camera (`DynamicFightCamera3D`), and effects (`VFXManager3D`).
-4. **Legacy 2D Engine (`src/engine/Fighter.ts`, `CombatSystem.ts`, `HitboxSystem.ts`, `MatchManager.ts`, `CPUController.ts`)**:
-   Pure TypeScript 2D reference engine retained for deterministic unit testing and frame-data parity checks in `src/engine/tests/combat.test.ts`. Active browser gameplay uses `src/game3d/*` (`BabylonFightEngine`).
-
----
-
-## Section 2 — Full Directory & File Map
-
-### Root Configuration & Scripts
-| File Path | Responsibility | When to Edit |
-| :--- | :--- | :--- |
-| `package.json` | Dependencies, build scripts (`dev`, `build`, `lint`, `test`, `build:glb`). | Adding scripts or dependencies. |
-| `index.html` | HTML entry point, Google Fonts (`Cinzel`, `Rajdhani`, `Bungee`, `Inter`), title/meta tags. | Updating page metadata or fonts. |
-| `metadata.json` | AI Studio applet metadata (`name`, `description`, capabilities). | Do not rename the app after creation. |
-| `vite.config.ts` | Vite bundler configuration with React and Tailwind CSS plugins. | Changing build/dev server configuration. |
-| `tsconfig.json` | TypeScript compiler configuration (`tsc --noEmit` used by `npm run lint`). | Updating TypeScript paths or strictness. |
-| `scripts/build-glb-assets.ts` | Generates binary `.glb` placeholder files and `manifest.json` for placeholder characters (`romance-raja`, `duggu`, `bhidu`) while skipping production characters in `SKIP_PRODUCTION_CHARACTER_IDS`. | Modifying placeholder GLB generation or adding a new character's placeholder GLB. |
-
-### Public Assets (`public/assets/`)
-| File Path | Responsibility | When to Edit |
-| :--- | :--- | :--- |
-| `public/assets/characters/README.md` | Quick asset specification for 3D character `.glb` files. | Updating artist documentation. |
-| `public/assets/characters/action-sultan/model.glb` | Production skinned Mixamo `.glb` model for Action Sultan (52 bones, 16,133 vertices). | Replacing or updating Action Sultan's 3D mesh. |
-| `public/assets/characters/action-sultan/manifest.json` | Metadata describing Action Sultan's GLB, scale, bone aliases, and procedural fallback animations. | Updating Action Sultan's GLB or embedded clips. |
-| `public/assets/characters/romance-raja/model.glb` | Temporary placeholder `.glb` for Romance Raja (replaced at runtime by Path A procedural rig). | Dropping in a production skinned `.glb` for Romance Raja. |
-| `public/assets/characters/romance-raja/manifest.json` | Metadata for Romance Raja's asset status, bone aliases, and animations. | Promoting Romance Raja to `PRODUCTION_SKINNED`. |
-| `public/assets/characters/duggu/model.glb` | Temporary placeholder `.glb` for Duggu (replaced at runtime by Path A procedural rig). | Dropping in a production skinned `.glb` for Duggu. |
-| `public/assets/characters/duggu/manifest.json` | Metadata for Duggu's asset status, bone aliases, and animations. | Promoting Duggu to `PRODUCTION_SKINNED`. |
-| `public/assets/characters/bhidu/model.glb` | Temporary placeholder `.glb` for Bhidu (replaced at runtime by Path A procedural rig). | Dropping in a production skinned `.glb` for Bhidu. |
-| `public/assets/characters/bhidu/manifest.json` | Metadata for Bhidu's asset status, bone aliases, and animations. | Promoting Bhidu to `PRODUCTION_SKINNED`. |
-| `public/assets/audio/characters/README.md` | Documentation for external per-character `.ogg`/`.mp3` audio files. | Adding studio voice/SFX files. |
-
-### Core Types, Data & Config (`src/types/`, `src/data/`, `src/config/`)
-| File Path | Responsibility | When to Edit |
-| :--- | :--- | :--- |
-| `src/types/fighter.ts` | Core TypeScript types: `FighterId`, `ArenaId`, `GameMode`, `Difficulty`, `FighterStateName`, `CharacterDef`, `MoveFrameData`, `Sphere3D`, `CapsuleHurtbox3D`, `HitEvent`. | Adding a new fighter ID, arena ID, combat state, or frame-data field. |
-| `src/data/characters.ts` | Authoritative gameplay definitions (`CHARACTERS`, `CHARACTER_LIST`) for all 4 fighters: names, titles, bios, stats, proportions, colors, `superShotInfo`, `superMoveInfo`, and `moves` frame data. | Tuning fighter health, speed, damage, frame data, or descriptions. |
-| `src/data/arenas.ts` | Definitions (`ARENAS`, `ARENA_LIST`) for `award_night` and `film_city`, including 3D stage bounds (`bounds3D`). | Tuning stage width/bounds or adding a new arena. |
-| `src/config/characterAssets.ts` | Authoritative 3D asset manifest (`CHARACTER_ASSET_MANIFEST`): `isTemporaryPlaceholder`, `modelPath`, `scale`, `groundOffset`, `facingRotationY`, `boneAliases`, `animations`, `specialAttackEvents`, `vfx`, and `audio` paths. | Promoting a character from placeholder to production GLB, calibrating scale/groundOffset, or remapping bone/animation names. |
-| `src/config/audioAssets.ts` | Per-character audio manifest (`CHARACTER_AUDIO_MANIFEST`): maps all 9 combat/special audio events per character to external `.ogg`/`.mp3` paths and multi-layer Web Audio synth fallback profiles. | Customizing sound synthesis or enabling external audio files (`isTemporaryPlaceholder: false`). |
-
-### UI Components (`src/components/`)
-| File Path | Responsibility | When to Edit |
-| :--- | :--- | :--- |
-| `src/App.tsx` | Root application router switching between `title`, `character_select`, `arena_select`, `fighting`, and `results`, plus global modals and portrait-orientation prompt. | Adding a new top-level screen or global modal. |
-| `src/components/TitleScreen.tsx` | Main menu with mode buttons (`Versus CPU`, `Arcade Ladder`, `Training`), settings, controls, and parody disclaimer triggers. | Modifying title screen layout or mode cards. |
-| `src/components/CharacterSelect.tsx` | Player 1 & Player 2 (CPU/Dummy) fighter selection grid, difficulty/dummy toggles, fighter dossier, and embedded `<CharacterPreview3D />`. | Modifying selection UI or dossier presentation. |
-| `src/components/ArenaSelect.tsx` | Stage selection screen (`Award Night` vs `Film City`) with stage feature previews and `START FIGHT` trigger. | Adding a new arena card or changing stage preview UI. |
-| `src/components/GameCanvas.tsx` | Mounts the WebGL `<canvas>` for active combat and instantiates/disposes `BabylonFightEngine`. | Modifying canvas sizing or WebGL fallback wrapper. |
-| `src/components/FightHUD.tsx` | 60fps-driven arcade overlay: health bars with ghost damage trail, round clock, win pips, Filmi Super meter, SuperShot cooldown badge, combo counter, and special move callouts. | Modifying in-fight HUD layout or indicators. |
-| `src/components/MobileControls.tsx` | Multitouch virtual D-pad and action buttons (`PUNCH`, `KICK`, `SHOT`, `SUPER`, `BLOCK`) for touch/mobile viewports. | Adjusting mobile button placement or touch bindings. |
-| `src/components/PauseModal.tsx` | In-fight pause overlay (`Resume`, `Restart Round`, `Controls`, `Settings`, `Main Menu`). | Modifying pause menu options. |
-| `src/components/ResultsModal.tsx` | Post-match victory/defeat screen, match statistics, Arcade Next Opponent progression button, Rematch, and Character Select navigation. | Modifying post-match stats or arcade progression UI. |
-| `src/components/ControlsModal.tsx` | Keyboard and mobile touch control reference modal + combo list. | Updating displayed control bindings or combo recipes. |
-| `src/components/SettingsModal.tsx` | Graphics quality (`low`/`medium`/`high`), LOD/resolution scaling, round timer, starting health, control sensitivity, HUD scale, and audio volume settings. | Adding a new user-configurable setting. |
-| `src/components/DisclaimerModal.tsx` | Parody & fair-use celebration disclaimer modal. | Editing legal/parody notice text. |
-
-### Shared State, Settings, Audio & Tests (`src/engine/`)
-| File Path | Responsibility | When to Edit |
-| :--- | :--- | :--- |
-| `src/engine/GameBridge.ts` | Singleton state bridge (`screen`, `p1CharacterId`, `p2CharacterId`, `arenaId`, `gameMode`, `arcadeLadder`, `startMatch()`, `rematch()`, `advanceArcadeStage()`). | Adding cross-layer state or lifecycle commands. |
-| `src/engine/SettingsManager.ts` | Persistent `localStorage` settings manager with sanitization (`sanitizeGameSettings`). | Adding new persisted settings fields. |
-| `src/engine/AudioManager.ts` | Web Audio API synthesizer + external `.ogg`/`.mp3` audio buffer loader & BGM sequencer. | Modifying audio playback engine or BGM loop. |
-| `src/engine/ComboSystem.ts` | Input buffer & 3-hit target combo detector (`Dial-A-Dishoom`, `Box Office Blitz`, ` Launcher`). | Adding or modifying target combo sequences. |
-| `src/engine/InputManager.ts` | Keyboard & touch state snapshotter (`EMPTY_INPUT_FRAME`, `InputSnapshot`). | Changing keyboard key bindings. |
-| `src/engine/Fighter.ts`, `CombatSystem.ts`, `HitboxSystem.ts`, `MatchManager.ts`, `CPUController.ts` | Pure 2D deterministic combat classes used alongside 3D classes in unit tests. | Keep in sync if changing core move/combo rules tested by 2D unit tests. |
-| `src/engine/tests/combat.test.ts` | Comprehensive Node test suite (`npm test`) covering binary GLB validation, 3D rig loading, bone calibration, preview switching, and all 6 matchups. | Adding unit/integration tests for any new feature or bugfix. |
-
-### 3D Babylon.js Engine (`src/game3d/`)
-| File Path | Responsibility | When to Edit |
-| :--- | :--- | :--- |
-| `src/game3d/characters/CharacterRoster3D.ts` | Authoritative character mapping (`resolveAuthoritativeCharacterMapping`, `verifyAllAuthoritativeCharacterMappings`, `applyFighterSelection`, `getCharacterMonogram`). | Adding a new fighter or verifying character ID mappings. |
-| `src/game3d/assets/CharacterAssetValidator.ts` | Pure binary `.glb` and glTF JSON validator (`validateGLBBuffer`, `validateParsedGLTF`): checks magic header, skins, `JOINTS_0`/`WEIGHTS_0`, humanoid bones, bounds, and animations. | Adjusting static binary GLB validation thresholds. |
-| `src/game3d/assets/CharacterAssetLoader.ts` | Core Babylon.js 3D loader (`loadCharacterFromManifest`), bone alias resolver (`resolveHumanoidSkeletonAndBones`), auto-scale/ground calibrator (`calibrateImportedModelTransform`), eligibility evaluator, and Path A procedural humanoid rig builder (`buildTemporaryPlaceholderHumanoidRig`). | Changing how `.glb` hierarchies, bones, or procedural fallback rigs are built. |
-| `src/game3d/assets/AssetLoader3D.ts` | High-level wrapper (`loadCharacterRig3D`, `buildFallbackCharacterRig3D`, `CharacterRig3D` interface). | Adding properties to `CharacterRig3D`. |
-| `src/game3d/animation/CharacterAnimationController.ts` | Hybrid animation controller: plays embedded GLB `AnimationGroup` clips when valid, and drives quaternion-safe procedural bone poses for all 15 states + 4 character-specific SuperShots and SuperMoves. | Tuning procedural bone rotations or special attack poses. |
-| `src/game3d/animation/AnimationController3D.ts` | Gameplay animation wrapper delegating to `CharacterAnimationController` and resolving world-space bone socket coordinates (`getSocketWorldPosition`). | Modifying socket world position lookups. |
-| `src/game3d/animation/FighterAnimationEvents.ts` | Frame-accurate animation event dispatcher (`ON_CHARGE_START`, `ON_PROJECTILE_RELEASE`, `ON_SPECIAL_IMPACT`, `ON_SUPERMOVE_CLIMAX`, `ON_ANIMATION_COMPLETE`). | Changing special move frame event triggers. |
-| `src/game3d/scenes/CharacterPreview3D.tsx` | React wrapper for the Character Select 3D preview canvas, status badges (`PRODUCTION GLB ACTIVE` vs `TEMPORARY PLACEHOLDER`), LOD toggle, and 8-state verification buttons. | Modifying preview overlay badges or buttons. |
-| `src/game3d/scenes/CharacterPreviewScene.ts` | Babylon.js scene controller for the character select turntable (`loadCharacterAsset`, load-token concurrency guard, preview VFX, telemetry callback). | Modifying preview lighting, camera, or turntable behavior. |
-| `src/game3d/engine/BabylonFightEngine.ts` | Main 60fps 3D match coordinator (`initializeFullMatch`, `loadFighterRigs`, `stepSimulationFrame`, `sync3DSceneVisuals`). | Modifying match loop, camera trauma, or rig lifecycle. |
-| `src/game3d/combat/Fighter3D.ts` | 3D fighter state machine, physics, 3-sphere capsule hurtbox (`headSphere`, `torsoSphere`, `legsSphere`), bone-attached active attack spheres, and special move controllers. | Modifying fighter physics, state transitions, or 3D hurtboxes/hitboxes. |
-| `src/game3d/combat/CombatSystem3D.ts` | 3D pushbox separator, sphere-vs-capsule collision resolver, hitstop/blockstun/knockdown application, and projectile integration. | Modifying hit resolution or pushbox collision. |
-| `src/game3d/combat/CharacterSpecialMoveController.ts` | Per-character 4-phase `SuperMove` state machine (`STARTUP_FREEZE` -> `BURST_ENGAGE` -> `CLIMAX_IMPACT` -> `RECOVERY`) and `SuperShot` frame timing. | Modifying SuperShot or SuperMove frame windows or lunges. |
-| `src/game3d/combat/SuperShotProjectileSystem.ts` & `Projectile3D.ts` | Spawns, steps, and collides 3D `SuperShot` projectiles (`bullet_tracer`, `open_arms_wave`, `sonic_dance_wave`, `swagger_ground_wave`). | Tuning projectile speed, radius, lifetime, or visual style. |
-| `src/game3d/hitboxes/HitboxSystem3D.ts` | Pure 3D sphere-sphere and sphere-capsule math (`testSphereVsCapsule3D`). | Modifying 3D collision geometry math. |
-| `src/game3d/arenas/ArenaBuilder3D.ts` | Builds 3D geometry, PBR materials, lights, shadows, and animated stage props for `award_night` and `film_city`. | Modifying stage 3D props, colors, or lighting. |
-| `src/game3d/cameras/DynamicFightCamera3D.ts` | 3D tracking camera that frames P1 and P2, zooms on SuperMoves, and applies decay-based screen-shake trauma. | Adjusting camera FOV, distance, height, or shake intensity. |
-| `src/game3d/vfx/VFXManager3D.ts` | 3D meshes and bursts for hit sparks, character-specific SuperShot charge/release VFX, SuperMove ground waves, projectile meshes, and wireframe debug hitboxes (`[H]`). | Adding or modifying 3D visual effects. |
-| `src/game3d/audio/AudioManager3D.ts` | Static facade routing 3D character combat events to `AudioManager`. | Adding new character audio event helpers. |
-| `src/game3d/cpu/CPUController3D.ts` | 3D AI controller with difficulty profiles (`easy`, `normal`, `hard`), projectile evasion, anti-air, and SuperMove execution. | Tuning CPU AI aggressiveness or reaction frequency. |
-| `src/game3d/managers/MatchManager3D.ts` | Round timer, best-of-3 round win counter, spawn coordinates (`P1_SPAWN_X_3D = -2.4`, `P2_SPAWN_X_3D = 2.4`), and match phase state machine. | Changing spawn positions or round rules. |
-
----
-
-## Section 3 — Complete Game Flow
+### 1.2 Runtime Execution Flow (End-to-End Lifecycle)
 
 ```text
-[TitleScreen.tsx]
-   │  User clicks mode ("VERSUS CPU" | "ARCADE LADDER" | "TRAINING")
-   ▼
-bridge.gameMode = mode;
-bridge.setScreen('character_select');
-   │
-   ▼
-[CharacterSelect.tsx]  ◄──────────────────────────────────────────┐
-   │  • Initializes p1Id = bridge.p1CharacterId                   │
-   │  • Initializes p2Id = bridge.p2CharacterId (ensured != p1Id) │
-   │  • Toggle active slot: "PLAYER 1" ('p1') vs "CPU/DUMMY" ('p2')│
-   │  • Clicking a fighter card calls applyFighterSelection():    │
-   │      - Updates active slot (p1Id or p2Id)                    │
-   │      - Syncs bridge.p1CharacterId & bridge.p2CharacterId     │
-   │      - If duplicate with other slot, swaps other slot to     │
-   │        previous fighter                                      │
-   │  • Renders <CharacterPreview3D characterId={selectedChar.id}/>│
-   │      - Calls CharacterPreviewScene.loadCharacterAsset(id)    │
-   │      - Increments loadToken, disposes old rig immediately,   │
-   │        loads new CharacterRig3D, updates telemetry badge     │
-   │  • User clicks "SELECT 3D ARENA →"                           │
-   ▼                                                              │
-bridge.setScreen('arena_select');                                 │
-   │                                                              │
-   ▼                                                              │
-[ArenaSelect.tsx]                                                 │
-   │  • User picks 'award_night' or 'film_city' (bridge.arenaId)  │
-   │  • Clicking "CHANGE FIGHTERS" returns to 'character_select' ─┘
-   │  • Clicking "START FIGHT" calls bridge.startMatch():
-   │      - If gameMode === 'arcade', builds 3-opponent ladder
-   │        excluding bridge.p1CharacterId and sets
-   │        bridge.p2CharacterId = bridge.arcadeLadder[0]
-   │      - Sets bridge.screen = 'fighting'
-   │      - Emits 'start_match' command
-   ▼
-[GameCanvas.tsx] + [FightHUD.tsx]
-   │  • Mounts <canvas> and creates new BabylonFightEngine(canvas)
-   │  • BabylonFightEngine.initializeFullMatch():
-   │      1. Reads bridge.p1CharacterId & bridge.p2CharacterId
-   │      2. Resolves p1Def = CHARACTERS[bridge.p1CharacterId]
-   │         and p2Def = CHARACTERS[bridge.p2CharacterId]
-   │      3. Disposes any mismatched p1Rig / p2Rig immediately
-   │      4. Updates this.p1.setCharacterDef(p1Def) &
-   │         this.p2.setCharacterDef(p2Def)
-   │      5. Calls loadFighterRigs(p1Def, p2Def) with ++rigLoadToken
-   │      6. Resets MatchManager3D & pushes initial GameHUDState
-   │  • Runs 60fps simulation loop until MatchManager3D reaches 'match_end'
-   ▼
-bridge.setScreen('results');
-   │
-   ▼
-[ResultsModal.tsx]
-   ├─► "REMATCH" -> bridge.rematch() -> screen = 'fighting', emits 'rematch'
-   │   (Preserves current bridge.p1CharacterId & bridge.p2CharacterId)
-   ├─► "NEXT OPPONENT" (Arcade win on Stage 1 or 2) ->
-   │   bridge.advanceArcadeStage() -> increments arcadeStageIndex,
-   │   sets bridge.p2CharacterId = arcadeLadder[arcadeStageIndex],
-   │   emits 'start_match'
-   ├─► "CHARACTER SELECT" -> bridge.setScreen('character_select')
-   └─► "MAIN MENU" -> bridge.returnToMenu() -> screen = 'title'
+[1. TitleScreen.tsx] ("FIGHT FUN — LIGHTS. CAMERA. KNOCKOUT!")
+   User selects mode ('arcade' | 'vs_cpu' | 'training')
+   └─> bridge.gameMode = mode; bridge.setScreen('character_select')
+
+[2. CharacterSelect.tsx]
+   User clicks character card for P1 or P2
+   └─> applyFighterSelection(current, clickedId) (src/game3d/characters/CharacterRoster3D.ts)
+       Updates p1Id / p2Id deterministically & writes bridge.p1CharacterId / bridge.p2CharacterId
+   └─> CharacterPreview3D.tsx passes activeCharacterId to CharacterPreviewScene.loadCharacterAsset(characterId)
+       ├─> Monotonic requestId increments; immediately disposes previous preview rig
+       └─> AssetLoader3D.loadCharacterRig(scene, def) -> CharacterAssetLoader.loadAndValidateCharacter(...)
+           ├─> Validates GLB against CharacterAssetConfig (src/config/characterAssets.ts)
+           ├─> If isTemporaryPlaceholder === true: disposes 24-vertex box proxy GLB and builds character-specific
+           │   articulated 22-bone + 5-facial-bone procedural rig (renderState = 'TEMPORARY_PLACEHOLDER')
+           └─> If isTemporaryPlaceholder === false: calibrates imported GLB scale/groundOffset, maps humanoid
+               bones via boneAliases, registers dynamic AnimationGroups (excluding static 'mixamo_com' pose),
+               and sets renderState = 'PRODUCTION_SKINNED'
+
+[3. ArenaSelect.tsx]
+   User selects arena ('award_night' | 'film_city') and clicks "ENTER THE ARENA - FIGHT!"
+   └─> bridge.arenaId = selectedArena; bridge.startMatch() (sets screen = 'fighting')
+
+[4. GameCanvas.tsx -> BabylonFightEngine.ts]
+   Mounts canvas and instantiates BabylonFightEngine(canvas)
+   └─> initializeFullMatch():
+       ├─> Creates Fighter3D(p1Def, -2.3, 1) and Fighter3D(p2Def, +2.3, -1)
+       ├─> Builds 3D stage via ArenaBuilder3D.buildArena(scene, bridge.arenaId)
+       └─> Calls loadFighterRigs():
+           ├─> Increments rigLoadToken, immediately disposes stale p1Rig/p2Rig if characterId changed
+           ├─> Loads P1 & P2 rigs in parallel via safeLoadRig(def, slotTag)
+           │   (On error: builds that character's own procedural fallback rig via buildFallbackCharacterRig3D,
+           │    NEVER substituting Action Sultan for another character)
+           └─> Verifies rigLoadToken & p1Rig.characterId === p1.id / p2Rig.characterId === p2.id before attaching
+   └─> 60Hz Fixed Timestep Loop:
+       ├─> MatchManager3D steps round intro / active fight / round over / match over
+       ├─> CPUController3D generates AI inputs for P2
+       ├─> CombatSystem3D steps physics, pushboxes, HitboxSystem3D collisions, SuperShot projectiles, SuperMoves
+       └─> sync3DSceneVisuals() updates P1/P2 rig positions & unified AnimationController3D poses (only when rig.characterId === fighter.id)
+
+[5. ResultsModal.tsx]
+   Match ends -> bridge.setScreen('results')
+   ├─> "REMATCH": bridge.rematch() -> preserves p1CharacterId & p2CharacterId, reloads match
+   ├─> "NEXT OPPONENT" (Arcade win): bridge.advanceArcadeTower() -> sets p2CharacterId to next distinct fighter
+   └─> "CHANGE FIGHTERS": bridge.setScreen('character_select') -> returns to CharacterSelect with current IDs intact
 ```
 
 ---
 
-## Section 4 — Character System Architecture
+## 2. Installation and Development
 
-Every character in Filmi Dangal is bound through a strict 5-stage authoritative chain:
+### 2.1 Prerequisites
+- **Node.js**: v22+ (recommended)
+- **Bun**: v1.4+ (optional, used in CI alongside `bun.lock`)
+
+### 2.2 Install Dependencies
+```bash
+npm install
+# or with Bun:
+bun install --frozen-lockfile
+```
+
+### 2.3 Available Scripts (`package.json`)
+| Command | Script | Description |
+| :--- | :--- | :--- |
+| `npm run dev` | `vite --port=3000 --host=0.0.0.0` | Starts the local development server on `http://localhost:3000`. |
+| `npm run build` | `vite build` | Compiles production client bundle into `dist/`. |
+| `npm run preview` | `vite preview` | Serves the production build locally for verification. |
+| `npm run lint` | `tsc --noEmit` | Runs full TypeScript type checking across the entire codebase. |
+| `npm test` | `tsx --test src/engine/tests/combat.test.ts` | Executes the automated unit & integration test suite (26 tests covering combat, selection, 3D loading, animation choreography parity, arena switching, and branding). |
+| `npx tsx scripts/build-glb-assets.ts` | Custom script | Regenerates the lightweight placeholder `.glb` proxy files and `manifest.json` files for temporary placeholder fighters. |
+
+### 2.4 Fast Browser Testing Query Parameters
+- `http://localhost:3000/?autostart=1` — Automatically skips the title screen and launches an Arcade match.
+- `http://localhost:3000/?autostart=1&mode=training` — Automatically launches Training Mode.
+- `http://localhost:3000/?autostart=1&mode=vs_cpu` — Automatically launches Versus CPU Mode.
+
+---
+
+## 3. Complete Folder Structure
 
 ```text
-FighterId ('action_sultan' | 'romance_raja' | 'duggu' | 'bhidu')
-   │
-   ├─► 1. CharacterDef (src/data/characters.ts -> CHARACTERS[id])
-   │      Controls gameplay identity: name, title, stats, proportions,
-   │      colors, superShotInfo, superMoveInfo, and moves frame data.
-   │
-   ├─► 2. CharacterAssetConfig (src/config/characterAssets.ts -> CHARACTER_ASSET_MANIFEST[id])
-   │      Controls 3D & audio pipeline: isTemporaryPlaceholder, modelPath,
-   │      scale, groundOffset, boneAliases, animations, specialAttackEvents,
-   │      vfx paths, and audio paths.
-   │
-   ├─► 3. Binary GLB File & JSON Manifest (public/assets/characters/<slug>/model.glb & manifest.json)
-   │      Physical 3D asset on disk loaded by Babylon.js SceneLoader.
-   │
-   ├─► 4. Loaded CharacterRig3D (src/game3d/assets/AssetLoader3D.ts)
-   │      Runtime 3D scene graph: rootNode -> facingNode -> modelTransformNode,
-   │      resolved canonical bones, attachment sockets, meshes, renderState,
-   │      and CharacterAssetLoadDiagnostics.
-   │
-   └─► 5. Active Scene Binding
-          • Preview: CharacterPreviewScene.currentRig (verified currentRig.characterId === characterId)
-          • Gameplay: BabylonFightEngine.p1Rig & p2Rig (verified p1Rig.characterId === p1.id)
+/
+├── .github/workflows/
+│   └── ci.yml                          # GitHub Actions CI pipeline (Fight Fun CI: install, lint, test, build)
+├── index.html                          # HTML entry point, Google Fonts, Fight Fun title & OpenGraph metadata
+├── metadata.json                       # Application metadata (Fight Fun — Lights. Camera. Knockout!)
+├── package.json                        # Package manifest ("fight-fun"), scripts, and dependencies
+├── bun.lock                            # Synchronized Bun lockfile for CI (--frozen-lockfile)
+├── PROJECT_GUIDE.md                    # This comprehensive developer & architecture guide
+├── scripts/
+│   └── build-glb-assets.ts             # Utility script to generate placeholder GLB/manifest files
+├── public/
+│   └── assets/
+│       ├── audio/characters/
+│       │   └── README.md               # Audio drop-in guide for character SFX (.ogg/.mp3)
+│       └── characters/
+│           ├── README.md               # 3D character GLB drop-in guide
+│           ├── action-sultan/
+│           │   ├── manifest.json       # Accurate asset metadata for Action Sultan (isPlaceholder: false)
+│           │   └── model.glb           # Production skinned Mixamo GLB model (14,918 vertices, 65 joints)
+│           ├── romance-raja/
+│           │   ├── manifest.json       # Asset metadata for Romance Raja (isPlaceholder: true)
+│           │   └── model.glb           # Temporary 24-vertex box placeholder proxy GLB
+│           ├── duggu/
+│           │   ├── manifest.json       # Asset metadata for Duggu (isPlaceholder: true)
+│           │   └── model.glb           # Temporary 24-vertex box placeholder proxy GLB
+│           └── bhidu/
+│               ├── manifest.json       # Asset metadata for Bhidu (isPlaceholder: true)
+│               └── model.glb           # Temporary 24-vertex box placeholder proxy GLB
+└── src/
+    ├── main.tsx                        # React DOM root mount
+    ├── App.tsx                         # Top-level screen router, HUD state subscriber, modal manager
+    ├── index.css                       # Global Tailwind CSS import & custom arcade scrollbar/utilities
+    ├── types/
+    │   └── fighter.ts                  # Core TypeScript types: FighterId, ArenaId, GameMode, CharacterDef, etc.
+    ├── config/
+    │   ├── characterAssets.ts          # Authoritative 3D asset manifest (CHARACTER_ASSET_MANIFEST)
+    │   └── audioAssets.ts              # Character-specific audio manifest (CHARACTER_AUDIO_MANIFEST)
+    ├── data/
+    │   ├── characters.ts               # Fighter gameplay stats, palettes, movesets, and arcade ladder
+    │   └── arenas.ts                   # Arena definitions ('award_night', 'film_city')
+    ├── components/
+    │   ├── TitleScreen.tsx             # Main menu ("FIGHT FUN"), mode selection, quick-launch
+    │   ├── CharacterSelect.tsx         # P1/P2 fighter selection UI, stats panel, 3D preview host
+    │   ├── ArenaSelect.tsx             # Stage selection screen ('award_night' vs 'film_city')
+    │   ├── GameCanvas.tsx              # Babylon.js WebGL canvas host & engine lifecycle wrapper
+    │   ├── FightHUD.tsx                # Health bars, super meters, timer, combo counters, training controls
+    │   ├── MobileControls.tsx          # Virtual D-pad and action buttons for touch devices
+    │   ├── PauseModal.tsx              # In-match pause overlay
+    │   ├── ResultsModal.tsx            # Victory/defeat screen, rematch, arcade tower progression
+    │   ├── ControlsModal.tsx           # Keybinding reference & character move list modal
+    │   ├── SettingsModal.tsx           # Audio volume, CPU difficulty, and keybinding customization modal
+    │   └── DisclaimerModal.tsx         # Parody & legal disclaimer modal ("FIGHT FUN")
+    ├── engine/
+    │   ├── GameBridge.ts               # Singleton pub/sub bridge between React UI and 3D engine
+    │   ├── AudioManager.ts             # Hybrid file + procedural Web Audio synthesizer & BGM engine
+    │   ├── SettingsManager.ts          # Persistent localStorage settings (audio, difficulty, keybindings)
+    │   ├── Fighter.ts                  # Legacy 2D fighter state class (used by pure 2D unit tests)
+    │   ├── CombatSystem.ts             # Legacy 2D combat resolver
+    │   ├── ComboSystem.ts              # Hit combo counter and damage scaling calculator
+    │   ├── HitboxSystem.ts             # 2D AABB collision helper
+    │   ├── InputManager.ts             # Keyboard & touch input buffer
+    │   ├── MatchManager.ts             # Legacy 2D round state machine
+    │   ├── CPUController.ts            # Legacy 2D AI controller
+    │   └── tests/
+    │       └── combat.test.ts          # Comprehensive automated test suite (26 tests)
+    └── game3d/
+        ├── engine/
+        │   └── BabylonFightEngine.ts   # Main 3D match engine, 60Hz loop, rig loader, scene coordinator
+        ├── characters/
+        │   └── CharacterRoster3D.ts    # Authoritative FighterId mapping & P1/P2 selection state reducer
+        ├── assets/
+        │   ├── CharacterAssetLoader.ts # GLB loader, skeleton/skinning validator, procedural rig builder
+        │   ├── CharacterAssetValidator.ts # Startup asset manifest integrity validator
+        │   └── AssetLoader3D.ts        # High-level rig loader & non-Sultan fallback generator
+        ├── animation/
+        │   ├── AnimationController3D.ts # Unified 3D animation state machine (GLB clips -> Procedural bones + Facial + Multi-phase SuperMove -> Visual-only)
+        │   ├── CharacterAnimationController.ts # Preview animation controller delegating pose calculation to AnimationController3D
+        │   └── FighterAnimationEvents.ts # Frame-accurate animation event dispatcher & stateless frame snapshot helper
+        ├── combat/
+        │   ├── Fighter3D.ts            # 3D-bound fighter physics, state machine, pushbox & hurtbox
+        │   ├── CombatSystem3D.ts       # Authoritative combat hit/block/grab/super resolver
+        │   ├── CharacterSpecialMoveController.ts # Character-specific SuperShot & SuperMove frame handlers
+        │   ├── SuperShotProjectileSystem.ts # 3D projectile manager for SuperShots
+        │   └── Projectile3D.ts         # Individual 3D projectile entity
+        ├── hitboxes/
+        │   └── HitboxSystem3D.ts       # 2D/3D hitbox-vs-hurtbox intersection & socket world projection
+        ├── cpu/
+        │   └── CPUController3D.ts      # Difficulty-scaled CPU AI controller (Easy / Medium / Hard)
+        ├── managers/
+        │   └── MatchManager3D.ts       # Best-of-3 round timer, intro/KO phases, win tracking
+        ├── arenas/
+        │   └── ArenaBuilder3D.ts       # Procedural 3D stage builder & material disposer (Award Night & Film City)
+        ├── cameras/
+        │   └── DynamicFightCamera3D.ts # Side-view framing camera with zoom, shake, and Super zoom-ins
+        ├── scenes/
+        │   ├── CharacterPreview3D.tsx  # React wrapper for the Character Select 3D viewport
+        │   └── CharacterPreviewScene.ts # Dedicated Babylon.js 3D preview scene with monotonic async guard
+        ├── audio/
+        │   └── AudioManager3D.ts       # 3D combat audio event adapter
+        └── vfx/
+            └── VFXManager3D.ts         # 3D hit sparks, block shields, ground shockwaves, hitbox debug wireframes
 ```
 
-### Authoritative Verification Helper
-`src/game3d/characters/CharacterRoster3D.ts` exports:
-- `resolveAuthoritativeCharacterMapping(id: FighterId)`: Verifies that `FighterId`, `CharacterDef.id`, `CharacterAssetConfig.id`, and `modelPath` all match `id` with zero cross-character aliasing.
-- `verifyAllAuthoritativeCharacterMappings()`: Validates that all 4 fighters have valid, mutually exclusive `modelPath` configurations.
-
 ---
 
-## Section 5 — How 3D Character Loading Works
+## 4. Character Management
 
-All 3D character loading flows through `loadCharacterRig3D()` (`src/game3d/assets/AssetLoader3D.ts`) -> `CharacterAssetLoader.loadCharacterFromManifest()` (`src/game3d/assets/CharacterAssetLoader.ts`).
+### 4.1 Current Fighter Roster & Asset Status
+The game features four distinct fighters defined in `src/types/fighter.ts`, `src/data/characters.ts`, and `src/config/characterAssets.ts`:
 
-### Scene Graph Hierarchy
-Every loaded character rig constructs a strict 3-tier transform hierarchy:
-1. **`rootNode` (`${prefix}_${charId}_root`)**:
-   Positioned at `(x, y, 0)` in world space by `Fighter3D.position` (or `(0, y, 0)` in preview). Scale is `(1, 1, 1)`.
-2. **`facingNode` (`${prefix}_${charId}_facing`, child of `rootNode`)**:
-   Rotated around `Y` (`facingRotationY.right = +π/2`, `facingRotationY.left = -π/2`, or turntable angle in preview).
-3. **`modelTransformNode` (`${prefix}_${charId}_modelTransform`, child of `facingNode`)**:
-   Applies calibrated `scale` and `groundOffset` **exactly once**. All imported GLB root nodes or procedural bones attach under `modelTransformNode`.
+| Fighter ID (`FighterId`) | Display Name | Archetype | Folder (`public/assets/characters/`) | Current 3D Asset Status | Render State |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| `'action_sultan'` | **Action Sultan** | Power Brawler | `action-sultan/` | **Production Skinned GLB** (`model.glb`, 14,918 vertices, 65 Mixamo joints, 2 skinned meshes). Contains 1 static bind pose group (`mixamo_com`), so dynamic combat states use procedural bone animation (`canUseProceduralBoneFallback: true`). | `'PRODUCTION_SKINNED'` |
+| `'romance_raja'` | **Romance Raja** | Counter & Mind-Games | `romance-raja/` | **Temporary Placeholder** (`isTemporaryPlaceholder: true`). Disk `model.glb` is a 24-vertex 3-LOD box proxy; runtime loader builds Romance Raja's bespoke 22-bone + 5-facial-bone procedural rig (crimson blazer, open-arms pose). | `'TEMPORARY_PLACEHOLDER'` |
+| `'duggu'` | **Duggu** | Rushdown Acrobat | `duggu/` | **Temporary Placeholder** (`isTemporaryPlaceholder: true`). Disk `model.glb` is a 24-vertex 3-LOD box proxy; runtime loader builds Duggu's bespoke 22-bone + 5-facial-bone procedural rig (emerald jacket, visor, lean dancer build). | `'TEMPORARY_PLACEHOLDER'` |
+| `'bhidu'` | **Bhidu** | Heavy Grappler | `bhidu/` | **Temporary Placeholder** (`isTemporaryPlaceholder: true`). Disk `model.glb` is a 24-vertex 3-LOD box proxy; runtime loader builds Bhidu's bespoke 22-bone + 5-facial-bone procedural rig (charcoal biker vest, gold bandana & chain). | `'TEMPORARY_PLACEHOLDER'` |
 
-### The 4 Render States (`CharacterRenderState`)
-
-| `renderState` | Meaning | How It Is Triggered |
-| :--- | :--- | :--- |
-| `PRODUCTION_SKINNED` | **Path B — Production Skinned Character**: Uses the imported `.glb` meshes, PBR materials/textures, and `Skeleton` (>= 15 bones with valid `JOINTS_0` and `WEIGHTS_0` vertex weights and all 20 canonical humanoid bones resolved). | `manifest.isTemporaryPlaceholder === false` AND `glbLoaded === true` AND `eligibility.isProductionReady === true`. (**Currently active for `action_sultan`**). |
-| `VISUAL_ONLY` | **Path C — Valid Visual-Only Character**: Uses imported non-placeholder `.glb` mesh geometry and materials, even if the model has no skeletal skinning. | `manifest.isTemporaryPlaceholder === false` AND `glbLoaded === true` AND `hasValidGeometry === true` (and NOT a generated 24-vertex box placeholder proxy) when `isProductionSkinned === false`. |
-| `TEMPORARY_PLACEHOLDER` | **Path A — Procedural Humanoid Rig**: Disposes any imported placeholder proxy meshes/materials from the `.glb` and builds the character-specific articulated 20-bone + 5-facial-bone procedural humanoid rig (`buildTemporaryPlaceholderHumanoidRig`) styled with that fighter's exact proportions, colors, hair, sunglasses/bandana, and attire. | `manifest.isTemporaryPlaceholder === true` (or when `isTemporaryPlaceholder === false` but the `.glb` on disk is still the generated box-primitive placeholder proxy). (**Currently active for `romance_raja`, `duggu`, and `bhidu`**). |
-| `LOAD_FAILED` | **Path A — Load Failed Fallback Rig**: The `.glb` file could not be fetched or parsed. Builds the requested fighter's own procedural humanoid rig (`buildTemporaryPlaceholderHumanoidRig`) so gameplay/preview continues with the selected fighter's identity and records the failure in `diagnostics.errors`. | `glbLoaded === false` or an unrecoverable loader error occurred. **Never substitutes `action_sultan` when another fighter fails to load.** |
-
-### Critical Role of `isTemporaryPlaceholder`
-- In `src/config/characterAssets.ts`, each character has `isTemporaryPlaceholder: boolean`.
-- **Replacing a `.glb` file on disk alone does NOT activate a production model if `isTemporaryPlaceholder` is still `true`!** While `isTemporaryPlaceholder: true`, `CharacterAssetLoader` intentionally disposes the imported GLB proxy meshes and builds Path A (`TEMPORARY_PLACEHOLDER`).
-- Conversely, **setting `isTemporaryPlaceholder: false` without replacing the generated placeholder `.glb` will NOT activate production mode**: `CharacterAssetLoader` detects generated 24-vertex box-primitive placeholder proxies (`LOD0_High`/`LOD1_Medium`/`LOD2_Low` with 0 skins) and safely keeps the character in `TEMPORARY_PLACEHOLDER` state.
-
----
-
-## Section 6 — How to Replace a Character's 3D Model
-
-Follow this exact step-by-step checklist when replacing a temporary placeholder character (`romance_raja`, `duggu`, or `bhidu`)—or updating `action_sultan`—with a new production `.glb` model.
-
-### Step 1: Verify Technical Requirements for the `.glb` File
-Before exporting from Blender / Maya / Mixamo, verify that the model satisfies `PRODUCTION_GLB_ASSET_CONTRACT` (`src/config/characterAssets.ts`):
-1. **Format**: glTF 2.0 binary `.glb` (`magic === 0x46546C67`, `version === 2`).
-2. **Mesh & Vertex Skinning**:
-   - At least 1 mesh primitive with `POSITION`, `JOINTS_0`, and normalized non-zero `WEIGHTS_0` attributes (`sum(w0..w3) ≈ 1.0`).
-   - At least 1 glTF `skin` with `>= 15` joints bound to the mesh node(s).
-3. **Required 20 Canonical Humanoid Bones**:
-   Must include nodes/bones matching these 20 canonical names or their supported Mixamo (`mixamorig:*`), Rigify, or Biped aliases in `DEFAULT_HUMANOID_BONE_ALIASES`:
-   `Root`, `Hips`, `Spine`, `Chest`, `Neck`, `Head`, `LeftShoulder`, `LeftUpperArm`, `LeftForeArm`, `LeftHand`, `RightShoulder`, `RightUpperArm`, `RightForeArm`, `RightHand`, `LeftUpLeg`, `LeftLeg`, `LeftFoot`, `RightUpLeg`, `RightLeg`, `RightFoot`.
-4. **Scale, Forward Axis & Ground Origin**:
-   - Forward axis: `+Z` in local space.
-   - Note on Mixamo FBX-to-GLB exports: If your exporter wraps the armature in an `FBX_Root` node scaled to `0.01`, `CharacterAssetLoader` automatically neutralizes `FBX_Root` scale to `1.0` and `calibrateImportedModelTransform()` computes the exact `scale` and `groundOffset` so the character's feet rest at `Y = 0` and height matches `targetHeightMeters` (`~1.82m * heightScale`).
-
-### Step 2: Place the `.glb` File in the Character's Folder
-Overwrite the target file in `public/assets/characters/<slug>/model.glb`:
-- Action Sultan: `public/assets/characters/action-sultan/model.glb`
-- Romance Raja: `public/assets/characters/romance-raja/model.glb`
-- Duggu: `public/assets/characters/duggu/model.glb`
-- Bhidu: `public/assets/characters/bhidu/model.glb`
-
-### Step 3: Protect the Character from Placeholder Regeneration
-Open `scripts/build-glb-assets.ts` and add the character's ID to `SKIP_PRODUCTION_CHARACTER_IDS`:
-```ts
-const SKIP_PRODUCTION_CHARACTER_IDS = new Set<string>([
-  'action_sultan',
-  'romance_raja', // <-- Add the promoted character ID here so npm run build:glb never overwrites it
-]);
+### 4.2 Authoritative Character Identity Mapping
+`src/game3d/characters/CharacterRoster3D.ts` enforces a single, strict chain of identity for every fighter via `resolveAuthoritativeCharacterMapping(id)`:
+```text
+FighterId -> CharacterDef (src/data/characters.ts)
+          -> CharacterAssetConfig (src/config/characterAssets.ts)
+          -> modelPath (/assets/characters/<slug>/model.glb)
+          -> CharacterRig3D (rig.characterId === FighterId)
 ```
+- **Never** hardcode `'action_sultan'` as a fallback when another character fails to load. `AssetLoader3D.buildFallbackCharacterRig3D(scene, characterDef)` guarantees that even if a network or GLB parse error occurs, the fallback procedural rig preserves the selected fighter's `characterId`, palette, proportions, and moveset (`renderState: 'LOAD_FAILED'`).
 
-### Step 4: Enable Production Loading in `src/config/characterAssets.ts`
-Open `src/config/characterAssets.ts` and update that character's entry in `CHARACTER_ASSET_MANIFEST`:
-1. Set `isTemporaryPlaceholder: false`.
-2. If your rig uses custom bone names not already in `DEFAULT_HUMANOID_BONE_ALIASES`, add them to `boneAliases` for that character.
-3. Adjust `scale`, `groundOffset`, or `facingRotationY` if needed (note that `calibrateImportedModelTransform` auto-calibrates `scale` and `groundOffset` from unscaled local mesh bounds when `isTemporaryPlaceholder: false`).
-
-### Step 5: Update `public/assets/characters/<slug>/manifest.json`
-Update the character's `manifest.json` so its metadata (`assetStatus: "PRODUCTION_SKINNED"`, `isPlaceholder: false`, `isTemporaryPlaceholder: false`, `scale`, `groundOffset`, `embeddedAnimations`) matches the new binary `.glb`.
-
-### Step 6: Update and Run Automated Validation Tests
-1. In `src/engine/tests/combat.test.ts`, update tests that assert which characters have `isTemporaryPlaceholder: true` vs `false` (Tests 1, 10, 12, 17, 23).
-2. Run `npm test` to verify binary GLB validation (`validateGLBBuffer`) and headless Babylon `NullEngine` rig loading (`loadCharacterRig3D`) report `renderState === 'PRODUCTION_SKINNED'` and `productionRigValid === true`.
-
----
-
-## Section 7 — How to Add or Update Character Animations
-
-Filmi Dangal uses a **hybrid animation architecture** (`CharacterAnimationController.ts` + `CharacterAssetLoader.ts`) that supports both embedded GLB `AnimationGroup` clips and quaternion-safe procedural bone animation.
-
-### 1. Standardized Animation Clip IDs (`StandardAnimationClipId`)
-Defined in `src/config/characterAssets.ts` (`ALL_STANDARD_ANIMATION_CLIP_IDS`):
-- Locomotion & Defense: `idle`, `walk`, `run`, `jump`, `landing`, `crouch`, `block`
-- Melee & Reactions: `punch`, `kick`, `hit_react`, `knockout`, `victory`, `defeat`
-- Signature Specials: `super_shot`, `super_move`
-
-### 2. How Embedded GLB Animations Are Resolved vs. Static Pose Filtering
-When a production `.glb` is imported in `CharacterAssetLoader.createAnimationGroupController()`:
-1. Every `AnimationGroup` in the `.glb` is inspected by `isAnimationGroupMeaningfullyAnimated()`.
-2. **Static bind-pose clips** (such as Mixamo's default 1-frame `"mixamo_com"` clip that has zero keyframe delta across frames) are automatically classified into `staticPoseClipNames` and **stopped/excluded** from runtime playback so they never freeze the character in a T-pose or corrupt `Hips.y` ground calibration.
-3. If a non-static `AnimationGroup` matches the requested state's `clipName` or `aliases` (configured in `src/config/characterAssets.ts` -> `createStandardAnimationsConfig`), `glbAnimationController.playClip(clipId)` plays that embedded clip.
-4. **Automatic Procedural Bone Fallback**: If an embedded clip is not present for a state (for example, `action-sultan/model.glb` only embeds the static `mixamo_com` clip), `CharacterAnimationController.updateRigPose()` automatically drives all 20 humanoid bones (using quaternion rotations when `node.rotationQuaternion` is active on glTF/Mixamo rigs, or Euler angles on procedural rigs) from captured rest poses (`__restPosition`, `__restQuaternion`).
-
-### 3. How to Map New Embedded Animation Clips
-If you export a `.glb` with embedded animations:
-- Name the clips in Blender/Mixamo to match `createStandardAnimationsConfig` in `src/config/characterAssets.ts` (e.g., `Idle`, `Walk`, `Run`, `Jump`, `Landing`, `Crouch`, `Block`, `Punch`, `Kick`, `HitReact`, `Knockout`, `Victory`, `Defeat`, plus the character's `superShotClip` and `superMoveClip`), **or** add your custom clip names to the `aliases` array in `src/config/characterAssets.ts`.
-
-### 4. How to Modify Procedural Animation Poses
-Open `src/game3d/animation/CharacterAnimationController.ts`:
-- `updateRigPose()` computes procedural joint angles (`PoseTargets`) for every `FighterStateName`.
-- Character-specific `super_shot` and `super_move` choreography is implemented in dedicated per-character blocks inside `CharacterAnimationController.ts` (e.g. Action Sultan aiming & recoil, Romance Raja open-arms pose, Duggu rhythmic dance steps, Bhidu swagger walk & ground stomp).
-
----
-
-## Section 8 — How to Modify Character Stats, Moves & Special Attacks
-
-### 1. Modifying Fighter Stats, Names, Colors & Proportions
-Edit **`src/data/characters.ts`** (`CHARACTERS[fighterId]`):
-- `stats.maxHealth`: Starting/maximum HP (`1050` for Action Sultan, `960` for Romance Raja, `950` for Duggu, `1080` for Bhidu).
-- `stats.walkSpeed` / `stats.jumpForce` / `stats.gravity`: Movement physics speeds.
-- `stats.powerMultiplier` / `stats.defenseMultiplier`: Global damage dealt and damage taken multipliers.
-- `visuals.primaryColor` / `secondaryColor` / `skinColor` / `hairColor`: Hex colors used by procedural rigs, preview pedestal rings, and hit/super VFX bursts.
-- `visuals.proportions`: `heightScale`, `shoulderWidth`, `chestDepth`, `torsoBulk`, `limbThickness`, `legLength`, `jawWidth`.
-
-### 2. Modifying Normal & Command Attack Frame Data
-Edit **`src/data/characters.ts`** (`CHARACTERS[fighterId].moves`):
-Each move (`punch`, `kick`, `crouch_punch`, `crouch_kick`, `jump_punch`, `jump_kick`, `forward_punch`, `forward_kick`, `sweep`, `grab`, `special`, `super`, `super_shot`, `super_move`) defines `MoveFrameData`:
-- `startup`: Frames before the hitbox becomes active.
-- `active`: Frames the attack sphere is active.
-- `recovery`: Frames after active frames before the fighter returns to `idle`.
-- `damage` & `chipDamage`: Unblocked vs blocked damage.
-- `meterGain`: Super meter gained on execution/hit (or negative meter cost for specials).
-- `hitstun` & `blockstun`: Frames the defender is locked in stun.
-- `knockback`: `{ x, y }` velocity impulse applied to the defender.
-- `causesKnockdown`: Whether an unblocked hit puts the defender into `knockdown`.
-
-### 3. Modifying `SuperShot [U]` & `SuperMove [L]` Behavior
-Special attacks are coordinated across **4 files**:
-1. **`src/data/characters.ts`**:
-   Update `superShotInfo`, `superMoveInfo`, and `moves.super_shot` / `moves.super_move` damage and frame counts.
-2. **`src/config/characterAssets.ts`**:
-   Update `specialAttackEvents.superShot` (`chargeStartFrame`, `projectileReleaseFrame`, `specialImpactFrame`, `animationCompleteFrame`) and `specialAttackEvents.superMove` (`chargeStartFrame`, `climaxImpactFrame`, `animationCompleteFrame`).
-   > **Rule**: Must satisfy `1 <= chargeStartFrame < projectileReleaseFrame <= specialImpactFrame < animationCompleteFrame`.
-3. **`src/game3d/combat/CharacterSpecialMoveController.ts` & `src/game3d/combat/SuperShotProjectileSystem.ts`**:
-   - `CharacterSpecialMoveController.ts`: Controls the 4-phase `SuperMove` timeline (`STARTUP_FREEZE` -> `BURST_ENGAGE` -> `CLIMAX_IMPACT` -> `RECOVERY`), forward lunge speed, invulnerability windows, and active melee radius.
-   - `SuperShotProjectileSystem.ts`: Controls projectile velocity, spawn offset, radius, lifetime, and `visualStyle` (`bullet_tracer`, `open_arms_wave`, `sonic_dance_wave`, `swagger_ground_wave`).
-4. **`src/game3d/vfx/VFXManager3D.ts`**:
-   - `spawnSuperShotChargeVFX()`: Spawns character-specific charge effects at `ON_CHARGE_START`.
-   - `spawnSuperShotReleaseVFX()`: Spawns muzzle flash / energy wave effects at `ON_PROJECTILE_RELEASE`.
-   - `createProjectileMesh()`: Builds the 3D projectile mesh for each `visualStyle`.
-
----
-
-## Section 9 — How to Modify Audio
-
-Filmi Dangal's audio pipeline is controlled by **`src/config/audioAssets.ts`**, **`src/engine/AudioManager.ts`**, and **`src/game3d/audio/AudioManager3D.ts`**.
-
-### Per-Character Audio Events (`ALL_CHARACTER_AUDIO_EVENTS`)
-Every fighter has 9 distinct audio events in `CHARACTER_AUDIO_MANIFEST`:
-`supershot-charge`, `supershot-release`, `supershot-impact`, `supermove-charge`, `supermove-impact`, `normal-attack`, `hit-react`, `victory`, `defeat`.
-
-### How Fallback Synthesis vs. Studio Audio Files Work
-1. In `src/config/audioAssets.ts`, each event entry has:
-   - `filePath`: `/assets/audio/characters/<slug>/<event>.ogg`
-   - `mp3FallbackPath`: `/assets/audio/characters/<slug>/<event>.mp3`
-   - `isTemporaryPlaceholder: boolean`
-   - `fallbackSynth: ProceduralAudioSynthProfile` (multi-layered Web Audio API oscillator/envelope synthesis unique to each fighter).
-2. While `isTemporaryPlaceholder: true`, `AudioManager.playCharacterEvent()` synthesizes the sound in real time using `fallbackSynth` without making network requests for missing `.ogg`/`.mp3` files.
-3. **To replace a synthesized sound with a real studio audio file**:
-   - Place the `.ogg` (and optional `.mp3` fallback) file at `public/assets/audio/characters/<slug>/<event>.ogg`.
-   - In `src/config/audioAssets.ts`, set `isTemporaryPlaceholder: false` on that event's config.
-   - `AudioManager` will automatically fetch, decode, and cache the audio buffer, falling back to `fallbackSynth` only if decoding fails.
-
----
-
-## Section 10 — How to Modify Arenas & Lighting
-
-Arenas are defined in **`src/data/arenas.ts`** and constructed in 3D by **`src/game3d/arenas/ArenaBuilder3D.ts`**.
-
-### Current Arenas
-1. **`award_night` ("Award Night — National Cinema Awards Stage")**:
-   Crimson velvet carpet, golden stage archways, rotating 3D golden film trophy statues, and sweeping volumetric spotlight cones.
-2. **`film_city` ("Film City — Studio Floor 7, Mumbai")**:
-   Dolly track rails, overhead steel lighting trusses, studio spotlights, and an animated 3D articulated camera crane rig that pans across the stage.
-
-### How to Modify Stage Bounds or Visuals
-- **Stage Boundaries**: Edit `ARENAS[arenaId].bounds3D` (`minX: -7.5`, `maxX: 7.5`, `floorY: 0`) in `src/data/arenas.ts`.
-- **Stage Lighting & Props**: Edit `ArenaBuilder3D.buildArena()`, `buildAwardNightProps()`, or `buildFilmCityProps()` in `src/game3d/arenas/ArenaBuilder3D.ts`.
-- **Adding a New Arena**:
-  1. Add the new ID to `ArenaId` in `src/types/fighter.ts`.
-  2. Add its `ArenaDef` entry to `ARENAS` in `src/data/arenas.ts`.
-  3. Add its 3D prop builder branch in `ArenaBuilder3D.buildArena()` (`src/game3d/arenas/ArenaBuilder3D.ts`).
-
----
-
-## Section 11 — How to Modify UI Screens
-
-All UI screens live in `src/components/` and use Tailwind CSS utility classes matching the Filmi Dangal Bollywood Art-Deco palette (`#10111B` deep midnight background, `#D6A447` brass gold borders, `#FEF08A` marquee yellow highlights, `#BE123C` velvet crimson accents, `#0284C7` spotlight cyan).
-
-- **Screen Routing**: Controlled in `src/App.tsx` via `bridge.subscribeScreen()`.
-- **Character Selection (`src/components/CharacterSelect.tsx`)**:
-  - Uses `applyFighterSelection({ p1Id, p2Id, selectingFor }, chosenId)` from `src/game3d/characters/CharacterRoster3D.ts`.
-  - Always keep `bridge.p1CharacterId` and `bridge.p2CharacterId` synchronized with React state (`p1Id`, `p2Id`).
-  - Passes `selectedChar.id` to `<CharacterPreview3D characterId={selectedChar.id} />`.
-- **In-Fight HUD (`src/components/FightHUD.tsx`)**:
-  - Receives `hudState: GameHUDState` pushed by `BabylonFightEngine.pushHUDUpdate()`.
-  - Keep HUD elements `pointer-events-none` except for interactive buttons (`Pause`, `Mute`, Training Dummy controls) which use `pointer-events-auto`.
-
----
-
-## Section 12 — How to Add a Brand-New Fighter
-
-To add a 5th fighter (e.g., `'disco_dancer'`) without breaking any system or test, update these exact files in order:
-
+### 4.3 Step-by-Step: How to Add a New Playable Character
+To add a 5th fighter (e.g., `'disco_king'`), update these files in order:
 1. **`src/types/fighter.ts`**:
-   Add `'disco_dancer'` to the `FighterId` union type.
-2. **`src/data/characters.ts`**:
-   Add `disco_dancer: CharacterDef` to `CHARACTERS` with complete `stats`, `visuals`, `superShotInfo`, `superMoveInfo`, and `moves`.
-3. **`src/config/characterAssets.ts`**:
-   - Add `'disco_dancer'` to `ALL_FIGHTER_IDS` and `isValidFighterId()`.
-   - Add `disco_dancer: CharacterAssetConfig` to `CHARACTER_ASSET_MANIFEST` with unique `modelPath` (`/assets/characters/disco-dancer/model.glb`), `animations`, `specialAttackEvents`, `vfx`, and `audio` paths.
+   - Add `'disco_king'` to the `FighterId` union type:
+     ```ts
+     export type FighterId = 'action_sultan' | 'romance_raja' | 'duggu' | 'bhidu' | 'disco_king';
+     ```
+2. **`src/config/characterAssets.ts`**:
+   - Add `'disco_king'` to `ALL_FIGHTER_IDS`.
+   - Add the `'disco_king'` entry to `CHARACTER_ASSET_MANIFEST` with `id: 'disco_king'`, `modelPath: '/assets/characters/disco-king/model.glb'`, `isTemporaryPlaceholder: true` (or `false` if supplying a production GLB), `scale`, `groundOffset`, `facingRotationY`, `boneMap`, `boneAliases`, and `animations`.
+3. **`src/data/characters.ts`**:
+   - Add the `CharacterDef` entry to `CHARACTERS.disco_king` (stats, palette, `bodyScale`, `moves` frame data for `punch`, `kick`, `crouch_kick`, `uppercut`, `grab`, `super_shot`, `super_move`).
+   - Add `'disco_king'` to `ARCADE_LADDER` if it should appear in Arcade Mode progression.
 4. **`src/config/audioAssets.ts`**:
-   Add `disco_dancer` to `CHARACTER_AUDIO_MANIFEST` with all 9 `ALL_CHARACTER_AUDIO_EVENTS` entries and unique `fallbackSynth.signatureId` values.
-5. **`src/game3d/characters/CharacterRoster3D.ts`**:
-   Add the `case 'disco_dancer':` monogram in `getCharacterMonogram()`.
-6. **`src/game3d/combat/SuperShotProjectileSystem.ts` & `src/game3d/combat/CharacterSpecialMoveController.ts`**:
-   Add the projectile profile and SuperMove phase profile for `'disco_dancer'`.
-7. **`src/game3d/animation/CharacterAnimationController.ts` & `src/game3d/vfx/VFXManager3D.ts`**:
-   Add `'disco_dancer'` SuperShot/SuperMove procedural pose choreography and VFX bursts.
-8. **`public/assets/characters/disco-dancer/model.glb` & `manifest.json`**:
-   Place the `.glb` and `manifest.json` files in `public/assets/characters/disco-dancer/` (or add `'disco_dancer'` to `scripts/build-glb-assets.ts` and run `npm run build:glb`).
-9. **`src/engine/tests/combat.test.ts`**:
-   Update roster count assertions (`CHARACTER_LIST.length`) and run `npm test`.
+   - Add `'disco_king'` to `CHARACTER_AUDIO_MANIFEST` pointing to `/assets/audio/characters/disco-king/*.ogg` with `isTemporaryPlaceholder: true`.
+5. **`src/game3d/animation/FighterAnimationEvents.ts` & `src/game3d/animation/AnimationController3D.ts`**:
+   - Add frame timing specs in `CHARACTER_MOVE_SPECS` (`FighterAnimationEvents.ts`) and custom `super_shot` / `super_move` procedural poses in `AnimationController3D.ts`.
+6. **`public/assets/characters/disco-king/`**:
+   - Create `manifest.json` and place `model.glb` in `public/assets/characters/disco-king/`.
 
 ---
 
-## Section 13 — Testing & Verification Guide
+## 5. 3D Model Replacement
 
-Run these commands from the repository root before committing any changes:
+### 5.1 Why `isTemporaryPlaceholder: false` Alone Does Not Make a Box GLB Production-Ready
+The existing `.glb` files in `public/assets/characters/romance-raja/model.glb`, `duggu/model.glb`, and `bhidu/model.glb` are 24-vertex 3-LOD box proxy meshes (`LOD0_High`, `LOD1_Medium`, `LOD2_Low` with 0 skeletons and 0 skins) generated by `scripts/build-glb-assets.ts`.
+- `CharacterAssetLoader.ts` detects these 24-vertex box proxies (`isGeneratedBoxPlaceholderProxy`).
+- Even if a developer prematurely flips `isTemporaryPlaceholder: false` in `src/config/characterAssets.ts` without replacing the `.glb` file on disk, `CharacterAssetLoader` refuses to render the raw grey box as `VISUAL_ONLY`, logs a clear diagnostic warning, and keeps the character's articulated procedural rig (`TEMPORARY_PLACEHOLDER`).
 
-### 1. Unit & 3D Headless Integration Tests (`npm test`)
+### 5.2 Step-by-Step: Replacing a Placeholder Fighter with a Real Production GLB
+1. **Export the GLB from Blender / Mixamo**:
+   - Format: glTF 2.0 Binary (`.glb`).
+   - Up Axis: `+Y` Up.
+   - Forward Axis: `+Z` Forward (the engine's `facingRotationY` rotates `+Z` to `+X` when facing right and `-X` when facing left).
+   - Origin: Character's feet centered at `(0, 0, 0)`.
+   - Skeleton: Standard Mixamo (`mixamorig:Hips`, `mixamorig:Spine`, `mixamorig:Head`, `mixamorig:RightHand`, etc.) or humanoid rig.
+2. **Copy the `.glb` File**:
+   - Overwrite `public/assets/characters/<character-slug>/model.glb` (e.g., `public/assets/characters/romance-raja/model.glb`).
+3. **Update `src/config/characterAssets.ts`**:
+   - Locate `CHARACTER_ASSET_MANIFEST['romance_raja']`.
+   - Set `isTemporaryPlaceholder: false`.
+   - Set `scale` (target world height in meters, e.g., `1.88`) and `groundOffset` (`0.0`).
+   - Verify `boneAliases` includes any custom bone names in your rig if it does not use standard `mixamorig:` names.
+4. **Update `public/assets/characters/<character-slug>/manifest.json`**:
+   - Set `"isPlaceholder": false` and `"isTemporaryPlaceholder": false`.
+5. **Verify in Character Select & Gameplay**:
+   - Run `npm test` and open Character Select to confirm the preview badge shows `PRODUCTION 3D GLB` (`renderState: 'PRODUCTION_SKINNED'`).
+
+---
+
+## 6. Animation Management
+
+### 6.1 Three-Tier Animation Priority System
+Both Gameplay (`AnimationController3D` in `src/game3d/animation/AnimationController3D.ts`) and Character Preview (`CharacterAnimationController` in `src/game3d/animation/CharacterAnimationController.ts`) share a single unified pose pipeline and enforce the exact same 3-tier priority order:
+
+1. **Priority 1 — Imported GLB `AnimationGroup`s**:
+   - When a production GLB contains multi-frame dynamic `AnimationGroup`s matching standard clip IDs (`Idle`, `Walk`, `Run`, `Jump`, `Crouch`, `Block`, `Punch`, `Kick`, `SuperShot`, `SuperMove`, `HitReact`, `Knockdown`, `GetUp`, `Victory`, `Defeat`), `GLBAnimationController` plays and crossfades the embedded clip.
+   - **Important (`mixamo_com` Exclusion)**: Mixamo exports often include a single-pose static bind clip named `mixamo_com` or `TPose`. `CharacterAssetLoader.ts` (`STATIC_POSE_CLIP_PATTERNS`) automatically filters out `mixamo_com` so it never overrides procedural combat animations and freezes the character in a T-pose.
+2. **Priority 2 — Procedural Skeletal Bone Animation (`applyProceduralPoseToRigBones`)**:
+   - Whenever an imported GLB lacks an embedded clip for the active state (for example, `action_sultan/model.glb` has 65 Mixamo bones and 0 dynamic clips), OR when a character is using its 22-bone procedural rig, `AnimationController3D.computeTargetPose()` computes procedural bone transforms for all 22 humanoid bones, all 5 facial expression bones (`Jaw`, `LeftBrow`, `RightBrow`, `LeftEyelid`, `RightEyelid`), and the 3-phase `SuperMove` choreography (`CHARGE_POSE` -> `BURST_ENGAGE` -> `CLIMAX_IMPACT` -> `RECOVERY_POSE`).
+   - For imported glTF/Mixamo rigs (`node.metadata.isImportedBone === true`), `applyProceduralPoseToRigBones` converts character-space Euler targets into the bone's local Quaternion space relative to its bind pose (`standLocalQuat` / `standRootQuat`).
+3. **Priority 3 — Visual-Only Root Presentation (`updateVisualOnlyPresentation`)**:
+   - Used only if an imported static mesh has zero compatible humanoid bones. Applies subtle breathing, step bobbing, and attack lunges to `modelTransformNode` while keeping `rootNode.position` strictly controlled by 2D gameplay physics.
+
+### 6.2 Frame-Accurate Combat Events (`FighterAnimationEvents.ts`)
+- `FighterAnimationEvents.computeFrameSnapshot(characterId, state, stateFrame)` is a pure stateless helper used by `AnimationController3D.computeTargetPose()` to read the current animation phase, `superMovePhase`, and `facialExpression` without firing duplicate events.
+- `FighterAnimationEvents.evaluateFrame(characterId, state, stateFrame)` is called once per frame per fighter by `Fighter3D.stepPhysics()` (in gameplay) and `CharacterAnimationController.updateRigPose()` (in preview) to dispatch edge-triggered events (`ON_CHARGE_START`, `ON_PROJECTILE_SPAWN`, `ON_PROJECTILE_RELEASE`, `ON_SPECIAL_IMPACT`, `ON_SUPERMOVE_CLIMAX`).
+
+---
+
+## 7. Arena Management
+
+### 7.1 Existing Arenas
+Defined in `src/data/arenas.ts` and constructed in 3D by `src/game3d/arenas/ArenaBuilder3D.ts`:
+- **`'award_night'` (Filmfare Grand Stage)**: Red carpet stage deck, illuminated golden stage archways, rotating golden trophy statues on pedestals, and sweeping volumetric spotlight cones.
+- **`'film_city'` (Film City Backlot)**: Industrial soundstage floor, dolly track rails, overhead steel lighting truss with studio spotlights, and an articulated 3D camera crane rig that pans across the stage.
+
+### 7.2 Arena Lifecycle & Memory Disposal
+- When a match starts or switches arenas, `BabylonFightEngine.initializeFullMatch()` calls `this.arenaHandle?.dispose()` before calling `ArenaBuilder3D.buildArena(...)`.
+- `ArenaBuilder3D.dispose()` disposes the `ShadowGenerator`, all three stage lights (`hemiLight`, `keyLight`, `accentLight`), all child mesh `PBRMaterial` instances, and `rootNode` so switching arenas never leaks GPU resources.
+
+### 7.3 How to Add or Modify an Arena
+1. Add the new arena ID to `ArenaId` in `src/types/fighter.ts`.
+2. Add the metadata entry to `ARENAS` in `src/data/arenas.ts`.
+3. Add a builder method in `src/game3d/arenas/ArenaBuilder3D.ts` and parent all stage meshes to `rootNode` so `dispose()` automatically cleans up all meshes and materials.
+
+---
+
+## 8. Combat Management
+
+### 8.1 2D Gameplay Plane & Stage Boundaries
+- **Coordinate System**: Fighters move along `X` (horizontal stage axis, bounded to `[-STAGE_HALF_WIDTH, +STAGE_HALF_WIDTH]` = `[-6.6, +6.6]`) and `Y` (vertical jump axis, `Y >= 0`). `Z` is locked to `0`.
+- **Spawn Positions**: Player 1 spawns at `X = -2.3` facing right (`+1`); Player 2 spawns at `X = +2.3` facing left (`-1`).
+
+### 8.2 Moves, Hitboxes, Combos & Meter
+- **Move Frame Data (`src/data/characters.ts`)**: Each fighter defines `startup`, `active`, `recovery`, `damage`, `hitstun`, `blockstun`, `knockbackX`, `knockbackY`, `isLow`, `isOverhead`, `causesKnockdown`, and `meterCost` for `punch`, `kick`, `crouch_kick`, `uppercut`, `grab`, `super_shot`, and `super_move`.
+- **Hitbox & Hurtbox System (`src/game3d/hitboxes/HitboxSystem3D.ts`)**: Projects active attack hitboxes from 3D bone sockets (`RightHand`, `RightFoot`, `Chest`) onto the 2D `X/Y` combat plane with deterministic fallback coordinates.
+- **Meter & Specials (`src/game3d/combat/CombatSystem3D.ts`)**:
+  - **SuperShot (`Q` / `50` meter)**: Spawns a character-specific 3D projectile via `SuperShotProjectileSystem` (`Action Sultan` golden energy shot, `Romance Raja` rose-gold heart wave, `Duggu` cyan sonic dance wave, `Bhidu` amber ground shockwave).
+  - **SuperMove (`E` / `100` meter)**: Triggers cinematic camera zoom, arena blackout dimming (`setBlackoutIntensity`), and high-damage multi-phase climax impact.
+
+---
+
+## 9. Audio and VFX Management
+
+### 9.1 Hybrid Audio System (`src/engine/AudioManager.ts` & `src/config/audioAssets.ts`)
+- `AudioManager` attempts to load external `.ogg`/`.mp3` files configured in `CHARACTER_AUDIO_MANIFEST` (`src/config/audioAssets.ts`).
+- When `isTemporaryPlaceholder: true` or an external audio file is not present on disk, `AudioManager` synthesizes character-specific Web Audio API sound effects (punches, kicks, blocks, KO bells, and signature SuperShot/SuperMove cues) plus procedural arcade background music so gameplay never fails or goes silent.
+
+### 9.2 3D Visual Effects & Hitbox Debugger (`src/game3d/vfx/VFXManager3D.ts`)
+- Renders 3D hit sparks, block shields, Super activation rings, and ground shockwaves.
+- Pressing **`H`** during a match toggles real-time 3D wireframe rendering of pushboxes (green), hurtboxes (yellow), and active attack hitboxes (red).
+
+---
+
+## 10. UI Management
+
+| Component File | Responsibility |
+| :--- | :--- |
+| `src/App.tsx` | Top-level screen state router (`title`, `character_select`, `arena_select`, `fighting`, `results`), global modals, and mobile portrait orientation prompt. |
+| `src/components/TitleScreen.tsx` | Displays the **FIGHT FUN** title screen, tagline (**LIGHTS. CAMERA. KNOCKOUT!**), mode buttons (`ARCADE MODE`, `VERSUS CPU`, `TRAINING MODE`), and quick-access modals. |
+| `src/components/CharacterSelect.tsx` | P1/P2 slot selector (`SELECTING P1` / `SELECTING P2`), 4 fighter cards, live 3D `CharacterPreview3D` viewport, animation preview toolbar (`IDLE`, `WALK`, `PUNCH`, `KICK`, `SUPERSHOT`, `SUPERMOVE`, `VICTORY`), and stat bars. |
+| `src/components/ArenaSelect.tsx` | Stage cards for `award_night` and `film_city` with stage feature lists. |
+| `src/components/FightHUD.tsx` | Health bars, round win stars, 60-second countdown timer, combo banners, P1/P2 Super meters, and Training Mode dummy behavior selector (`STAND`, `CROUCH`, `JUMP`, `BLOCK ALL`, `CPU FIGHT`). |
+| `src/components/ResultsModal.tsx` | Winner announcement, round score summary, `REMATCH`, `NEXT OPPONENT` (Arcade Mode), `CHANGE FIGHTERS`, and `MAIN MENU` actions. |
+| `src/components/SettingsModal.tsx` | Master/SFX/BGM volume sliders, CPU difficulty selector (`easy`, `medium`, `hard`), and interactive keyboard binding remapper. |
+
+---
+
+## 11. Common Maintenance Tasks
+
+- **Change Game Branding or Metadata**:
+  - Update `index.html`, `metadata.json`, `src/components/TitleScreen.tsx`, `src/components/DisclaimerModal.tsx`, and `src/App.tsx`.
+- **Tune Fighter Health, Speed, or Attack Damage**:
+  - Edit `CHARACTERS[<fighterId>].stats` or `CHARACTERS[<fighterId>].moves` in `src/data/characters.ts`.
+- **Adjust 3D Model Scale, Ground Offset, or Facing Direction**:
+  - Edit `scale`, `groundOffset`, or `facingRotationY` in `CHARACTER_ASSET_MANIFEST[<fighterId>]` (`src/config/characterAssets.ts`) and keep `public/assets/characters/<slug>/manifest.json` synchronized.
+- **Change Default Keybindings**:
+  - Edit `DEFAULT_KEY_BINDINGS` in `src/engine/SettingsManager.ts` (note: bump `SETTINGS_STORAGE_KEY` if changing schema).
+
+---
+
+## 12. Troubleshooting
+
+| Symptom | Root Cause | Solution |
+| :--- | :--- | :--- |
+| **Character freezes in T-pose when attacking** | Imported GLB contains a static single-frame clip (such as `mixamo_com`) that was treated as a playable animation. | Ensure `STATIC_POSE_CLIP_PATTERNS` in `src/game3d/assets/CharacterAssetLoader.ts` excludes the static clip name and `canUseProceduralBoneFallback` is `true`. |
+| **Grey 3D box appears instead of character** | `isTemporaryPlaceholder: false` was set on a 24-vertex placeholder box GLB. | Keep `isTemporaryPlaceholder: true` in `src/config/characterAssets.ts` until a real rigged character `.glb` replaces `public/assets/characters/<slug>/model.glb`. |
+| **Wrong character model appears after rapid clicking** | Stale async GLB promise resolved after a newer selection. | `CharacterPreviewScene.loadCharacterAsset()` and `BabylonFightEngine.loadFighterRigs()` use monotonic request tokens (`requestId` / `rigLoadToken`) and dispose stale rigs immediately. Never bypass these methods. |
+| **Preview and Gameplay SuperMove animations differ** | Pose logic added only to `CharacterAnimationController.ts` instead of `AnimationController3D.ts`. | Always add procedural bone/facial/multi-phase poses in `AnimationController3D.computeTargetPose()`; `CharacterAnimationController` delegates directly to it. |
+| **`bun install --frozen-lockfile` fails in CI** | `package.json` `name` or dependency versions diverged from `bun.lock`. | Keep `name` (`"fight-fun"`) and all dependency versions in `package.json` and `bun.lock` identical. |
+
+---
+
+## 13. Testing
+
+Run the automated test suite before every commit:
 ```bash
 npm test
+# or directly via tsx:
+npx --yes tsx --test src/engine/tests/combat.test.ts
 ```
-Executes `npx --yes tsx --test src/engine/tests/combat.test.ts` (25 test suites) verifying:
-- Binary `.glb` header, chunk, skinning, bone, and animation validation for all 4 fighters.
-- Authoritative `FighterId -> CharacterDef -> CharacterAssetConfig -> modelPath` mapping and `manifest.json` accuracy.
-- Player 1 and Player 2 selection state transitions and automatic duplicate replacement rules across all 12 ordered pairings.
-- Headless Babylon.js `NullEngine` 3D rig loading (`loadCharacterRig3D`), verifying `action_sultan` loads as `PRODUCTION_SKINNED` (52 Mixamo bones, calibrated scale `1.94`, groundOffset `0.969`) and `romance_raja`, `duggu`, `bhidu` load as `TEMPORARY_PLACEHOLDER` procedural rigs.
-- Protection against prematurely setting `isTemporaryPlaceholder: false` on a box-primitive placeholder GLB.
-- Non-Sultan fallback protection (`buildFallbackCharacterRig3D`), ensuring a failed load for any character preserves that character's `characterId` and `LOAD_FAILED` diagnostics without ever substituting `action_sultan`.
-- Rapid async 3D preview switching (`action_sultan -> duggu -> bhidu -> romance_raja`) with load-token cancellation and zero mesh/material leaks across 12 consecutive switches.
-- All 6 distinct gameplay matchups, rematch, character reselection, 3-stage Arcade ladder progression, and Training mode dummy behaviors.
 
-### 2. TypeScript Typecheck (`npm run lint`)
-```bash
-npm run lint
-```
-Runs `tsc --noEmit` across the entire codebase to verify zero type or import errors.
-
-### 3. Production Bundle Build (`npm run build`)
-```bash
-npm run build
-```
-Runs `vite build` to verify all TypeScript modules, Babylon.js loaders, and Tailwind CSS bundle cleanly into `dist/`.
+### What `src/engine/tests/combat.test.ts` Verifies:
+1. **Core 2D/3D Combat Mechanics**: Movement, jump gravity, pushbox separation, standing/crouching guard rules, throw tech, combo scaling, SuperShot projectile collisions, SuperMove climax impacts, and MatchManager best-of-3 round rules.
+2. **Authoritative Character Mapping (`Phase 2`)**: Verifies all 4 fighters resolve consistent `FighterId -> CharacterDef -> CharacterAssetConfig -> modelPath -> manifest.json` mappings.
+3. **Deterministic P1 & P2 Selection (`Phase 2`)**: Verifies selecting all 4 characters for P1 and P2, duplicate selection auto-swap, and state persistence across rematch and Arcade tower progression.
+4. **3D Preview & Gameplay Asset Loading (`Phase 2 & 3`)**: Verifies `CharacterPreviewScene` and `BabylonFightEngine` load the exact selected character rig across all 6 unique matchups (and reverse P2/P1 slots), protect against premature `isTemporaryPlaceholder: false` on box proxies, preserve non-Sultan fighter identity on load failures, and leak zero meshes/materials during rapid switching.
+5. **Preview vs. Gameplay Animation Parity & Arena Disposal (`Phase 3 & 4`)**: Verifies `CharacterAnimationController` and `AnimationController3D` produce identical multi-phase `SuperMove` and facial rig poses, and verifies switching arenas (`award_night` <-> `film_city`) disposes all previous stage meshes, lights, and materials.
+6. **Fight Fun Branding Verification (`Phase 6`)**: Verifies `index.html`, `metadata.json`, `TitleScreen.tsx`, `DisclaimerModal.tsx`, `package.json`, and `PROJECT_GUIDE.md` use the **Fight Fun — Lights. Camera. Knockout!** branding.
 
 ---
 
-## Section 14 — Common Pitfalls & Do-Not-Break Rules
+## 14. Safe Development Rules
 
-1. **NEVER silently substitute `action_sultan` when another fighter fails to load**:
-   If `loadCharacterRig3D()` fails for `romance_raja`, `duggu`, or `bhidu`, always fall back to **that specific fighter's** procedural rig (`buildFallbackCharacterRig3D(scene, def, ...)`) so `rig.characterId === def.id` and `rig.renderState === 'LOAD_FAILED'`.
-2. **NEVER assume replacing `model.glb` alone activates a production model**:
-   Characters with `isTemporaryPlaceholder: true` in `src/config/characterAssets.ts` intentionally dispose imported placeholder meshes and build Path A (`TEMPORARY_PLACEHOLDER`). You must both supply a valid skinned `.glb` AND set `isTemporaryPlaceholder: false`.
-3. **NEVER flip `isTemporaryPlaceholder: false` while the `.glb` on disk is still a box-primitive placeholder**:
-   The placeholder `.glb` files for `romance-raja`, `duggu`, and `bhidu` contain only 5 unskinned 24-vertex boxes. Only set `isTemporaryPlaceholder: false` after placing a genuine production `.glb` in the character's folder.
-4. **NEVER claim embedded combat animations exist in `action-sultan/manifest.json` unless they are actually embedded in `action-sultan/model.glb`**:
-   `action-sultan/model.glb` currently contains only 1 static bind-pose clip (`mixamo_com`), which is stopped and excluded at import time. All 15 combat and special states for Action Sultan run via quaternion-safe procedural bone animation on his 52-bone Mixamo skeleton.
-5. **NEVER apply `manifest.scale` or `manifest.groundOffset` more than once**:
-   `scale` and `groundOffset` are applied **exclusively** on `modelTransformNode`. Never multiply `scale` onto `rootNode`, `facingNode`, or individual bones.
-6. **NEVER mix Euler `.rotation` writes with `.rotationQuaternion` on imported glTF/Mixamo bones**:
-   Babylon.js glTF/GLB importers set `rotationQuaternion` on every imported `TransformNode`. When `rotationQuaternion` is non-null, Babylon ignores `.rotation`. Always use quaternion math (as implemented in `CharacterAnimationController.applyJointRotation`) when animating imported GLB bones.
-7. **ALWAYS guard async 3D loads with a monotonically increasing load token**:
-   Both `CharacterPreviewScene.loadCharacterAsset()` (`++this.loadToken`) and `BabylonFightEngine.loadFighterRigs()` (`++this.rigLoadToken`) must check `token !== this.loadToken` after `await loadCharacterRig3D(...)` and immediately `dispose()` any superseded rig so older async loads can never overwrite a newer selection or leak GPU resources.
+1. **Never Substitute Action Sultan for Another Character**: If a character asset fails to load, always use `AssetLoader3D.buildFallbackCharacterRig3D(scene, characterDef)` so the fallback rig retains the requested fighter's `characterId`, palette, and moveset.
+2. **Always Guard Async 3D Loads with Monotonic Tokens**: Both `CharacterPreviewScene` (`requestId`) and `BabylonFightEngine` (`rigLoadToken`) cancel and dispose stale loads when a newer selection arrives.
+3. **Keep `AnimationController3D.computeTargetPose` as the Single Pose Authority**: Never duplicate pose math between preview and gameplay controllers.
+4. **Dispose Babylon.js Meshes, Skeletons, Materials, and Lights Explicitly**: When replacing a character rig or switching arenas, always call `rig.dispose()` / `arenaHandle.dispose()` before creating replacement nodes.
+5. **Keep `package.json` and `bun.lock` Synchronized**: Any change to `package.json` `name` or dependencies must be reflected in `bun.lock` so `bun install --frozen-lockfile` succeeds in CI.
