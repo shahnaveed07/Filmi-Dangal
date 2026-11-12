@@ -271,6 +271,7 @@ interface CharacterRosterProps {
   p1Id: FighterId;
   p2Id: FighterId;
   focusedId: FighterId;
+  showP1Indicator?: boolean;
   showP2Indicator?: boolean;
   p2Label?: string;
   onSelectCharacter: (id: FighterId) => void;
@@ -281,6 +282,7 @@ export const CharacterRoster: React.FC<CharacterRosterProps> = ({
   p1Id,
   p2Id,
   focusedId,
+  showP1Indicator = true,
   showP2Indicator = true,
   p2Label = 'P2',
   onSelectCharacter,
@@ -290,7 +292,7 @@ export const CharacterRoster: React.FC<CharacterRosterProps> = ({
       <CharacterCard
         key={char.id}
         character={char}
-        isSelectedP1={char.id === p1Id}
+        isSelectedP1={showP1Indicator && char.id === p1Id}
         isSelectedP2={showP2Indicator && char.id === p2Id}
         isFocused={char.id === focusedId}
         p2Label={p2Label}

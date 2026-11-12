@@ -19,6 +19,7 @@ import {
   HUDScaleOption,
   KeyBindingsConfig,
   MobileControlSizeOption,
+  MobileControlVisibilityOption,
   RoundDurationOption,
   SettingsManager,
   StartingHealthOption,
@@ -89,6 +90,21 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ onClose }) => {
     window.addEventListener('keydown', handleRebindKey, { capture: true });
     return () => window.removeEventListener('keydown', handleRebindKey, { capture: true });
   }, [listeningKey, settingsMgr, audio]);
+
+  // Allow Escape to close SettingsModal when not capturing a key binding
+  useEffect(() => {
+    if (listeningKey) return;
+    const handleEsc = (e: KeyboardEvent) => {
+      if (e.code === 'Escape') {
+        e.preventDefault();
+        e.stopPropagation();
+        audio.playSound('click');
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', handleEsc);
+    return () => window.removeEventListener('keydown', handleEsc);
+  }, [listeningKey, onClose, audio]);
 
   const updatePartial = (partial: Partial<GameSettings>) => {
     const next = settingsMgr.updateSettings(partial);
@@ -588,9 +604,39 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ onClose }) => {
           {/* 4. CONTROLS TAB */}
           {activeTab === 'controls' && (
             <div className="space-y-3">
-              {/* MOBILE TOUCH CONTROLS SIZE & OPACITY */}
+              {/* MOBILE TOUCH CONTROLS VISIBILITY, SIZE & OPACITY */}
               <div className="bg-black/40 border border-[#D6A447]/30 rounded-lg p-3 space-y-2.5">
                 <div className="font-['Cinzel'] font-bold text-[#D6A447] uppercase">
+                  TOUCH CONTROLS VISIBILITY (TABLET &amp; MOBILE)
+                </div>
+                <div className="grid grid-cols-3 gap-2">
+                  {(
+                    [
+                      { id: 'auto', label: 'AUTO (TOUCH)' },
+                      { id: 'always', label: 'ALWAYS ON' },
+                      { id: 'off', label: 'HIDDEN' },
+                    ] as Array<{ id: MobileControlVisibilityOption; label: string }>
+                  ).map((opt) => (
+                    <button
+                      key={opt.id}
+                      type="button"
+                      data-testid={`touch-visibility-${opt.id}`}
+                      onClick={() => {
+                        audio.playSound('click');
+                        updatePartial({ mobileControlVisibility: opt.id });
+                      }}
+                      className={`py-1.5 rounded font-['Rajdhani'] font-black text-xs uppercase border cursor-pointer ${
+                        settings.mobileControlVisibility === opt.id
+                          ? 'bg-[#BE123C] text-[#FEF08A] border-[#FEF08A]'
+                          : 'bg-[#10111B] text-[#D6A447] border-[#D6A447]/30'
+                      }`}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+
+                <div className="font-['Cinzel'] font-bold text-[#D6A447] uppercase pt-1">
                   MOBILE TOUCH OVERLAY LAYOUT
                 </div>
                 <div className="grid grid-cols-3 gap-2">

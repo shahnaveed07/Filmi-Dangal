@@ -122,18 +122,12 @@ export default function App() {
   }, [bridge]);
 
   const handleOpenFightersFromMenu = useCallback(() => {
-    bridge.characterSelectBrowseOnly = true;
-    bridge.selectingPlayerSlot = 'p1';
-    bridge.inspectedCharacterId = bridge.p1CharacterId;
-    bridge.setScreen('character_select');
+    bridge.openFightersBrowse();
   }, [bridge]);
 
   const handleSelectGameMode = useCallback(
     (mode: GameMode) => {
-      bridge.gameMode = mode;
-      bridge.characterSelectBrowseOnly = false;
-      bridge.selectingPlayerSlot = 'p1';
-      bridge.setScreen('character_select');
+      bridge.openMatchCharacterSelect(mode);
     },
     [bridge]
   );
@@ -148,6 +142,11 @@ export default function App() {
 
   const handleSelectFromOverview = useCallback(
     (id: FighterId) => {
+      if (bridge.characterSelectBrowseOnly) {
+        bridge.inspectedCharacterId = id;
+        bridge.setScreen('character_select');
+        return;
+      }
       const next = applyFighterSelection(
         {
           p1Id: bridge.p1CharacterId,
@@ -165,6 +164,9 @@ export default function App() {
   );
 
   const handleProceedToArena = useCallback(() => {
+    if (bridge.characterSelectBrowseOnly) {
+      return;
+    }
     bridge.setScreen('arena_select');
   }, [bridge]);
 
@@ -178,9 +180,10 @@ export default function App() {
     audio.startBgm();
   }, [bridge, audio]);
 
-  const handleRestartRound = useCallback(() => {
-    bridge.restartRound();
-  }, [bridge]);
+  const handleRestartMatch = useCallback(() => {
+    bridge.restartMatch();
+    audio.startBgm();
+  }, [bridge, audio]);
 
   const handlePauseFight = useCallback(() => {
     bridge.setPaused(true);
@@ -199,11 +202,13 @@ export default function App() {
     bridge.returnToMenu();
   }, [bridge, audio]);
 
+  const characterSelectMode = bridge.getCharacterSelectMode();
+
   return (
     <div
       data-screen={currentScreen}
       data-mode={bridge.gameMode}
-      className="relative w-screen h-screen bg-[#0D0C16] text-[#F1E7D0] overflow-hidden select-none font-sans"
+      className="relative w-screen h-screen h-dvh bg-[#0D0C16] text-[#F1E7D0] overflow-hidden select-none font-sans"
     >
       {/* 1. MAIN MENU */}
       {currentScreen === 'title' && (
@@ -211,6 +216,7 @@ export default function App() {
           onPlay={handleOpenGameModes}
           onOpenFighters={handleOpenFightersFromMenu}
           onOpenSettings={() => setShowSettings(true)}
+          isModalOpen={showSettings}
         />
       )}
 
@@ -225,6 +231,7 @@ export default function App() {
       {/* 3. CHARACTER SELECT */}
       {currentScreen === 'character_select' && (
         <CharacterSelect
+          mode={characterSelectMode}
           onBack={() =>
             bridge.characterSelectBrowseOnly
               ? handleReturnToTitle()
@@ -238,6 +245,7 @@ export default function App() {
       {/* 4. CHARACTER OVERVIEW */}
       {currentScreen === 'character_overview' && (
         <CharacterOverview
+          mode={characterSelectMode}
           onBackToRoster={() => bridge.setScreen('character_select')}
           onSelectCharacter={handleSelectFromOverview}
         />
@@ -267,7 +275,7 @@ export default function App() {
           {isPaused && (
             <PauseModal
               onResume={handleResumeFight}
-              onRestart={handleRestartRound}
+              onRestart={handleRestartMatch}
               onOpenSettings={() => setShowSettings(true)}
               onMainMenu={handleReturnToTitle}
             />
@@ -279,7 +287,10 @@ export default function App() {
       {currentScreen === 'results' && (
         <ResultsModal
           onRematch={handleRematch}
-          onCharacterSelect={() => bridge.setScreen('character_select')}
+          onCharacterSelect={() => {
+            bridge.characterSelectBrowseOnly = false;
+            bridge.setScreen('character_select');
+          }}
           onMainMenu={handleReturnToTitle}
         />
       )}

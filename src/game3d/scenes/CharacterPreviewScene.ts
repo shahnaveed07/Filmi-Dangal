@@ -149,6 +149,8 @@ export class CharacterPreviewScene {
   private onTelemetryUpdate?: (snap: PreviewTelemetrySnapshot) => void;
   private boundResize: () => void;
   private resizeObserver: ResizeObserver | null = null;
+  private lastCanvasWidth = 0;
+  private lastCanvasHeight = 0;
 
   constructor(
     canvas: HTMLCanvasElement | null,
@@ -326,9 +328,13 @@ export class CharacterPreviewScene {
     if (canvas) {
       this.engine.runRenderLoop(() => {
         if (this.isDisposed) return;
-      const now = performance.now();
-      const dt = Math.min(0.05, Math.max(0.001, (now - lastTime) / 1000));
-      lastTime = now;
+        if (typeof document !== 'undefined' && document.hidden) {
+          lastTime = performance.now();
+          return;
+        }
+        const now = performance.now();
+        const dt = Math.min(0.05, Math.max(0.001, (now - lastTime) / 1000));
+        lastTime = now;
 
       this.stateElapsedSec += dt;
       if (this.stateDurationSec > 0 && this.stateElapsedSec >= this.stateDurationSec) {
@@ -433,16 +439,26 @@ export class CharacterPreviewScene {
     }
 
     this.boundResize = () => {
-      if (!this.isDisposed) this.engine.resize();
+      if (this.isDisposed) return;
+      if (canvas) {
+        const w = canvas.clientWidth || canvas.width;
+        const h = canvas.clientHeight || canvas.height;
+        if (w > 0 && h > 0 && (w !== this.lastCanvasWidth || h !== this.lastCanvasHeight)) {
+          this.lastCanvasWidth = w;
+          this.lastCanvasHeight = h;
+          this.engine.resize();
+        }
+      } else {
+        this.engine.resize();
+      }
     };
     if (typeof window !== 'undefined') {
       window.addEventListener('resize', this.boundResize);
+      window.addEventListener('orientationchange', this.boundResize);
     }
     if (typeof ResizeObserver !== 'undefined' && canvas) {
       this.resizeObserver = new ResizeObserver(() => {
-        if (!this.isDisposed) {
-          this.engine.resize();
-        }
+        this.boundResize();
       });
       this.resizeObserver.observe(canvas);
     }
@@ -597,6 +613,7 @@ export class CharacterPreviewScene {
     this.engine.stopRenderLoop();
     if (typeof window !== 'undefined') {
       window.removeEventListener('resize', this.boundResize);
+      window.removeEventListener('orientationchange', this.boundResize);
     }
     this.resizeObserver?.disconnect();
     this.resizeObserver = null;

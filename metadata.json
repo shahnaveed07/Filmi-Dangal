@@ -1,6 +1,6 @@
 {
-  "name": "Fight Fun — Lights. Camera. Knockout!",
-  "description": "Fight Fun — Lights. Camera. Knockout! An arcade 3D fighting game celebrating Bollywood cinema with 4 fighters, authentic combos, supers, CPU AI, and dynamic cinematic stages.",
+  "name": "Fight Fun",
+  "description": "Fight Fun is a 2.5D 3D-rendered fighting game featuring four fighters, signature special moves, two 3D arenas, Arcade mode, Versus CPU, and Training mode.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

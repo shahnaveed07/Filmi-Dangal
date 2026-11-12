@@ -79,8 +79,22 @@ export class BabylonFightEngine {
   private unsubscribeP1AnimEvents: () => void;
   private unsubscribeP2AnimEvents: () => void;
   private boundResize: () => void;
+  private boundVisibilityChange: () => void;
+  private boundContextLost: (e: Event) => void;
+  private boundContextRestored: () => void;
+  private resizeObserver: ResizeObserver | null = null;
+  private canvas: HTMLCanvasElement;
+  private lastCanvasWidth = 0;
+  private lastCanvasHeight = 0;
+  private isContextLost = false;
+  private onContextLostStateChange?: (lost: boolean) => void;
 
-  constructor(canvas: HTMLCanvasElement) {
+  constructor(
+    canvas: HTMLCanvasElement,
+    onContextLostStateChange?: (lost: boolean) => void
+  ) {
+    this.canvas = canvas;
+    this.onContextLostStateChange = onContextLostStateChange;
     this.isSoftwareGL = detectSoftwareWebGL(canvas);
 
     this.engine = new Engine(canvas, !this.isSoftwareGL, {
@@ -139,8 +153,13 @@ export class BabylonFightEngine {
 
     this.unsubscribeCommand = bridge.subscribeCommand((cmd: MatchLifecycleCommand) => {
       if (this.isDisposed) return;
-      if (cmd === 'start_match' || cmd === 'reset_match' || cmd === 'rematch') {
-        this.initializeFullMatch();
+      if (
+        cmd === 'start_match' ||
+        cmd === 'reset_match' ||
+        cmd === 'restart_match' ||
+        cmd === 'rematch'
+      ) {
+        this.handleRestartMatch();
       } else if (cmd === 'restart_round' || cmd === 'reset_training') {
         this.handleRestartRound();
       }
@@ -161,12 +180,57 @@ export class BabylonFightEngine {
     });
 
     this.boundResize = () => {
-      if (!this.isDisposed) {
+      if (this.isDisposed || this.isContextLost) return;
+      const w = this.canvas.clientWidth || this.canvas.width;
+      const h = this.canvas.clientHeight || this.canvas.height;
+      if (w > 0 && h > 0 && (w !== this.lastCanvasWidth || h !== this.lastCanvasHeight)) {
+        this.lastCanvasWidth = w;
+        this.lastCanvasHeight = h;
         this.engine.resize();
       }
     };
+
+    this.boundVisibilityChange = () => {
+      if (this.isDisposed) return;
+      if (typeof document !== 'undefined' && document.hidden) {
+        InputManager3D.getInstance().clearAll();
+      } else {
+        this.boundResize();
+      }
+    };
+
+    this.boundContextLost = (e: Event) => {
+      e.preventDefault();
+      this.isContextLost = true;
+      InputManager3D.getInstance().clearAll();
+      this.onContextLostStateChange?.(true);
+    };
+
+    this.boundContextRestored = () => {
+      if (this.isDisposed) return;
+      this.isContextLost = false;
+      this.lastCanvasWidth = 0;
+      this.lastCanvasHeight = 0;
+      this.boundResize();
+      this.onContextLostStateChange?.(false);
+    };
+
     if (typeof window !== 'undefined') {
       window.addEventListener('resize', this.boundResize);
+      window.addEventListener('orientationchange', this.boundResize);
+    }
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', this.boundVisibilityChange);
+      document.addEventListener('fullscreenchange', this.boundResize);
+    }
+    this.canvas.addEventListener('webglcontextlost', this.boundContextLost, false);
+    this.canvas.addEventListener('webglcontextrestored', this.boundContextRestored, false);
+
+    if (typeof ResizeObserver !== 'undefined') {
+      this.resizeObserver = new ResizeObserver(() => {
+        this.boundResize();
+      });
+      this.resizeObserver.observe(this.canvas);
     }
 
     this.startLoop();
@@ -366,6 +430,10 @@ export class BabylonFightEngine {
 
     audio.playSound('round');
     this.pushHUDUpdate();
+  }
+
+  public handleRestartMatch(): void {
+    this.initializeFullMatch();
   }
 
   public handleRestartRound(): void {
@@ -725,7 +793,13 @@ export class BabylonFightEngine {
     let accumulatorMs = 0;
 
     this.engine.runRenderLoop(() => {
-      if (this.isDisposed) return;
+      if (this.isDisposed || this.isContextLost) return;
+
+      if (typeof document !== 'undefined' && document.hidden) {
+        lastTimestamp = performance.now();
+        accumulatorMs = 0;
+        return;
+      }
 
       const now = performance.now();
       const rawDelta = Math.max(0, now - lastTimestamp);
@@ -749,6 +823,7 @@ export class BabylonFightEngine {
     if (this.isDisposed) return;
     this.isDisposed = true;
     this.rigLoadToken++;
+    this.engine.stopRenderLoop();
     this.unsubscribeCommand();
     this.unsubscribePause();
     this.unsubscribeMute();
@@ -757,7 +832,16 @@ export class BabylonFightEngine {
     this.unsubscribeP2AnimEvents();
     if (typeof window !== 'undefined') {
       window.removeEventListener('resize', this.boundResize);
+      window.removeEventListener('orientationchange', this.boundResize);
     }
+    if (typeof document !== 'undefined') {
+      document.removeEventListener('visibilitychange', this.boundVisibilityChange);
+      document.removeEventListener('fullscreenchange', this.boundResize);
+    }
+    this.canvas.removeEventListener('webglcontextlost', this.boundContextLost, false);
+    this.canvas.removeEventListener('webglcontextrestored', this.boundContextRestored, false);
+    this.resizeObserver?.disconnect();
+    this.resizeObserver = null;
     InputManager3D.getInstance().clearAll();
     this.vfxManager.dispose();
     this.p1Rig?.dispose();

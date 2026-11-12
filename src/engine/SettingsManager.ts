@@ -7,6 +7,62 @@ export type GraphicsQualityOption = 'low' | 'medium' | 'high';
 export type VFXQualityOption = 'low' | 'medium' | 'high';
 export type HUDScaleOption = 'compact' | 'normal' | 'large';
 export type MobileControlSizeOption = 'compact' | 'standard' | 'large';
+export type MobileControlVisibilityOption = 'auto' | 'always' | 'off';
+
+export interface TouchCapabilityEnvironment {
+  maxTouchPoints?: number;
+  coarsePointer?: boolean;
+  anyCoarsePointer?: boolean;
+  hasTouchStart?: boolean;
+  innerWidth?: number;
+}
+
+/**
+ * Detects whether the current device/browser supports touch input, independent of screen width.
+ * Ensures wide landscape tablets (>= 1024px) and touch-enabled devices are recognized as touch-capable,
+ * while standard desktop mouse-and-keyboard setups are not forced to display mobile overlays.
+ */
+export function detectTouchCapability(env?: TouchCapabilityEnvironment): boolean {
+  if (env) {
+    return Boolean(
+      (typeof env.maxTouchPoints === 'number' && env.maxTouchPoints > 0) ||
+        env.coarsePointer ||
+        env.anyCoarsePointer ||
+        env.hasTouchStart
+    );
+  }
+  if (typeof window === 'undefined') {
+    return false;
+  }
+  const navTouchPoints =
+    typeof navigator !== 'undefined' && typeof navigator.maxTouchPoints === 'number'
+      ? navigator.maxTouchPoints
+      : 0;
+  const coarsePointer =
+    typeof window.matchMedia === 'function'
+      ? window.matchMedia('(pointer: coarse)').matches
+      : false;
+  const anyCoarsePointer =
+    typeof window.matchMedia === 'function'
+      ? window.matchMedia('(any-pointer: coarse)').matches
+      : false;
+  const hasTouchStart = 'ontouchstart' in window;
+
+  return navTouchPoints > 0 || coarsePointer || anyCoarsePointer || hasTouchStart;
+}
+
+/**
+ * Determines whether the on-screen touch controls overlay should be visible given the user's
+ * preference ('auto' | 'always' | 'off') and hardware touch capability.
+ */
+export function shouldShowMobileControls(
+  visibilitySetting: MobileControlVisibilityOption,
+  isTouchCapable: boolean
+): boolean {
+  if (visibilitySetting === 'always') return true;
+  if (visibilitySetting === 'off') return false;
+  return isTouchCapable;
+}
 
 export interface KeyBindingsConfig {
   moveLeft: string;
@@ -44,6 +100,7 @@ export interface GameSettings {
 
   // Controls
   keyBindings: KeyBindingsConfig;
+  mobileControlVisibility: MobileControlVisibilityOption;
   mobileControlSize: MobileControlSizeOption;
   mobileControlOpacity: number; // 40 - 100
 
@@ -83,6 +140,7 @@ export const DEFAULT_GAME_SETTINGS: GameSettings = {
   hudScale: 'normal',
 
   keyBindings: { ...DEFAULT_KEY_BINDINGS },
+  mobileControlVisibility: 'auto',
   mobileControlSize: 'standard',
   mobileControlOpacity: 88,
 
@@ -167,6 +225,13 @@ export function sanitizeGameSettings(raw: unknown): GameSettings {
       ? obj.hudScale
       : DEFAULT_GAME_SETTINGS.hudScale;
 
+  const mobileControlVisibility: MobileControlVisibilityOption =
+    obj.mobileControlVisibility === 'auto' ||
+    obj.mobileControlVisibility === 'always' ||
+    obj.mobileControlVisibility === 'off'
+      ? obj.mobileControlVisibility
+      : DEFAULT_GAME_SETTINGS.mobileControlVisibility;
+
   const mobileControlSize: MobileControlSizeOption =
     obj.mobileControlSize === 'compact' ||
     obj.mobileControlSize === 'standard' ||
@@ -209,6 +274,7 @@ export function sanitizeGameSettings(raw: unknown): GameSettings {
       superShot: sanitizeKey('superShot'),
       superMove: sanitizeKey('superMove'),
     },
+    mobileControlVisibility,
     mobileControlSize,
     mobileControlOpacity: clampNumber(
       obj.mobileControlOpacity,
