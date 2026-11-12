@@ -112,7 +112,7 @@ export class CharacterAnimationController {
       rig.glbAnimationController?.stopAll();
       const warnKey = `${characterId}:${standardClipId}`;
       if (!this.warnedMissingClips.has(warnKey)) {
-        this.warnedMissingClips.has(warnKey);
+        this.warnedMissingClips.add(warnKey);
         const msg = `Production GLB for '${characterId}' is missing usable AnimationGroup for state '${state}' (${standardClipId}); falling back to procedural bone pose.`;
         console.warn(`[CharacterAnimationController] ${msg}`);
         if (
