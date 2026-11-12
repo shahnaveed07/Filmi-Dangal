@@ -181,11 +181,15 @@ export class AnimationController3D {
         heightScale,
         0
       );
-      const isPunchState = state === 'punch' || state === 'forward_punch';
+      const isCrispStrikeState =
+        state === 'punch' ||
+        state === 'forward_punch' ||
+        state === 'kick' ||
+        state === 'forward_kick';
       const blendSpeed =
-        isNewStateEntry && isPunchState
-          ? 0.85
-          : Math.min(1, dt * (isPunchState ? 30 : 18));
+        isNewStateEntry && isCrispStrikeState
+          ? 0.92
+          : Math.min(1, dt * (isCrispStrikeState ? 48 : 18));
       this.applyProceduralPoseToRigBones(rig, pose, heightScale, blendSpeed);
       return;
     }
@@ -857,15 +861,16 @@ export class AnimationController3D {
         const isHeavy = state === 'forward_punch';
 
         if (characterId === 'action_sultan') {
-          // AS RIGHT STRAIGHT PUNCH – ~0.80s one-shot (Storyboard Frames 1–7):
+          // AS RIGHT STRAIGHT PUNCH – ~0.40s fast one-shot (2.0x speed across Storyboard Frames 1–7):
           // Frame 1 (0.00s): Combat Guard (orthodox stance, left fist guarding chin, right fist ready beside jaw, knees slightly bent)
-          // Frame 2 (0.10s): Anticipation / Wind-up (right shoulder pulled back, torso coils away from target, weight shifts slightly to rear leg)
-          // Frame 3 (0.20s): Power Generation (hips & pelvis drive rotation toward target, weight transfers forward, right arm begins straight extension)
-          // Frame 4 (0.35s): Punch Extension (right fist accelerates straight toward opponent, right shoulder rotates forward, left hand guards chin)
-          // Frame 5 (0.45s): Impact / Hit (near-full straight extension at center-line, closed fist faces opponent, shoulder & hip rotation complete)
-          // Frame 6 (0.60s): Retraction (right fist retracts quickly, elbow bends naturally, torso reverses rotation)
-          // Frame 7 (0.80s): Return to Combat Guard (stance, shoulder & hip rotation restored, ready for next move)
-          const punchT = Math.max(0, Math.min(t, 0.8));
+          // Frame 2 (0.05s / story 0.10s): Anticipation / Wind-up (right shoulder pulled back, torso coils away from target, weight shifts slightly to rear leg)
+          // Frame 3 (0.10s / story 0.20s): Power Generation (hips & pelvis drive rotation toward target, weight transfers forward, right arm begins straight extension)
+          // Frame 4 (0.175s / story 0.35s): Punch Extension (right fist accelerates straight toward opponent, right shoulder rotates forward, left hand guards chin)
+          // Frame 5 (0.225s / story 0.45s): Impact / Hit (near-full straight extension at center-line, closed fist faces opponent, shoulder & hip rotation complete)
+          // Frame 6 (0.30s / story 0.60s): Retraction (right fist retracts quickly, elbow bends naturally, torso reverses rotation)
+          // Frame 7 (0.40s / story 0.80s): Return to Combat Guard (stance, shoulder & hip rotation restored, ready for next move)
+          const PUNCH_SPEED = 2.0;
+          const punchT = Math.max(0, Math.min(t * PUNCH_SPEED, 0.8));
           const heavyReachBoost = isHeavy ? -0.06 : 0;
 
           const frame1Guard: RigPoseMap = {
@@ -1057,6 +1062,195 @@ export class AnimationController3D {
 
       case 'kick':
       case 'forward_kick': {
+        const isHeavyKick = state === 'forward_kick';
+
+        if (characterId === 'action_sultan') {
+          // AS RIGHT FRONT KICK – ~0.60s fast one-shot (2.0x speed across Storyboard Frames 1–7):
+          // Frame 1 (0.00s): Combat Guard (normal fighting stance, both fists raised near face, knees slightly bent, torso slightly turned)
+          // Frame 2 (0.075s / story 0.15s): Weight Transfer (shift weight onto supporting left leg, bend left knee slightly, begin lifting right knee forward & upward)
+          // Frame 3 (0.15s / story 0.30s): Knee Chamber (raise right knee high toward target, keep right knee tightly bent with lower leg pulled back, engage hips, maintain balance & high guard)
+          // Frame 4 (0.25s / story 0.50s): Kick Extension (rapidly extend right lower leg toward opponent, drive hip forward, align right foot heel/sole to target, lean torso slightly back)
+          // Frame 5 (0.325s / story 0.65s): Impact (near-full right leg extension without hyperextension, foot faces opponent, hip fully engaged, balanced torso & raised hands, subtle body recoil)
+          // Frame 6 (0.45s / story 0.90s): Retraction (bend right knee, retract lower leg toward thigh, bring right knee back toward chamber position, return hips toward guard)
+          // Frame 7 (0.60s / story 1.20s): Recovery (lower right leg, return right foot to original position, restore fighting stance & weight distribution, ready for next attack)
+          const KICK_SPEED = 2.0;
+          const kickT = Math.max(0, Math.min(t * KICK_SPEED, 1.2));
+          const heavyReachBoost = isHeavyKick ? -0.05 : 0;
+
+          const frame1Guard: RigPoseMap = {
+            Hips: { rx: 0, ry: 0.18, rz: 0, px: 0, py: baseHipsY - 0.03, pz: 0 },
+            Spine: { rx: 0.03, ry: 0.08, rz: 0 },
+            Chest: { rx: 0.05, ry: 0.14, rz: 0 },
+            Neck: { rx: 0.03, ry: -0.15, rz: 0 },
+            Head: { rx: 0.06, ry: -0.25, rz: 0 },
+            LeftShoulder: { rx: -0.05, ry: -0.08, rz: -0.05 },
+            LeftUpperArm: { rx: -0.36, ry: 0, rz: 0.14 },
+            LeftLowerArm: { rx: -1.46, ry: 0, rz: 0.48 },
+            LeftHand: { rx: 0.08, ry: 0, rz: 0, fistCurl: 1 },
+            RightShoulder: { rx: -0.05, ry: 0.08, rz: 0.05 },
+            RightUpperArm: { rx: -0.28, ry: 0, rz: -0.1 },
+            RightLowerArm: { rx: -1.56, ry: 0, rz: -0.56 },
+            RightHand: { rx: 0.08, ry: 0, rz: 0, fistCurl: 1 },
+            LeftUpperLeg: { rx: -0.18, ry: 0, rz: 0.06 },
+            LeftLowerLeg: { rx: 0.24, ry: 0, rz: 0 },
+            LeftFoot: { rx: -0.06, ry: 0, rz: 0 },
+            RightUpperLeg: { rx: 0.16, ry: 0, rz: -0.06 },
+            RightLowerLeg: { rx: 0.24, ry: 0, rz: 0 },
+            RightFoot: { rx: -0.18, ry: 0, rz: 0 },
+          };
+
+          const frame2WeightTransfer: RigPoseMap = {
+            Hips: { rx: -0.02, ry: 0.12, rz: -0.02, px: -0.015, py: baseHipsY - 0.036, pz: 0 },
+            Spine: { rx: 0.01, ry: 0.06, rz: 0 },
+            Chest: { rx: 0.03, ry: 0.1, rz: 0 },
+            Neck: { rx: 0.03, ry: -0.1, rz: 0 },
+            Head: { rx: 0.06, ry: -0.18, rz: 0 },
+            LeftShoulder: { rx: -0.05, ry: -0.07, rz: -0.05 },
+            LeftUpperArm: { rx: -0.38, ry: 0, rz: 0.15 },
+            LeftLowerArm: { rx: -1.48, ry: 0, rz: 0.5 },
+            LeftHand: { rx: 0.08, ry: 0, rz: 0, fistCurl: 1 },
+            RightShoulder: { rx: -0.05, ry: 0.07, rz: 0.05 },
+            RightUpperArm: { rx: -0.32, ry: 0, rz: -0.11 },
+            RightLowerArm: { rx: -1.55, ry: 0, rz: -0.54 },
+            RightHand: { rx: 0.08, ry: 0, rz: 0, fistCurl: 1 },
+            LeftUpperLeg: { rx: -0.2, ry: 0, rz: 0.05 },
+            LeftLowerLeg: { rx: 0.3, ry: 0, rz: 0 },
+            LeftFoot: { rx: -0.08, ry: 0, rz: 0 },
+            RightUpperLeg: { rx: -0.58, ry: 0.04, rz: -0.05 },
+            RightLowerLeg: { rx: 1.05, ry: 0, rz: 0 },
+            RightFoot: { rx: 0.16, ry: 0, rz: 0 },
+          };
+
+          const frame3Chamber: RigPoseMap = {
+            Hips: { rx: -0.06, ry: 0.04, rz: -0.03, px: 0.004, py: baseHipsY - 0.032, pz: 0 },
+            Spine: { rx: -0.03, ry: 0.02, rz: 0 },
+            Chest: { rx: -0.02, ry: 0.04, rz: 0 },
+            Neck: { rx: 0.05, ry: -0.04, rz: 0 },
+            Head: { rx: 0.08, ry: -0.06, rz: 0 },
+            LeftShoulder: { rx: -0.05, ry: -0.06, rz: -0.05 },
+            LeftUpperArm: { rx: -0.42, ry: 0, rz: 0.16 },
+            LeftLowerArm: { rx: -1.5, ry: 0, rz: 0.52 },
+            LeftHand: { rx: 0.08, ry: 0, rz: 0, fistCurl: 1 },
+            RightShoulder: { rx: -0.05, ry: 0.06, rz: 0.05 },
+            RightUpperArm: { rx: -0.36, ry: 0, rz: -0.12 },
+            RightLowerArm: { rx: -1.54, ry: 0, rz: -0.52 },
+            RightHand: { rx: 0.08, ry: 0, rz: 0, fistCurl: 1 },
+            LeftUpperLeg: { rx: -0.15, ry: 0, rz: 0.05 },
+            LeftLowerLeg: { rx: 0.28, ry: 0, rz: 0 },
+            LeftFoot: { rx: -0.07, ry: 0, rz: 0 },
+            RightUpperLeg: { rx: -1.38, ry: 0.06, rz: -0.05 },
+            RightLowerLeg: { rx: 1.72, ry: 0, rz: 0 },
+            RightFoot: { rx: 0.12, ry: 0, rz: 0 },
+          };
+
+          const frame4Extension: RigPoseMap = {
+            Hips: { rx: -0.15, ry: -0.1, rz: -0.04, px: 0.024, py: baseHipsY - 0.026, pz: 0 },
+            Spine: { rx: -0.11, ry: -0.04, rz: 0 },
+            Chest: { rx: -0.13, ry: -0.08, rz: 0 },
+            Neck: { rx: 0.11, ry: 0.08, rz: 0 },
+            Head: { rx: 0.16, ry: 0.14, rz: 0 },
+            LeftShoulder: { rx: -0.04, ry: 0.02, rz: -0.04 },
+            LeftUpperArm: { rx: -0.46, ry: 0, rz: 0.18 },
+            LeftLowerArm: { rx: -1.48, ry: 0, rz: 0.54 },
+            LeftHand: { rx: 0.08, ry: 0, rz: 0, fistCurl: 1 },
+            RightShoulder: { rx: -0.04, ry: -0.04, rz: 0.04 },
+            RightUpperArm: { rx: -0.42, ry: 0, rz: -0.14 },
+            RightLowerArm: { rx: -1.46, ry: 0, rz: -0.48 },
+            RightHand: { rx: 0.08, ry: 0, rz: 0, fistCurl: 1 },
+            LeftUpperLeg: { rx: -0.05, ry: 0, rz: 0.05 },
+            LeftLowerLeg: { rx: 0.26, ry: 0, rz: 0 },
+            LeftFoot: { rx: -0.06, ry: 0, rz: 0 },
+            RightUpperLeg: { rx: -1.52 + heavyReachBoost * 0.5, ry: 0.02, rz: -0.04 },
+            RightLowerLeg: { rx: 0.34, ry: 0, rz: 0 },
+            RightFoot: { rx: -0.32, ry: 0, rz: 0 },
+          };
+
+          const frame5Impact: RigPoseMap = {
+            Hips: { rx: -0.2, ry: -0.16, rz: -0.05, px: 0.036, py: baseHipsY - 0.024, pz: 0 },
+            Spine: { rx: -0.15, ry: -0.06, rz: 0 },
+            Chest: { rx: -0.17, ry: -0.12, rz: 0 },
+            Neck: { rx: 0.14, ry: 0.12, rz: 0 },
+            Head: { rx: 0.21, ry: 0.2, rz: 0 },
+            LeftShoulder: { rx: -0.04, ry: 0.04, rz: -0.04 },
+            LeftUpperArm: { rx: -0.48, ry: 0, rz: 0.2 },
+            LeftLowerArm: { rx: -1.48, ry: 0, rz: 0.56 },
+            LeftHand: { rx: 0.08, ry: 0, rz: 0, fistCurl: 1 },
+            RightShoulder: { rx: -0.04, ry: -0.08, rz: 0.04 },
+            RightUpperArm: { rx: -0.44, ry: 0, rz: -0.16 },
+            RightLowerArm: { rx: -1.44, ry: 0, rz: -0.46 },
+            RightHand: { rx: 0.08, ry: 0, rz: 0, fistCurl: 1 },
+            LeftUpperLeg: { rx: 0.0, ry: 0, rz: 0.05 },
+            LeftLowerLeg: { rx: 0.25, ry: 0, rz: 0 },
+            LeftFoot: { rx: -0.05, ry: 0, rz: 0 },
+            RightUpperLeg: { rx: -1.6 + heavyReachBoost, ry: 0, rz: -0.03 },
+            RightLowerLeg: { rx: 0.12, ry: 0, rz: 0 },
+            RightFoot: { rx: -0.42, ry: 0, rz: 0 },
+          };
+
+          const frame6Retract: RigPoseMap = {
+            Hips: { rx: -0.04, ry: 0.08, rz: -0.02, px: 0.008, py: baseHipsY - 0.032, pz: 0 },
+            Spine: { rx: -0.01, ry: 0.04, rz: 0 },
+            Chest: { rx: 0.01, ry: 0.08, rz: 0 },
+            Neck: { rx: 0.04, ry: -0.08, rz: 0 },
+            Head: { rx: 0.07, ry: -0.14, rz: 0 },
+            LeftShoulder: { rx: -0.05, ry: -0.04, rz: -0.05 },
+            LeftUpperArm: { rx: -0.4, ry: 0, rz: 0.15 },
+            LeftLowerArm: { rx: -1.48, ry: 0, rz: 0.5 },
+            LeftHand: { rx: 0.08, ry: 0, rz: 0, fistCurl: 1 },
+            RightShoulder: { rx: -0.05, ry: 0.04, rz: 0.05 },
+            RightUpperArm: { rx: -0.34, ry: 0, rz: -0.11 },
+            RightLowerArm: { rx: -1.52, ry: 0, rz: -0.52 },
+            RightHand: { rx: 0.08, ry: 0, rz: 0, fistCurl: 1 },
+            LeftUpperLeg: { rx: -0.16, ry: 0, rz: 0.05 },
+            LeftLowerLeg: { rx: 0.26, ry: 0, rz: 0 },
+            LeftFoot: { rx: -0.06, ry: 0, rz: 0 },
+            RightUpperLeg: { rx: -1.12, ry: 0.05, rz: -0.05 },
+            RightLowerLeg: { rx: 1.58, ry: 0, rz: 0 },
+            RightFoot: { rx: 0.1, ry: 0, rz: 0 },
+          };
+
+          let interpolated: RigPoseMap;
+          if (kickT < 0.15) {
+            // 0.00–0.15s: Establish Combat Guard (0.00–0.04s) then smoothly transfer weight onto supporting left leg (0.04–0.15s)
+            const transferAlpha = kickT <= 0.04 ? 0 : smoothstep01((kickT - 0.04) / 0.11);
+            interpolated = interpolatePoseMaps(frame1Guard, frame2WeightTransfer, transferAlpha);
+          } else if (kickT < 0.3) {
+            // 0.15–0.30s: Weight Transfer -> Knee Chamber (lift right knee high and fold lower leg toward thigh)
+            const chamberAlpha = smoothstep01((kickT - 0.15) / 0.15);
+            interpolated = interpolatePoseMaps(frame2WeightTransfer, frame3Chamber, chamberAlpha);
+          } else if (kickT < 0.5) {
+            // 0.30–0.50s: Knee Chamber -> Kick Extension (explosive hip drive and lower-leg extension toward opponent)
+            const u = clamp01((kickT - 0.3) / 0.2);
+            const fastExtendAlpha = Math.pow(u, 1.2);
+            interpolated = interpolatePoseMaps(frame3Chamber, frame4Extension, fastExtendAlpha);
+          } else if (kickT < 0.65) {
+            // 0.50–0.65s: Kick Extension -> Impact (powerful snap into peak extension with heel/sole aligned to target)
+            const u = clamp01((kickT - 0.5) / 0.15);
+            const snapImpactAlpha = 1 - Math.pow(1 - u, 2.2);
+            interpolated = interpolatePoseMaps(frame4Extension, frame5Impact, snapImpactAlpha);
+          } else if (kickT < 0.9) {
+            // 0.65–0.90s: Impact recoil (0.65–0.69s) -> Controlled Retraction back to chamber (0.69–0.90s)
+            if (kickT < 0.69) {
+              const recoilPulse = Math.sin(((kickT - 0.65) / 0.04) * Math.PI);
+              interpolated = interpolatePoseMaps(frame5Impact, frame5Impact, 0);
+              interpolated.RightLowerLeg.rx += 0.045 * recoilPulse;
+              interpolated.RightFoot.rx += 0.03 * recoilPulse;
+              interpolated.Hips.px = (interpolated.Hips.px ?? 0) - 0.006 * recoilPulse;
+              interpolated.Chest.rx -= 0.015 * recoilPulse;
+            } else {
+              const retractAlpha = smoothstep01((kickT - 0.69) / 0.21);
+              interpolated = interpolatePoseMaps(frame5Impact, frame6Retract, retractAlpha);
+            }
+          } else {
+            // 0.90–1.20s: Retraction -> Recovery (lower right leg smoothly to floor and restore Combat Guard)
+            const recoverAlpha = smoothstep01((kickT - 0.9) / 0.3);
+            interpolated = interpolatePoseMaps(frame6Retract, frame1Guard, recoverAlpha);
+          }
+
+          Object.assign(pose, interpolated);
+          break;
+        }
+
         pose.Hips.py = baseHipsY * 0.96;
         pose.Hips.rx = -0.22;
         pose.Hips.ry = 0.35;

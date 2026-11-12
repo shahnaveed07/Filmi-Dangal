@@ -3147,49 +3147,49 @@ test('28. Phase 2–12 Regression Suite: Browse-Only vs Match Character Select, 
     assert.equal(samplePose.RightUpperLeg.rx, 0, 'Right leg stays grounded without stepping');
   }
 
-  // 8. Action Sultan 0.80s Right Straight Punch (Storyboard 7-Frame Sequence & Combat Integration)
+  // 8. Action Sultan 0.40s Fast Right Straight Punch (Storyboard 7-Frame Sequence at 2.0x Speed & Combat Integration)
   const punchGuard0 = animCtrl.computeTargetPose('action_sultan', 'punch', 0.0, 1.0, 0);
-  const punchWindup10 = animCtrl.computeTargetPose('action_sultan', 'punch', 0.1, 1.0, 0);
-  const punchPower20 = animCtrl.computeTargetPose('action_sultan', 'punch', 0.2, 1.0, 0);
-  const punchExtend35 = animCtrl.computeTargetPose('action_sultan', 'punch', 0.35, 1.0, 0);
-  const punchImpact45 = animCtrl.computeTargetPose('action_sultan', 'punch', 0.45, 1.0, 0);
-  const punchRetract60 = animCtrl.computeTargetPose('action_sultan', 'punch', 0.6, 1.0, 0);
-  const punchRecover80 = animCtrl.computeTargetPose('action_sultan', 'punch', 0.8, 1.0, 0);
+  const punchWindup05 = animCtrl.computeTargetPose('action_sultan', 'punch', 0.05, 1.0, 0);
+  const punchPower10 = animCtrl.computeTargetPose('action_sultan', 'punch', 0.1, 1.0, 0);
+  const punchExtend175 = animCtrl.computeTargetPose('action_sultan', 'punch', 0.175, 1.0, 0);
+  const punchImpact225 = animCtrl.computeTargetPose('action_sultan', 'punch', 0.225, 1.0, 0);
+  const punchRetract30 = animCtrl.computeTargetPose('action_sultan', 'punch', 0.3, 1.0, 0);
+  const punchRecover40 = animCtrl.computeTargetPose('action_sultan', 'punch', 0.4, 1.0, 0);
 
-  // Frame 1 (0.00s) & Frame 7 (0.80s): Combat Guard stance matches cleanly
-  assert.ok(Math.abs(punchGuard0.Hips.ry - punchRecover80.Hips.ry) < 1e-6, 'Frame 7 returns Hips.ry to Combat Guard');
-  assert.ok(Math.abs(punchGuard0.RightUpperArm.rx - punchRecover80.RightUpperArm.rx) < 1e-6, 'Frame 7 returns RightUpperArm.rx to Combat Guard');
-  assert.ok(Math.abs(punchGuard0.RightLowerArm.rx - punchRecover80.RightLowerArm.rx) < 1e-6, 'Frame 7 returns RightLowerArm.rx to Combat Guard');
+  // Frame 1 (0.00s) & Frame 7 (0.40s): Combat Guard stance matches cleanly
+  assert.ok(Math.abs(punchGuard0.Hips.ry - punchRecover40.Hips.ry) < 1e-6, 'Frame 7 returns Hips.ry to Combat Guard');
+  assert.ok(Math.abs(punchGuard0.RightUpperArm.rx - punchRecover40.RightUpperArm.rx) < 1e-6, 'Frame 7 returns RightUpperArm.rx to Combat Guard');
+  assert.ok(Math.abs(punchGuard0.RightLowerArm.rx - punchRecover40.RightLowerArm.rx) < 1e-6, 'Frame 7 returns RightLowerArm.rx to Combat Guard');
   // Combat stance has knees slightly bent (LeftUpperLeg forward, RightUpperLeg back) and closed fists
   assert.ok(punchGuard0.LeftUpperLeg.rx < -0.1, 'Combat stance places left leg slightly forward');
   assert.ok(punchGuard0.RightUpperLeg.rx > 0.1, 'Combat stance places right leg slightly behind');
   assert.equal(punchGuard0.LeftHand.fistCurl, 1, 'Left hand forms closed defensive fist in guard');
   assert.equal(punchGuard0.RightHand.fistCurl, 1, 'Right hand forms closed striking fist in guard');
 
-  // Frame 2 (0.10s): Anticipation / Wind-up coils right shoulder and upper torso back (ry increases) and shifts weight slightly to rear leg
-  assert.ok(punchWindup10.RightShoulder.ry > punchGuard0.RightShoulder.ry, 'Frame 2 pulls right shoulder backward');
-  assert.ok(punchWindup10.Chest.ry > punchGuard0.Chest.ry, 'Frame 2 coils chest slightly away from target');
-  assert.ok((punchWindup10.Hips.px ?? 0) < (punchGuard0.Hips.px ?? 0), 'Frame 2 shifts weight slightly toward rear leg');
+  // Frame 2 (0.05s): Anticipation / Wind-up coils right shoulder and upper torso back (ry increases) and shifts weight slightly to rear leg
+  assert.ok(punchWindup05.RightShoulder.ry > punchGuard0.RightShoulder.ry, 'Frame 2 pulls right shoulder backward');
+  assert.ok(punchWindup05.Chest.ry > punchGuard0.Chest.ry, 'Frame 2 coils chest slightly away from target');
+  assert.ok((punchWindup05.Hips.px ?? 0) < (punchGuard0.Hips.px ?? 0), 'Frame 2 shifts weight slightly toward rear leg');
 
-  // Frame 3 (0.20s) -> Frame 4 (0.35s) -> Frame 5 (0.45s Impact): Hips, chest, and right shoulder drive forward (ry goes negative) while right arm extends straight
-  assert.ok(punchPower20.Hips.ry < punchWindup10.Hips.ry, 'Frame 3 initiates hip rotation toward target');
-  assert.ok(punchExtend35.Hips.ry < punchPower20.Hips.ry, 'Frame 4 continues hip rotation');
-  assert.ok(punchImpact45.Hips.ry <= punchExtend35.Hips.ry, 'Frame 5 completes hip rotation at impact');
-  assert.ok(punchImpact45.RightShoulder.ry < -0.2, 'Frame 5 engages right shoulder forward into the punch');
-  assert.ok(punchImpact45.RightUpperArm.rx < -1.15, 'Frame 5 raises right upper arm into full straight punch line');
-  assert.ok(punchImpact45.RightLowerArm.rx > -0.25 && punchImpact45.RightLowerArm.rx < -0.05, 'Frame 5 reaches near-full elbow extension without hyperextending');
-  assert.ok(punchImpact45.LeftLowerArm.rx < -1.4, 'Left arm remains bent in defensive chin guard throughout impact');
+  // Frame 3 (0.10s) -> Frame 4 (0.175s) -> Frame 5 (0.225s Impact): Hips, chest, and right shoulder drive forward (ry goes negative) while right arm extends straight
+  assert.ok(punchPower10.Hips.ry < punchWindup05.Hips.ry, 'Frame 3 initiates hip rotation toward target');
+  assert.ok(punchExtend175.Hips.ry < punchPower10.Hips.ry, 'Frame 4 continues hip rotation');
+  assert.ok(punchImpact225.Hips.ry <= punchExtend175.Hips.ry, 'Frame 5 completes hip rotation at impact');
+  assert.ok(punchImpact225.RightShoulder.ry < -0.2, 'Frame 5 engages right shoulder forward into the punch');
+  assert.ok(punchImpact225.RightUpperArm.rx < -1.15, 'Frame 5 raises right upper arm into full straight punch line');
+  assert.ok(punchImpact225.RightLowerArm.rx > -0.25 && punchImpact225.RightLowerArm.rx < -0.05, 'Frame 5 reaches near-full elbow extension without hyperextending');
+  assert.ok(punchImpact225.LeftLowerArm.rx < -1.4, 'Left arm remains bent in defensive chin guard throughout impact');
 
-  // Frame 6 (0.60s Retraction): Elbow bends back and torso reverses rotation toward guard
-  assert.ok(punchRetract60.RightLowerArm.rx < -1.0, 'Frame 6 retracts right forearm quickly by bending elbow');
-  assert.ok(punchRetract60.Hips.ry > punchImpact45.Hips.ry, 'Frame 6 reverses hip rotation back toward guard');
+  // Frame 6 (0.30s Retraction): Elbow bends back and torso reverses rotation toward guard
+  assert.ok(punchRetract30.RightLowerArm.rx < -1.0, 'Frame 6 retracts right forearm quickly by bending elbow');
+  assert.ok(punchRetract30.Hips.ry > punchImpact225.Hips.ry, 'Frame 6 reverses hip rotation back toward guard');
 
-  // Combat synchronization: 48 frames (0.80s at 60 FPS), active hit window centered around 0.45s (Frame 27), single hit per punch, clean recovery to idle
+  // Combat synchronization: 24 frames (0.40s at 60 FPS), active hit window centered around 0.225s (Frames 11-14), single hit per punch, clean recovery to idle
   const sultanPunchSpec = FighterAnimationEvents.getMoveSpec('action_sultan', 'punch');
-  assert.equal(sultanPunchSpec.totalFrames, 48, 'Action Sultan punch clip totalFrames is 48 (0.80s)');
-  assert.equal(sultanPunchSpec.startupFrames, 24);
-  assert.equal(sultanPunchSpec.activeFrames, 5);
-  assert.equal(sultanPunchSpec.recoveryFrames, 19);
+  assert.equal(sultanPunchSpec.totalFrames, 24, 'Action Sultan punch clip totalFrames is 24 (0.40s)');
+  assert.equal(sultanPunchSpec.startupFrames, 11);
+  assert.equal(sultanPunchSpec.activeFrames, 4);
+  assert.equal(sultanPunchSpec.recoveryFrames, 9);
 
   const sultanAttacker = new Fighter3D(0, CHARACTERS.action_sultan, 0, 0, 0);
   const dummyDefender = new Fighter3D(1, CHARACTERS.romance_raja, 0.95, 0, 0);
@@ -3197,7 +3197,7 @@ test('28. Phase 2–12 Regression Suite: Browse-Only vs Match Character Select, 
   assert.equal(sultanAttacker.startAttack('punch', 'fighting'), true);
   let punchHitCount = 0;
   let hitFrame = -1;
-  for (let f = 1; f <= 48; f++) {
+  for (let f = 1; f <= 24; f++) {
     sultanAttacker.stepPhysics();
     dummyDefender.stepPhysics();
     const hits = punchCombat.updateAndResolveCombat(sultanAttacker, dummyDefender, 1 / 60, 'fighting');
@@ -3207,9 +3207,89 @@ test('28. Phase 2–12 Regression Suite: Browse-Only vs Match Character Select, 
     }
   }
   assert.equal(punchHitCount, 1, 'Single punch produces exactly one damage event');
-  assert.ok(hitFrame >= 24 && hitFrame <= 28, `Punch impact occurs inside the 0.40s-0.48s active window (frame=${hitFrame})`);
-  assert.equal(sultanAttacker.state, 'idle', 'Action Sultan returns cleanly to idle after 48-frame (0.80s) punch');
+  assert.ok(hitFrame >= 11 && hitFrame <= 14, `Punch impact occurs inside the 0.18s-0.24s active window (frame=${hitFrame})`);
+  assert.equal(sultanAttacker.state, 'idle', 'Action Sultan returns cleanly to idle after 24-frame (0.40s) punch');
   assert.equal(sultanAttacker.startAttack('punch', 'fighting'), true, 'Action Sultan can immediately perform another attack after punch completion');
+
+  // 9. Action Sultan 0.60s Fast Right Front Kick (Storyboard 7-Frame Sequence at 2.0x Speed & Combat Integration)
+  const kickGuard0 = animCtrl.computeTargetPose('action_sultan', 'kick', 0.0, 1.0, 0);
+  const kickTransfer075 = animCtrl.computeTargetPose('action_sultan', 'kick', 0.075, 1.0, 0);
+  const kickChamber15 = animCtrl.computeTargetPose('action_sultan', 'kick', 0.15, 1.0, 0);
+  const kickExtend25 = animCtrl.computeTargetPose('action_sultan', 'kick', 0.25, 1.0, 0);
+  const kickImpact325 = animCtrl.computeTargetPose('action_sultan', 'kick', 0.325, 1.0, 0);
+  const kickRecoil335 = animCtrl.computeTargetPose('action_sultan', 'kick', 0.335, 1.0, 0);
+  const kickRetract45 = animCtrl.computeTargetPose('action_sultan', 'kick', 0.45, 1.0, 0);
+  const kickRecover60 = animCtrl.computeTargetPose('action_sultan', 'kick', 0.6, 1.0, 0);
+
+  // Frame 1 (0.00s) & Frame 7 (0.60s): Combat Guard stance matches cleanly
+  assert.ok(Math.abs(kickGuard0.Hips.ry - kickRecover60.Hips.ry) < 1e-6, 'Frame 7 returns Hips.ry to Combat Guard');
+  assert.ok(Math.abs(kickGuard0.RightUpperLeg.rx - kickRecover60.RightUpperLeg.rx) < 1e-6, 'Frame 7 returns RightUpperLeg.rx to Combat Guard');
+  assert.ok(Math.abs(kickGuard0.RightLowerLeg.rx - kickRecover60.RightLowerLeg.rx) < 1e-6, 'Frame 7 returns RightLowerLeg.rx to Combat Guard');
+  assert.ok(Math.abs(kickGuard0.RightFoot.rx - kickRecover60.RightFoot.rx) < 1e-6, 'Frame 7 returns RightFoot.rx to Combat Guard');
+  assert.equal(kickGuard0.LeftHand.fistCurl, 1, 'Left hand forms closed defensive fist in kick guard');
+  assert.equal(kickGuard0.RightHand.fistCurl, 1, 'Right hand forms closed defensive fist in kick guard');
+
+  // Frame 2 (0.075s Weight Transfer): Weight shifts onto supporting left leg, left knee bends slightly, right knee begins lifting
+  assert.ok((kickTransfer075.Hips.px ?? 0) < (kickGuard0.Hips.px ?? 0), 'Frame 2 transfers weight onto supporting left leg');
+  assert.ok(kickTransfer075.LeftLowerLeg.rx > kickGuard0.LeftLowerLeg.rx, 'Frame 2 bends supporting left knee slightly');
+  assert.ok(kickTransfer075.RightUpperLeg.rx < -0.45, 'Frame 2 lifts right thigh forward and upward');
+  assert.ok(kickTransfer075.RightLowerLeg.rx > 0.9, 'Frame 2 flexes right knee as leg lifts');
+
+  // Frame 3 (0.15s Knee Chamber): Right knee raised high toward target, knee tightly bent pulling lower leg toward thigh
+  assert.ok(kickChamber15.RightUpperLeg.rx < -1.3, 'Frame 3 chambers right knee high toward target');
+  assert.ok(kickChamber15.RightLowerLeg.rx > 1.6, 'Frame 3 pulls right lower leg tightly back toward thigh');
+  assert.equal(kickChamber15.LeftHand.fistCurl, 1, 'Frame 3 maintains closed left fist in guard');
+  assert.equal(kickChamber15.RightHand.fistCurl, 1, 'Frame 3 maintains closed right fist in guard');
+
+  // Frame 4 (0.25s Kick Extension) -> Frame 5 (0.325s Impact): Hips drive forward, torso counterbalances back, right lower leg extends, foot aligns heel/sole
+  assert.ok(kickExtend25.Hips.rx < kickChamber15.Hips.rx, 'Frame 4 drives hip forward into kick extension');
+  assert.ok(kickExtend25.RightLowerLeg.rx < 0.45, 'Frame 4 rapidly extends right lower leg toward opponent');
+  assert.ok(kickExtend25.RightFoot.rx < -0.25, 'Frame 4 aligns right foot heel/sole toward target');
+  assert.ok(kickExtend25.Spine.rx < -0.08 && kickExtend25.Chest.rx < -0.1, 'Frame 4 leans upper body slightly backward for counterbalance');
+
+  assert.ok(kickImpact325.RightUpperLeg.rx <= -1.55, 'Frame 5 reaches peak forward thigh drive');
+  assert.ok(
+    kickImpact325.RightLowerLeg.rx > 0.05 && kickImpact325.RightLowerLeg.rx < 0.22,
+    'Frame 5 reaches near-full knee extension without hyperextending'
+  );
+  assert.ok(kickImpact325.RightFoot.rx < -0.35, 'Frame 5 directs right heel/sole into opponent at impact');
+  assert.ok(kickImpact325.Hips.rx <= -0.18 && kickImpact325.Hips.ry <= -0.14, 'Frame 5 fully engages hip drive and rotation');
+  assert.ok(kickImpact325.LeftLowerLeg.rx > 0.2, 'Frame 5 keeps supporting left knee slightly bent for balance');
+  assert.ok(kickImpact325.LeftLowerArm.rx < -1.4 && kickImpact325.RightLowerArm.rx < -1.4, 'Frame 5 keeps both arms raised in combat guard');
+  assert.ok(kickRecoil335.RightLowerLeg.rx > kickImpact325.RightLowerLeg.rx, 'Subtle body/knee recoil occurs immediately after 0.325s impact');
+
+  // Frame 6 (0.45s Retraction): Right knee bends and retracts back toward chamber while hips return toward normal orientation
+  assert.ok(kickRetract45.RightLowerLeg.rx > 1.4, 'Frame 6 bends right knee to retract lower leg toward thigh');
+  assert.ok(kickRetract45.RightUpperLeg.rx < -1.0 && kickRetract45.RightUpperLeg.rx > kickImpact325.RightUpperLeg.rx, 'Frame 6 brings right knee back toward chamber');
+  assert.ok(kickRetract45.Hips.ry > kickImpact325.Hips.ry, 'Frame 6 returns hips toward normal guard orientation');
+
+  // Combat synchronization: 36 frames (0.60s at 60 FPS), active hit window around 0.325s impact (Frames 16-21), single hit per kick, clean recovery to idle
+  const sultanKickSpec = FighterAnimationEvents.getMoveSpec('action_sultan', 'kick');
+  assert.equal(sultanKickSpec.totalFrames, 36, 'Action Sultan kick clip totalFrames is 36 (0.60s)');
+  assert.equal(sultanKickSpec.startupFrames, 16);
+  assert.equal(sultanKickSpec.activeFrames, 6);
+  assert.equal(sultanKickSpec.recoveryFrames, 14);
+  assert.equal(sultanKickSpec.activeBone, 'RightFoot');
+
+  const kickAttacker = new Fighter3D(0, CHARACTERS.action_sultan, 0, 0, 0);
+  const kickDefender = new Fighter3D(1, CHARACTERS.romance_raja, 1.05, 0, 0);
+  const kickCombat = new CombatSystem3D();
+  assert.equal(kickAttacker.startAttack('kick', 'fighting'), true);
+  let kickHitCount = 0;
+  let kickHitFrame = -1;
+  for (let f = 1; f <= 36; f++) {
+    kickAttacker.stepPhysics();
+    kickDefender.stepPhysics();
+    const hits = kickCombat.updateAndResolveCombat(kickAttacker, kickDefender, 1 / 60, 'fighting');
+    if (hits.length > 0) {
+      kickHitCount += hits.length;
+      kickHitFrame = f;
+    }
+  }
+  assert.equal(kickHitCount, 1, 'Single front kick produces exactly one damage event');
+  assert.ok(kickHitFrame >= 16 && kickHitFrame <= 21, `Kick impact occurs inside the 0.27s-0.35s active window (frame=${kickHitFrame})`);
+  assert.equal(kickAttacker.state, 'idle', 'Action Sultan returns cleanly to idle after 36-frame (0.60s) front kick');
+  assert.equal(kickAttacker.startAttack('kick', 'fighting'), true, 'Action Sultan can immediately perform another attack after kick completion');
 
   bridge.returnToMenu();
 });

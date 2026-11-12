@@ -582,9 +582,9 @@ export class CharacterPreviewScene {
     if (state === 'idle' || state === 'walk' || state === 'block') {
       this.stateDurationSec = 0;
     } else if (state === 'punch') {
-      this.stateDurationSec = this.characterId === 'action_sultan' ? 0.8 : 0.45;
+      this.stateDurationSec = this.characterId === 'action_sultan' ? 0.4 : 0.45;
     } else if (state === 'kick') {
-      this.stateDurationSec = 0.55;
+      this.stateDurationSec = this.characterId === 'action_sultan' ? 0.6 : 0.55;
     } else if (state === 'jump') {
       this.stateDurationSec = 0.65;
     } else if (state === 'super_shot') {

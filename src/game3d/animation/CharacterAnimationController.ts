@@ -141,11 +141,15 @@ export class CharacterAnimationController {
         eventPayload
       );
 
-      const isPunchState = state === 'punch' || state === 'forward_punch';
+      const isCrispStrikeState =
+        state === 'punch' ||
+        state === 'forward_punch' ||
+        state === 'kick' ||
+        state === 'forward_kick';
       const blendSpeed =
-        isNewStateEntry && isPunchState
-          ? 0.85
-          : Math.min(1, dt * (isPunchState ? 30 : 18));
+        isNewStateEntry && isCrispStrikeState
+          ? 0.92
+          : Math.min(1, dt * (isCrispStrikeState ? 48 : 18));
       this.baseAnim.applyProceduralPoseToRigBones(
         rig,
         pose,
