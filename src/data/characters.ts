@@ -13,11 +13,11 @@ export const CHARACTERS: Record<FighterId, CharacterDef> = {
     bio: 'When Action Sultan steps onto the set, physics takes an intermission. Built like an armored truck and armed with his signature turquoise bracelet and gold-plated parody sidearm, he turns every frame into a festival blockbuster.',
     stats: {
       maxHealth: 1080,
-      walkSpeed: 4.5,
+      walkSpeed: 4.65,
       jumpVelocity: -14.5,
       weight: 1.15,
       powerRating: 10,
-      speedRating: 6,
+      speedRating: 8,
       techniqueRating: 7,
       powerMultiplier: 1.15,
       defenseMultiplier: 1.1,

@@ -132,10 +132,30 @@ export class CharacterAnimationController {
       hasCompatibleProceduralBones(rig.bones);
 
     if (canDriveBones && rig.bones && Object.keys(rig.bones).length > 0) {
+      const isLocomotionState =
+        state === 'walk' ||
+        state === 'walk_forward' ||
+        state === 'walk_backward' ||
+        state === 'run';
+
+      let effectiveTimeSec = stateTimeSec;
+      if (isLocomotionState && Math.abs(zVelocity) > 0.05) {
+        const refSpeed = state === 'run' ? 7.6 : 4.0;
+        const speedRatio = Math.max(0.65, Math.min(1.65, Math.abs(zVelocity) / refSpeed));
+        const prevLocomotionTime =
+          typeof meta.locomotionCycleTimeSec === 'number' && !isNewStateEntry
+            ? (meta.locomotionCycleTimeSec as number)
+            : stateTimeSec;
+        effectiveTimeSec = prevLocomotionTime + dt * speedRatio;
+        meta.locomotionCycleTimeSec = effectiveTimeSec;
+      } else {
+        meta.locomotionCycleTimeSec = stateTimeSec;
+      }
+
       const pose = this.computeTargetPose(
         characterId,
         state,
-        stateTimeSec,
+        effectiveTimeSec,
         heightScale,
         zVelocity,
         eventPayload
@@ -151,7 +171,7 @@ export class CharacterAnimationController {
       const blendSpeed =
         isNewStateEntry && isCrispStrikeState
           ? 0.92
-          : Math.min(1, dt * (isCrispStrikeState ? 48 : 18));
+          : Math.min(1, dt * (isCrispStrikeState ? 48 : isLocomotionState ? 24 : 18));
       this.baseAnim.applyProceduralPoseToRigBones(
         rig,
         pose,

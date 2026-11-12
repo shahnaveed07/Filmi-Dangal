@@ -374,7 +374,9 @@ export class CharacterPreviewScene {
         }
         const autoSway = this.autoTurntable ? Math.sin(turntableAngle) * 0.34 : 0;
         const baseYaw =
-          this.activeState === 'idle' || this.activeState === 'walk'
+          this.activeState === 'idle' ||
+          this.activeState === 'walk' ||
+          this.activeState === 'run'
             ? Math.PI + autoSway + this.manualYawOffset
             : Math.PI - 0.48 + this.manualYawOffset;
         this.currentRig.facingNode.rotation.y = baseYaw;
@@ -484,6 +486,9 @@ export class CharacterPreviewScene {
     this.characterId = characterId;
     this.isLoading = true;
     this.loadError = null;
+    this.activeState = 'idle';
+    this.stateElapsedSec = 0;
+    this.stateDurationSec = 0;
     this.manualYawOffset = 0;
     this.autoTurntable = true;
     this.activeHitboxSphere.isVisible = false;
@@ -519,9 +524,6 @@ export class CharacterPreviewScene {
       this.currentRig = rig;
       this.currentRig.setRenderMode(this.renderMode);
       this.currentRig.setLODLevel(this.lodLevel);
-      this.activeState = 'idle';
-      this.stateElapsedSec = 0;
-      this.stateDurationSec = 0;
       this.isLoading = false;
       if (rig.renderState === 'LOAD_FAILED' && rig.diagnostics?.errors.length) {
         this.loadError = rig.diagnostics.errors.join('; ');
@@ -584,7 +586,12 @@ export class CharacterPreviewScene {
     this.activeState = state;
     this.stateElapsedSec = 0;
 
-    if (state === 'idle' || state === 'walk' || state === 'block') {
+    if (
+      state === 'idle' ||
+      state === 'walk' ||
+      state === 'run' ||
+      state === 'block'
+    ) {
       this.stateDurationSec = 0;
     } else if (state === 'punch') {
       this.stateDurationSec = this.characterId === 'action_sultan' ? 0.4 : 0.45;

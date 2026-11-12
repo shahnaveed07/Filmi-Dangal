@@ -27,6 +27,7 @@ const PREVIEW_STATES: Array<{
 }> = [
   { state: 'idle', label: 'Idle', accent: 'gold' },
   { state: 'walk', label: 'Walk', accent: 'gold' },
+  { state: 'run', label: 'Sprint', accent: 'gold' },
   { state: 'punch', label: 'Punch', accent: 'gold' },
   { state: 'kick', label: 'Kick', accent: 'gold' },
   { state: 'grab', label: 'Grab', accent: 'gold' },
@@ -58,6 +59,7 @@ export const CharacterPreview3D: React.FC<CharacterPreview3DProps> = ({
   const [webglError, setWebglError] = useState<string | null>(null);
   const [retryCount, setRetryCount] = useState(0);
   const lastTelemetryRef = useRef<number>(0);
+  const lastActiveStateRef = useRef<FighterStateName>('idle');
 
   const assetConfig = getCharacterAssetConfig(characterId);
   const characterDef = CHARACTERS[characterId] || CHARACTERS.action_sultan;
@@ -84,9 +86,14 @@ export const CharacterPreview3D: React.FC<CharacterPreview3DProps> = ({
         characterId,
         (snap) => {
           const now = performance.now();
-          if (!snap.isLoading || now - lastTelemetryRef.current > 90) {
+          const stateChanged = snap.activeState !== lastActiveStateRef.current;
+          if (stateChanged || now - lastTelemetryRef.current > 90) {
             lastTelemetryRef.current = now;
+            lastActiveStateRef.current = snap.activeState;
             setTelemetry(snap);
+            if (stateChanged) {
+              setSelectedState(snap.activeState);
+            }
           }
         },
         undefined,
@@ -140,6 +147,7 @@ export const CharacterPreview3D: React.FC<CharacterPreview3DProps> = ({
     timerMgr.setCharacterId(characterId);
     timerMgr.clearAll();
 
+    lastActiveStateRef.current = state;
     setSelectedState(state);
     sceneControllerRef.current?.triggerAnimationState(state);
 
@@ -271,8 +279,7 @@ export const CharacterPreview3D: React.FC<CharacterPreview3DProps> = ({
           {showAnimationBar && (
             <div className="absolute bottom-2.5 inset-x-2.5 flex flex-wrap items-center justify-center gap-1.5">
               {PREVIEW_STATES.map((item) => {
-                const isActive =
-                  (telemetry?.activeState || selectedState) === item.state;
+                const isActive = selectedState === item.state;
                 let styleClass =
                   'bg-black/75 text-[#F1E7D0] border-[#D6A447]/35 hover:border-[#D6A447]';
                 if (item.accent === 'cyan') {

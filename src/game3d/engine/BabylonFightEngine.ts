@@ -773,7 +773,7 @@ export class BabylonFightEngine {
         this.p1.stateFrame / 60,
         dt,
         this.p1.facing,
-        0
+        this.p1.velocity.x
       );
     }
 
@@ -786,7 +786,7 @@ export class BabylonFightEngine {
         this.p2.stateFrame / 60,
         dt,
         this.p2.facing,
-        0
+        this.p2.velocity.x
       );
     }
 
