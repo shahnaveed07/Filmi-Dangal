@@ -145,7 +145,9 @@ export class CharacterAnimationController {
         state === 'punch' ||
         state === 'forward_punch' ||
         state === 'kick' ||
-        state === 'forward_kick';
+        state === 'forward_kick' ||
+        state === 'grab' ||
+        state === 'grabbed';
       const blendSpeed =
         isNewStateEntry && isCrispStrikeState
           ? 0.92

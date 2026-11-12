@@ -185,7 +185,9 @@ export class AnimationController3D {
         state === 'punch' ||
         state === 'forward_punch' ||
         state === 'kick' ||
-        state === 'forward_kick';
+        state === 'forward_kick' ||
+        state === 'grab' ||
+        state === 'grabbed';
       const blendSpeed =
         isNewStateEntry && isCrispStrikeState
           ? 0.92
@@ -1278,12 +1280,441 @@ export class AnimationController3D {
       }
 
       case 'grab': {
+        if (characterId === 'action_sultan') {
+          // AS DHOBI PACHAD (GRAB & THROW TAKEDOWN) – ~2.80s synchronized 8-frame sequence:
+          // Frame 1 (0.00s): Approach (combat stance approaching opponent at close range)
+          // Frame 2 (0.30s): Grab (strong upper-body grab securing opponent with both arms: right arm controls upper torso/shoulder, left arm locks waist/upper-body)
+          // Frame 3 (0.60s): Pull and Break Balance (pulls opponent toward himself, shifts weight back slightly, adjusts feet while maintaining firm grip)
+          // Frame 4 (0.90s): Turning and Positioning (pivots hips & upper torso deeply, bends knees low to position opponent across throwing side)
+          // Frame 5 (1.20s): Lift (drives upward through legs, hips, and back to lift opponent off the ground across Sultan's hip/shoulder)
+          // Frame 6 (1.60s): Throw (completes throwing rotation over the hip and releases opponent into a controlled downward arc)
+          // Frame 7 (2.20s): Ground Impact (maintains balanced follow-through stance standing dominantly over the slammed opponent)
+          // Frame 8 (2.80s): Recovery (releases remaining tension and returns cleanly to balanced fighting stance)
+          const grabT = Math.max(0, Math.min(t, 2.8));
+
+          const frame1Approach: RigPoseMap = {
+            Hips: { rx: 0.04, ry: 0.16, rz: 0, px: 0, py: baseHipsY - 0.03, pz: 0 },
+            Spine: { rx: 0.06, ry: 0.06, rz: 0 },
+            Chest: { rx: 0.08, ry: 0.12, rz: 0 },
+            Neck: { rx: -0.02, ry: -0.12, rz: 0 },
+            Head: { rx: -0.03, ry: -0.2, rz: 0 },
+            LeftShoulder: { rx: -0.04, ry: -0.06, rz: -0.04 },
+            LeftUpperArm: { rx: -0.52, ry: 0.08, rz: 0.18 },
+            LeftLowerArm: { rx: -1.32, ry: 0, rz: 0.42 },
+            LeftHand: { rx: 0.06, ry: 0, rz: 0, fistCurl: 0.5 },
+            RightShoulder: { rx: -0.04, ry: 0.06, rz: 0.04 },
+            RightUpperArm: { rx: -0.48, ry: -0.08, rz: -0.14 },
+            RightLowerArm: { rx: -1.38, ry: 0, rz: -0.46 },
+            RightHand: { rx: 0.06, ry: 0, rz: 0, fistCurl: 0.5 },
+            LeftUpperLeg: { rx: -0.22, ry: 0, rz: 0.06 },
+            LeftLowerLeg: { rx: 0.28, ry: 0, rz: 0 },
+            LeftFoot: { rx: -0.06, ry: 0, rz: 0 },
+            RightUpperLeg: { rx: 0.18, ry: 0, rz: -0.06 },
+            RightLowerLeg: { rx: 0.26, ry: 0, rz: 0 },
+            RightFoot: { rx: -0.18, ry: 0, rz: 0 },
+          };
+
+          const frame2Grab: RigPoseMap = {
+            Hips: { rx: 0.08, ry: 0.06, rz: 0, px: 0.02, py: baseHipsY - 0.05, pz: 0 },
+            Spine: { rx: 0.12, ry: 0.04, rz: 0 },
+            Chest: { rx: 0.16, ry: 0.06, rz: 0 },
+            Neck: { rx: -0.05, ry: -0.06, rz: 0 },
+            Head: { rx: -0.06, ry: -0.08, rz: 0 },
+            LeftShoulder: { rx: -0.06, ry: -0.14, rz: -0.05 },
+            LeftUpperArm: { rx: -0.84, ry: 0.24, rz: 0.22 },
+            LeftLowerArm: { rx: -0.96, ry: 0, rz: 0.46 },
+            LeftHand: { rx: 0.14, ry: 0, rz: 0, fistCurl: 0.95 },
+            RightShoulder: { rx: -0.08, ry: -0.18, rz: 0.05 },
+            RightUpperArm: { rx: -1.04, ry: -0.22, rz: -0.18 },
+            RightLowerArm: { rx: -0.88, ry: 0, rz: -0.38 },
+            RightHand: { rx: 0.16, ry: 0, rz: 0, fistCurl: 0.95 },
+            LeftUpperLeg: { rx: -0.28, ry: 0, rz: 0.07 },
+            LeftLowerLeg: { rx: 0.34, ry: 0, rz: 0 },
+            LeftFoot: { rx: -0.06, ry: 0, rz: 0 },
+            RightUpperLeg: { rx: 0.22, ry: 0, rz: -0.07 },
+            RightLowerLeg: { rx: 0.3, ry: 0, rz: 0 },
+            RightFoot: { rx: -0.2, ry: 0, rz: 0 },
+          };
+
+          const frame3PullBreakBalance: RigPoseMap = {
+            Hips: { rx: -0.04, ry: 0.22, rz: 0.02, px: -0.035, py: baseHipsY - 0.07, pz: 0 },
+            Spine: { rx: -0.06, ry: 0.12, rz: 0.02 },
+            Chest: { rx: -0.05, ry: 0.18, rz: 0.03 },
+            Neck: { rx: 0.06, ry: -0.12, rz: 0 },
+            Head: { rx: 0.08, ry: -0.18, rz: 0 },
+            LeftShoulder: { rx: -0.04, ry: 0.12, rz: -0.06 },
+            LeftUpperArm: { rx: -0.66, ry: 0.28, rz: 0.28 },
+            LeftLowerArm: { rx: -1.28, ry: 0, rz: 0.52 },
+            LeftHand: { rx: 0.18, ry: 0, rz: 0, fistCurl: 1 },
+            RightShoulder: { rx: -0.04, ry: 0.16, rz: 0.06 },
+            RightUpperArm: { rx: -0.74, ry: -0.16, rz: -0.24 },
+            RightLowerArm: { rx: -1.34, ry: 0, rz: -0.44 },
+            RightHand: { rx: 0.18, ry: 0, rz: 0, fistCurl: 1 },
+            LeftUpperLeg: { rx: -0.34, ry: 0, rz: 0.08 },
+            LeftLowerLeg: { rx: 0.42, ry: 0, rz: 0 },
+            LeftFoot: { rx: -0.08, ry: 0, rz: 0 },
+            RightUpperLeg: { rx: 0.26, ry: 0, rz: -0.08 },
+            RightLowerLeg: { rx: 0.36, ry: 0, rz: 0 },
+            RightFoot: { rx: -0.22, ry: 0, rz: 0 },
+          };
+
+          const frame4TurnPosition: RigPoseMap = {
+            Hips: { rx: 0.16, ry: -0.78, rz: -0.06, px: -0.015, py: baseHipsY - 0.14, pz: 0 },
+            Spine: { rx: 0.24, ry: -0.28, rz: -0.06 },
+            Chest: { rx: 0.3, ry: -0.42, rz: -0.08 },
+            Neck: { rx: -0.1, ry: 0.32, rz: 0.04 },
+            Head: { rx: -0.12, ry: 0.44, rz: 0.05 },
+            LeftShoulder: { rx: -0.06, ry: -0.12, rz: -0.06 },
+            LeftUpperArm: { rx: -0.96, ry: 0.32, rz: 0.34 },
+            LeftLowerArm: { rx: -1.18, ry: 0, rz: 0.48 },
+            LeftHand: { rx: 0.16, ry: 0, rz: 0, fistCurl: 1 },
+            RightShoulder: { rx: -0.08, ry: -0.24, rz: 0.08 },
+            RightUpperArm: { rx: -0.92, ry: -0.28, rz: -0.22 },
+            RightLowerArm: { rx: -1.24, ry: 0, rz: -0.42 },
+            RightHand: { rx: 0.16, ry: 0, rz: 0, fistCurl: 1 },
+            LeftUpperLeg: { rx: -0.54, ry: 0.08, rz: 0.12 },
+            LeftLowerLeg: { rx: 0.68, ry: 0, rz: 0 },
+            LeftFoot: { rx: -0.14, ry: 0, rz: 0 },
+            RightUpperLeg: { rx: -0.38, ry: -0.08, rz: -0.12 },
+            RightLowerLeg: { rx: 0.58, ry: 0, rz: 0 },
+            RightFoot: { rx: -0.18, ry: 0, rz: 0 },
+          };
+
+          const frame5Lift: RigPoseMap = {
+            Hips: { rx: 0.26, ry: -0.94, rz: -0.12, px: 0.01, py: baseHipsY - 0.05, pz: 0 },
+            Spine: { rx: 0.34, ry: -0.34, rz: -0.1 },
+            Chest: { rx: 0.42, ry: -0.48, rz: -0.14 },
+            Neck: { rx: -0.14, ry: 0.36, rz: 0.06 },
+            Head: { rx: -0.16, ry: 0.48, rz: 0.08 },
+            LeftShoulder: { rx: -0.08, ry: -0.18, rz: -0.08 },
+            LeftUpperArm: { rx: -1.14, ry: 0.36, rz: 0.38 },
+            LeftLowerArm: { rx: -1.12, ry: 0, rz: 0.52 },
+            LeftHand: { rx: 0.18, ry: 0, rz: 0, fistCurl: 1 },
+            RightShoulder: { rx: -0.1, ry: -0.28, rz: 0.1 },
+            RightUpperArm: { rx: -1.08, ry: -0.32, rz: -0.26 },
+            RightLowerArm: { rx: -1.18, ry: 0, rz: -0.46 },
+            RightHand: { rx: 0.18, ry: 0, rz: 0, fistCurl: 1 },
+            LeftUpperLeg: { rx: -0.34, ry: 0.06, rz: 0.14 },
+            LeftLowerLeg: { rx: 0.42, ry: 0, rz: 0 },
+            LeftFoot: { rx: -0.08, ry: 0, rz: 0 },
+            RightUpperLeg: { rx: -0.22, ry: -0.06, rz: -0.14 },
+            RightLowerLeg: { rx: 0.34, ry: 0, rz: 0 },
+            RightFoot: { rx: -0.12, ry: 0, rz: 0 },
+          };
+
+          const frame6Throw: RigPoseMap = {
+            Hips: { rx: 0.34, ry: -1.16, rz: -0.16, px: 0.032, py: baseHipsY - 0.09, pz: 0 },
+            Spine: { rx: 0.44, ry: -0.42, rz: -0.12 },
+            Chest: { rx: 0.54, ry: -0.56, rz: -0.16 },
+            Neck: { rx: -0.12, ry: 0.42, rz: 0.06 },
+            Head: { rx: -0.08, ry: 0.54, rz: 0.08 },
+            LeftShoulder: { rx: -0.04, ry: 0.08, rz: -0.04 },
+            LeftUpperArm: { rx: -1.24, ry: 0.18, rz: 0.26 },
+            LeftLowerArm: { rx: -0.46, ry: 0, rz: 0.18 },
+            LeftHand: { rx: 0.04, ry: 0, rz: 0, fistCurl: 0.2 },
+            RightShoulder: { rx: -0.06, ry: -0.24, rz: 0.06 },
+            RightUpperArm: { rx: -1.36, ry: -0.22, rz: -0.2 },
+            RightLowerArm: { rx: -0.36, ry: 0, rz: -0.14 },
+            RightHand: { rx: 0.04, ry: 0, rz: 0, fistCurl: 0.2 },
+            LeftUpperLeg: { rx: -0.44, ry: 0.06, rz: 0.12 },
+            LeftLowerLeg: { rx: 0.54, ry: 0, rz: 0 },
+            LeftFoot: { rx: -0.1, ry: 0, rz: 0 },
+            RightUpperLeg: { rx: -0.18, ry: -0.06, rz: -0.12 },
+            RightLowerLeg: { rx: 0.32, ry: 0, rz: 0 },
+            RightFoot: { rx: -0.14, ry: 0, rz: 0 },
+          };
+
+          const frame7ImpactFollowThrough: RigPoseMap = {
+            Hips: { rx: 0.18, ry: -0.34, rz: -0.04, px: 0.038, py: baseHipsY - 0.07, pz: 0 },
+            Spine: { rx: 0.22, ry: -0.14, rz: -0.02 },
+            Chest: { rx: 0.28, ry: -0.2, rz: -0.04 },
+            Neck: { rx: 0.14, ry: 0.16, rz: 0 },
+            Head: { rx: 0.24, ry: 0.22, rz: 0 },
+            LeftShoulder: { rx: -0.04, ry: -0.04, rz: -0.04 },
+            LeftUpperArm: { rx: -0.48, ry: 0.12, rz: 0.22 },
+            LeftLowerArm: { rx: -1.18, ry: 0, rz: 0.36 },
+            LeftHand: { rx: 0.08, ry: 0, rz: 0, fistCurl: 0.85 },
+            RightShoulder: { rx: -0.04, ry: 0.04, rz: 0.04 },
+            RightUpperArm: { rx: -0.54, ry: -0.12, rz: -0.18 },
+            RightLowerArm: { rx: -1.22, ry: 0, rz: -0.38 },
+            RightHand: { rx: 0.08, ry: 0, rz: 0, fistCurl: 0.85 },
+            LeftUpperLeg: { rx: -0.36, ry: 0, rz: 0.1 },
+            LeftLowerLeg: { rx: 0.46, ry: 0, rz: 0 },
+            LeftFoot: { rx: -0.1, ry: 0, rz: 0 },
+            RightUpperLeg: { rx: 0.14, ry: 0, rz: -0.1 },
+            RightLowerLeg: { rx: 0.28, ry: 0, rz: 0 },
+            RightFoot: { rx: -0.16, ry: 0, rz: 0 },
+          };
+
+          let interpolated: RigPoseMap;
+          if (grabT < 0.3) {
+            // 0.00–0.30s: Approach -> Grab Lock
+            const u = smoothstep01(grabT / 0.3);
+            interpolated = interpolatePoseMaps(frame1Approach, frame2Grab, u);
+          } else if (grabT < 0.6) {
+            // 0.30–0.60s: Grab Lock -> Pull & Break Balance
+            const u = smoothstep01((grabT - 0.3) / 0.3);
+            interpolated = interpolatePoseMaps(frame2Grab, frame3PullBreakBalance, u);
+          } else if (grabT < 0.9) {
+            // 0.60–0.90s: Pull & Break Balance -> Turning & Positioning across hip
+            const u = smoothstep01((grabT - 0.6) / 0.3);
+            interpolated = interpolatePoseMaps(frame3PullBreakBalance, frame4TurnPosition, u);
+          } else if (grabT < 1.2) {
+            // 0.90–1.20s: Turning & Positioning -> Lift opponent off the ground
+            const u = clamp01((grabT - 0.9) / 0.3);
+            const liftAlpha = Math.pow(u, 1.15);
+            interpolated = interpolatePoseMaps(frame4TurnPosition, frame5Lift, liftAlpha);
+          } else if (grabT < 1.6) {
+            // 1.20–1.60s: Lift -> Rotate & Throw over the hip (explosive release at 1.60s)
+            const u = clamp01((grabT - 1.2) / 0.4);
+            const throwAlpha = 1 - Math.pow(1 - u, 2.0);
+            interpolated = interpolatePoseMaps(frame5Lift, frame6Throw, throwAlpha);
+          } else if (grabT < 2.2) {
+            // 1.60–2.20s: Throw release -> Ground Impact follow-through standing over opponent
+            const u = smoothstep01((grabT - 1.6) / 0.6);
+            interpolated = interpolatePoseMaps(frame6Throw, frame7ImpactFollowThrough, u);
+          } else {
+            // 2.20–2.80s: Ground Impact -> Recovery to balanced combat stance
+            const u = smoothstep01((grabT - 2.2) / 0.6);
+            interpolated = interpolatePoseMaps(frame7ImpactFollowThrough, frame1Approach, u);
+          }
+
+          Object.assign(pose, interpolated);
+          break;
+        }
+
         pose.Hips.py = baseHipsY * 0.9;
         pose.Chest.rx = 0.28;
         pose.LeftUpperArm = { rx: -1.45, ry: 0.35, rz: 0.2 };
         pose.LeftLowerArm = { rx: -0.45, ry: 0, rz: 0 };
         pose.RightUpperArm = { rx: -1.45, ry: -0.35, rz: -0.2 };
         pose.RightLowerArm = { rx: -0.45, ry: 0, rz: 0 };
+        break;
+      }
+
+      case 'grabbed': {
+        // SYNCHRONIZED OPPONENT DHOBI PACHAD REACTION – ~2.80s 8-frame sequence:
+        // Frame 1 (0.00s): Facing Sultan at close range in combat stance
+        // Frame 2 (0.30s): Immediate reaction to Sultan's upper-body grab
+        // Frame 3 (0.60s): Pulled forward off-balance (center of mass shifts forward, torso bends forward)
+        // Frame 4 (0.90s): Upper body follows Sultan's pivot across throwing hip, heels rise
+        // Frame 5 (1.20s): Lifted off the ground across Sultan's hip/shoulder (feet leave ground, legs kick up in air)
+        // Frame 6 (1.60s): Thrown over Sultan's hip in a controlled airborne backward/sideward rotation
+        // Frame 7 (2.20s): Ground Impact on back and upper shoulder area with brief impact bounce
+        // Frame 8 (2.80s): Remains grounded on back before transitioning into knockdown recovery
+        const oppT = Math.max(0, Math.min(t, 2.8));
+
+        const oppFrame1Stance: RigPoseMap = {
+          Hips: { rx: 0, ry: 0.14, rz: 0, px: 0, py: baseHipsY - 0.02, pz: 0 },
+          Spine: { rx: 0.02, ry: 0.06, rz: 0 },
+          Chest: { rx: 0.04, ry: 0.1, rz: 0 },
+          Neck: { rx: 0.02, ry: -0.1, rz: 0 },
+          Head: { rx: 0.04, ry: -0.16, rz: 0 },
+          LeftShoulder: { rx: -0.04, ry: -0.06, rz: -0.04 },
+          LeftUpperArm: { rx: -0.38, ry: 0, rz: 0.16 },
+          LeftLowerArm: { rx: -1.35, ry: 0, rz: 0.42 },
+          LeftHand: { rx: 0.06, ry: 0, rz: 0, fistCurl: 0.8 },
+          RightShoulder: { rx: -0.04, ry: 0.06, rz: 0.04 },
+          RightUpperArm: { rx: -0.34, ry: 0, rz: -0.14 },
+          RightLowerArm: { rx: -1.4, ry: 0, rz: -0.44 },
+          RightHand: { rx: 0.06, ry: 0, rz: 0, fistCurl: 0.8 },
+          LeftUpperLeg: { rx: -0.16, ry: 0, rz: 0.06 },
+          LeftLowerLeg: { rx: 0.24, ry: 0, rz: 0 },
+          LeftFoot: { rx: -0.06, ry: 0, rz: 0 },
+          RightUpperLeg: { rx: 0.14, ry: 0, rz: -0.06 },
+          RightLowerLeg: { rx: 0.24, ry: 0, rz: 0 },
+          RightFoot: { rx: -0.14, ry: 0, rz: 0 },
+        };
+
+        const oppFrame2GrabReact: RigPoseMap = {
+          Hips: { rx: 0.06, ry: 0.04, rz: 0, px: 0.02, py: baseHipsY - 0.04, pz: 0 },
+          Spine: { rx: 0.12, ry: 0.02, rz: 0 },
+          Chest: { rx: 0.16, ry: 0.04, rz: 0 },
+          Neck: { rx: -0.12, ry: 0, rz: 0 },
+          Head: { rx: -0.16, ry: 0, rz: 0 },
+          LeftShoulder: { rx: -0.06, ry: -0.1, rz: -0.08 },
+          LeftUpperArm: { rx: -0.78, ry: 0.2, rz: 0.34 },
+          LeftLowerArm: { rx: -1.12, ry: 0, rz: 0.38 },
+          LeftHand: { rx: 0.1, ry: 0, rz: 0, fistCurl: 0.5 },
+          RightShoulder: { rx: -0.06, ry: 0.1, rz: 0.08 },
+          RightUpperArm: { rx: -0.74, ry: -0.2, rz: -0.34 },
+          RightLowerArm: { rx: -1.16, ry: 0, rz: -0.38 },
+          RightHand: { rx: 0.1, ry: 0, rz: 0, fistCurl: 0.5 },
+          LeftUpperLeg: { rx: -0.22, ry: 0, rz: 0.08 },
+          LeftLowerLeg: { rx: 0.32, ry: 0, rz: 0 },
+          LeftFoot: { rx: -0.08, ry: 0, rz: 0 },
+          RightUpperLeg: { rx: 0.18, ry: 0, rz: -0.08 },
+          RightLowerLeg: { rx: 0.28, ry: 0, rz: 0 },
+          RightFoot: { rx: -0.12, ry: 0, rz: 0 },
+        };
+
+        const oppFrame3BreakBalance: RigPoseMap = {
+          Hips: { rx: 0.24, ry: -0.08, rz: 0.04, px: 0.06, py: baseHipsY - 0.07, pz: 0 },
+          Spine: { rx: 0.34, ry: -0.06, rz: 0.04 },
+          Chest: { rx: 0.42, ry: -0.08, rz: 0.06 },
+          Neck: { rx: -0.18, ry: 0.06, rz: 0 },
+          Head: { rx: -0.24, ry: 0.08, rz: 0 },
+          LeftShoulder: { rx: -0.08, ry: -0.14, rz: -0.1 },
+          LeftUpperArm: { rx: -0.94, ry: 0.24, rz: 0.42 },
+          LeftLowerArm: { rx: -0.92, ry: 0, rz: 0.32 },
+          LeftHand: { rx: 0.12, ry: 0, rz: 0, fistCurl: 0.4 },
+          RightShoulder: { rx: -0.08, ry: 0.14, rz: 0.1 },
+          RightUpperArm: { rx: -0.9, ry: -0.24, rz: -0.42 },
+          RightLowerArm: { rx: -0.96, ry: 0, rz: -0.32 },
+          RightHand: { rx: 0.12, ry: 0, rz: 0, fistCurl: 0.4 },
+          LeftUpperLeg: { rx: -0.36, ry: 0, rz: 0.08 },
+          LeftLowerLeg: { rx: 0.44, ry: 0, rz: 0 },
+          LeftFoot: { rx: -0.08, ry: 0, rz: 0 },
+          RightUpperLeg: { rx: 0.08, ry: 0, rz: -0.08 },
+          RightLowerLeg: { rx: 0.36, ry: 0, rz: 0 },
+          RightFoot: { rx: 0.24, ry: 0, rz: 0 },
+        };
+
+        const oppFrame4RotatedAcrossHip: RigPoseMap = {
+          Hips: { rx: 0.56, ry: 0.46, rz: -0.18, px: 0.04, py: baseHipsY + 0.04, pz: 0 },
+          Spine: { rx: 0.48, ry: 0.22, rz: -0.12 },
+          Chest: { rx: 0.52, ry: 0.28, rz: -0.16 },
+          Neck: { rx: -0.16, ry: -0.18, rz: 0.06 },
+          Head: { rx: -0.2, ry: -0.24, rz: 0.08 },
+          LeftShoulder: { rx: -0.08, ry: -0.12, rz: -0.12 },
+          LeftUpperArm: { rx: -1.04, ry: 0.28, rz: 0.48 },
+          LeftLowerArm: { rx: -0.86, ry: 0, rz: 0.28 },
+          LeftHand: { rx: 0.1, ry: 0, rz: 0, fistCurl: 0.4 },
+          RightShoulder: { rx: -0.08, ry: 0.12, rz: 0.12 },
+          RightUpperArm: { rx: -0.98, ry: -0.28, rz: -0.48 },
+          RightLowerArm: { rx: -0.88, ry: 0, rz: -0.28 },
+          RightHand: { rx: 0.1, ry: 0, rz: 0, fistCurl: 0.4 },
+          LeftUpperLeg: { rx: -0.28, ry: 0.06, rz: 0.12 },
+          LeftLowerLeg: { rx: 0.48, ry: 0, rz: 0 },
+          LeftFoot: { rx: 0.32, ry: 0, rz: 0 },
+          RightUpperLeg: { rx: -0.18, ry: -0.06, rz: -0.12 },
+          RightLowerLeg: { rx: 0.44, ry: 0, rz: 0 },
+          RightFoot: { rx: 0.36, ry: 0, rz: 0 },
+        };
+
+        const oppFrame5LiftedAirborne: RigPoseMap = {
+          Hips: { rx: 1.18, ry: 0.54, rz: -0.46, px: 0, py: baseHipsY + 0.18, pz: 0 },
+          Spine: { rx: 0.32, ry: 0.18, rz: -0.14 },
+          Chest: { rx: 0.28, ry: 0.22, rz: -0.18 },
+          Neck: { rx: -0.18, ry: -0.14, rz: 0.08 },
+          Head: { rx: -0.22, ry: -0.18, rz: 0.1 },
+          LeftShoulder: { rx: -0.06, ry: -0.1, rz: -0.14 },
+          LeftUpperArm: { rx: -0.88, ry: 0.22, rz: 0.56 },
+          LeftLowerArm: { rx: -0.94, ry: 0, rz: 0.3 },
+          LeftHand: { rx: 0.08, ry: 0, rz: 0, fistCurl: 0.35 },
+          RightShoulder: { rx: -0.06, ry: 0.1, rz: 0.14 },
+          RightUpperArm: { rx: -0.82, ry: -0.22, rz: -0.56 },
+          RightLowerArm: { rx: -0.96, ry: 0, rz: -0.3 },
+          RightHand: { rx: 0.08, ry: 0, rz: 0, fistCurl: 0.35 },
+          LeftUpperLeg: { rx: -0.54, ry: 0.1, rz: 0.22 },
+          LeftLowerLeg: { rx: 0.46, ry: 0, rz: 0 },
+          LeftFoot: { rx: 0.24, ry: 0, rz: 0 },
+          RightUpperLeg: { rx: 0.26, ry: -0.1, rz: -0.24 },
+          RightLowerLeg: { rx: 0.38, ry: 0, rz: 0 },
+          RightFoot: { rx: 0.28, ry: 0, rz: 0 },
+        };
+
+        const oppFrame6ThrownAirborne: RigPoseMap = {
+          Hips: { rx: -1.16, ry: 0.2, rz: -0.24, px: 0, py: baseHipsY * 0.72, pz: 0 },
+          Spine: { rx: -0.18, ry: 0.08, rz: -0.08 },
+          Chest: { rx: -0.22, ry: 0.1, rz: -0.1 },
+          Neck: { rx: 0.16, ry: 0, rz: 0 },
+          Head: { rx: 0.22, ry: 0, rz: 0 },
+          LeftShoulder: { rx: -0.04, ry: 0, rz: -0.12 },
+          LeftUpperArm: { rx: -0.64, ry: 0.15, rz: 0.82 },
+          LeftLowerArm: { rx: -0.52, ry: 0, rz: 0.18 },
+          LeftHand: { rx: 0, ry: 0, rz: 0, fistCurl: 0.2 },
+          RightShoulder: { rx: -0.04, ry: 0, rz: 0.12 },
+          RightUpperArm: { rx: -0.64, ry: -0.15, rz: -0.82 },
+          RightLowerArm: { rx: -0.52, ry: 0, rz: -0.18 },
+          RightHand: { rx: 0, ry: 0, rz: 0, fistCurl: 0.2 },
+          LeftUpperLeg: { rx: -0.76, ry: 0.08, rz: 0.18 },
+          LeftLowerLeg: { rx: 0.58, ry: 0, rz: 0 },
+          LeftFoot: { rx: 0.18, ry: 0, rz: 0 },
+          RightUpperLeg: { rx: -0.44, ry: -0.08, rz: -0.18 },
+          RightLowerLeg: { rx: 0.48, ry: 0, rz: 0 },
+          RightFoot: { rx: 0.18, ry: 0, rz: 0 },
+        };
+
+        const oppFrame7GroundImpact: RigPoseMap = {
+          Hips: { rx: -1.52, ry: 0, rz: 0, px: 0, py: 0.16, pz: 0 },
+          Spine: { rx: -0.2, ry: 0, rz: 0 },
+          Chest: { rx: -0.24, ry: 0, rz: 0 },
+          Neck: { rx: 0.22, ry: 0, rz: 0 },
+          Head: { rx: 0.28, ry: 0, rz: 0 },
+          LeftShoulder: { rx: 0, ry: 0, rz: -0.1 },
+          LeftUpperArm: { rx: -0.22, ry: 0, rz: 0.92 },
+          LeftLowerArm: { rx: -0.35, ry: 0, rz: 0 },
+          LeftHand: { rx: 0, ry: 0, rz: 0, fistCurl: 0.2 },
+          RightShoulder: { rx: 0, ry: 0, rz: 0.1 },
+          RightUpperArm: { rx: -0.22, ry: 0, rz: -0.92 },
+          RightLowerArm: { rx: -0.35, ry: 0, rz: 0 },
+          RightHand: { rx: 0, ry: 0, rz: 0, fistCurl: 0.2 },
+          LeftUpperLeg: { rx: -0.38, ry: 0, rz: 0.16 },
+          LeftLowerLeg: { rx: 0.62, ry: 0, rz: 0 },
+          LeftFoot: { rx: 0.12, ry: 0, rz: 0 },
+          RightUpperLeg: { rx: -0.24, ry: 0, rz: -0.16 },
+          RightLowerLeg: { rx: 0.48, ry: 0, rz: 0 },
+          RightFoot: { rx: 0.12, ry: 0, rz: 0 },
+        };
+
+        const oppFrame8Grounded: RigPoseMap = {
+          Hips: { rx: -1.48, ry: 0, rz: 0, px: 0, py: 0.18, pz: 0 },
+          Spine: { rx: -0.08, ry: 0, rz: 0 },
+          Chest: { rx: -0.1, ry: 0, rz: 0 },
+          Neck: { rx: 0.14, ry: 0, rz: 0 },
+          Head: { rx: 0.22, ry: 0, rz: 0 },
+          LeftShoulder: { rx: 0, ry: 0, rz: -0.06 },
+          LeftUpperArm: { rx: -0.15, ry: 0, rz: 0.95 },
+          LeftLowerArm: { rx: -0.2, ry: 0, rz: 0 },
+          LeftHand: { rx: 0, ry: 0, rz: 0, fistCurl: 0.15 },
+          RightShoulder: { rx: 0, ry: 0, rz: 0.06 },
+          RightUpperArm: { rx: -0.15, ry: 0, rz: -0.95 },
+          RightLowerArm: { rx: -0.2, ry: 0, rz: 0 },
+          RightHand: { rx: 0, ry: 0, rz: 0, fistCurl: 0.15 },
+          LeftUpperLeg: { rx: 0.05, ry: 0, rz: 0.15 },
+          LeftLowerLeg: { rx: 0.15, ry: 0, rz: 0 },
+          LeftFoot: { rx: 0, ry: 0, rz: 0 },
+          RightUpperLeg: { rx: 0.05, ry: 0, rz: -0.15 },
+          RightLowerLeg: { rx: 0.15, ry: 0, rz: 0 },
+          RightFoot: { rx: 0, ry: 0, rz: 0 },
+        };
+
+        let oppInterpolated: RigPoseMap;
+        if (oppT < 0.3) {
+          const u = smoothstep01(oppT / 0.3);
+          oppInterpolated = interpolatePoseMaps(oppFrame1Stance, oppFrame2GrabReact, u);
+        } else if (oppT < 0.6) {
+          const u = smoothstep01((oppT - 0.3) / 0.3);
+          oppInterpolated = interpolatePoseMaps(oppFrame2GrabReact, oppFrame3BreakBalance, u);
+        } else if (oppT < 0.9) {
+          const u = smoothstep01((oppT - 0.6) / 0.3);
+          oppInterpolated = interpolatePoseMaps(oppFrame3BreakBalance, oppFrame4RotatedAcrossHip, u);
+        } else if (oppT < 1.2) {
+          const u = smoothstep01((oppT - 0.9) / 0.3);
+          oppInterpolated = interpolatePoseMaps(oppFrame4RotatedAcrossHip, oppFrame5LiftedAirborne, u);
+        } else if (oppT < 1.6) {
+          const u = smoothstep01((oppT - 1.2) / 0.4);
+          oppInterpolated = interpolatePoseMaps(oppFrame5LiftedAirborne, oppFrame6ThrownAirborne, u);
+        } else if (oppT < 2.2) {
+          const u = clamp01((oppT - 1.6) / 0.6);
+          const fallAlpha = Math.pow(u, 1.3);
+          oppInterpolated = interpolatePoseMaps(oppFrame6ThrownAirborne, oppFrame7GroundImpact, fallAlpha);
+        } else {
+          if (oppT < 2.38) {
+            const impactBounce = Math.sin(((oppT - 2.2) / 0.18) * Math.PI);
+            oppInterpolated = interpolatePoseMaps(oppFrame7GroundImpact, oppFrame7GroundImpact, 0);
+            oppInterpolated.Hips.py = (oppInterpolated.Hips.py ?? 0.16) + 0.06 * impactBounce;
+            oppInterpolated.Spine.rx -= 0.12 * impactBounce;
+            oppInterpolated.LeftUpperLeg.rx -= 0.18 * impactBounce;
+            oppInterpolated.RightUpperLeg.rx -= 0.18 * impactBounce;
+          } else {
+            const u = smoothstep01((oppT - 2.38) / 0.42);
+            oppInterpolated = interpolatePoseMaps(oppFrame7GroundImpact, oppFrame8Grounded, u);
+          }
+        }
+
+        Object.assign(pose, oppInterpolated);
         break;
       }
 
@@ -1786,6 +2217,93 @@ export class AnimationController3D {
         pose.LeftUpperArm = { rx: -2.15, ry: 0.25, rz: 0.18 };
         pose.RightUpperArm = { rx: -2.15, ry: -0.25, rz: -0.18 };
       }
+    }
+  }
+
+  /**
+   * Analytical two-bone contact constraint & IK adjustment for Action Sultan's Dhobi Pachad
+   * during the active clinch, pull, pivot, and lift window (0.30s to 1.60s).
+   * Adjusts shoulder, upper-arm, forearm, and wrist angles based on live horizontal separation
+   * and vertical lift elevation so Sultan's hands maintain firm contact with the opponent's
+   * upper torso/shoulder and waist without passing through or intersecting the opponent's mesh.
+   */
+  public applyDhobiPachadContactIK(
+    attackerPose: RigPoseMap,
+    defenderPose: RigPoseMap,
+    t: number,
+    separationX: number,
+    elevationY: number
+  ): void {
+    const grabT = Math.max(0, Math.min(t, 2.8));
+    if (grabT < 0.25 || grabT > 1.62) {
+      return;
+    }
+
+    // Weight of the IK contact lock: ramps in from 0.25–0.30s, stays 1.0 during 0.30–1.50s, releases by 1.60s
+    let contactWeight = 1.0;
+    if (grabT < 0.3) {
+      contactWeight = smoothstep01((grabT - 0.25) / 0.05);
+    } else if (grabT > 1.5) {
+      contactWeight = 1.0 - smoothstep01((grabT - 1.5) / 0.12);
+    }
+
+    // Clamp separation so hands never penetrate the opponent's chest cylinder (min surface clearance ~0.32m)
+    const clampedSep = Math.max(0.32, Math.min(0.75, Math.abs(separationX)));
+    const reachRatio = clamp01((clampedSep - 0.32) / 0.42);
+    const liftRatio = clamp01(elevationY / 0.75);
+
+    // 2-bone analytical elbow flexion angle (Law of Cosines approximation for upper arm L1=0.31m, forearm L2=0.29m)
+    const targetElbowBend = lerp(-1.32, -0.78, reachRatio) - liftRatio * 0.12;
+    const targetShoulderPitch = lerp(-0.82, -1.12, reachRatio) - liftRatio * 0.22;
+    const antiPenetrationSpread = lerp(0.28, 0.18, reachRatio);
+
+    if (attackerPose.RightUpperArm && attackerPose.RightLowerArm && attackerPose.RightHand) {
+      attackerPose.RightUpperArm.rx = lerp(
+        attackerPose.RightUpperArm.rx,
+        targetShoulderPitch,
+        contactWeight * 0.55
+      );
+      attackerPose.RightUpperArm.rz = lerp(
+        attackerPose.RightUpperArm.rz,
+        -antiPenetrationSpread,
+        contactWeight * 0.65
+      );
+      attackerPose.RightLowerArm.rx = lerp(
+        attackerPose.RightLowerArm.rx,
+        targetElbowBend,
+        contactWeight * 0.6
+      );
+      attackerPose.RightHand.fistCurl = Math.max(
+        attackerPose.RightHand.fistCurl ?? 0.95,
+        0.95 * contactWeight
+      );
+    }
+
+    if (attackerPose.LeftUpperArm && attackerPose.LeftLowerArm && attackerPose.LeftHand) {
+      attackerPose.LeftUpperArm.rx = lerp(
+        attackerPose.LeftUpperArm.rx,
+        targetShoulderPitch + 0.12,
+        contactWeight * 0.55
+      );
+      attackerPose.LeftUpperArm.rz = lerp(
+        attackerPose.LeftUpperArm.rz,
+        antiPenetrationSpread,
+        contactWeight * 0.65
+      );
+      attackerPose.LeftLowerArm.rx = lerp(
+        attackerPose.LeftLowerArm.rx,
+        targetElbowBend - 0.08,
+        contactWeight * 0.6
+      );
+      attackerPose.LeftHand.fistCurl = Math.max(
+        attackerPose.LeftHand.fistCurl ?? 0.95,
+        0.95 * contactWeight
+      );
+    }
+
+    // Ensure opponent's upper torso tracks Sultan's hip/shoulder rotation without mesh intersection
+    if (defenderPose.Chest && defenderPose.Hips) {
+      defenderPose.Hips.pz = 0;
     }
   }
 }

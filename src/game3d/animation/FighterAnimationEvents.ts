@@ -38,6 +38,10 @@ export type AnimationEventType =
   | 'ON_CHARGE_START'
   | 'ON_ACTIVE_HITBOX_START'
   | 'ON_ACTIVE_HITBOX_END'
+  | 'ON_GRAB_LOCK'
+  | 'ON_GRAB_LIFT'
+  | 'ON_GRAB_THROW_RELEASE'
+  | 'ON_GRAB_SLAM_IMPACT'
   | 'ON_PROJECTILE_SPAWN'
   | 'ON_PROJECTILE_RELEASE'
   | 'ON_SPECIAL_IMPACT'
@@ -58,6 +62,10 @@ export interface MoveFrameTimingSpec {
   projectileSpawnFrame?: number;
   specialImpactFrame?: number;
   superMoveClimaxFrame?: number;
+  grabLockFrame?: number;
+  grabLiftFrame?: number;
+  grabThrowReleaseFrame?: number;
+  grabSlamImpactFrame?: number;
   isLooping: boolean;
 }
 
@@ -120,6 +128,28 @@ const CHARACTER_MOVE_SPECS: Record<FighterId, Record<string, MoveFrameTimingSpec
       recoveryFrames: 14,
       activeBone: 'RightFoot',
       hitboxRadius: 0.42,
+      isLooping: false,
+    },
+    grab: {
+      clipName: 'Anim_AS_Grab_DhobiPachad',
+      totalFrames: 168,
+      startupFrames: 18,
+      activeFrames: 114,
+      recoveryFrames: 36,
+      activeBone: 'RightHand',
+      hitboxRadius: 0.46,
+      grabLockFrame: 18,
+      grabLiftFrame: 72,
+      grabThrowReleaseFrame: 96,
+      grabSlamImpactFrame: 132,
+      isLooping: false,
+    },
+    grabbed: {
+      clipName: 'Anim_Opponent_DhobiPachad_React',
+      totalFrames: 168,
+      startupFrames: 18,
+      activeFrames: 114,
+      recoveryFrames: 36,
       isLooping: false,
     },
     block: {
@@ -536,7 +566,13 @@ export class FighterAnimationEvents {
     }
 
     let facialExpression: FighterAnimationEventPayload['facialExpression'] = 'NEUTRAL';
-    if (state === 'hurt' || state === 'knockback' || state === 'knockdown' || state === 'defeat') {
+    if (
+      state === 'grabbed' ||
+      state === 'hurt' ||
+      state === 'knockback' ||
+      state === 'knockdown' ||
+      state === 'defeat'
+    ) {
       facialExpression = 'PAIN';
     } else if (state === 'victory') {
       facialExpression = 'VICTORY_SMILE';
@@ -598,6 +634,20 @@ export class FighterAnimationEvents {
       }
       if (!spec.isLooping && frame === spec.startupFrames) {
         this.emit({ ...basePayload, type: 'ON_ACTIVE_HITBOX_START' });
+      }
+      if (state === 'grab') {
+        if (spec.grabLockFrame !== undefined && frame === spec.grabLockFrame) {
+          this.emit({ ...basePayload, type: 'ON_GRAB_LOCK' });
+        }
+        if (spec.grabLiftFrame !== undefined && frame === spec.grabLiftFrame) {
+          this.emit({ ...basePayload, type: 'ON_GRAB_LIFT' });
+        }
+        if (spec.grabThrowReleaseFrame !== undefined && frame === spec.grabThrowReleaseFrame) {
+          this.emit({ ...basePayload, type: 'ON_GRAB_THROW_RELEASE' });
+        }
+        if (spec.grabSlamImpactFrame !== undefined && frame === spec.grabSlamImpactFrame) {
+          this.emit({ ...basePayload, type: 'ON_GRAB_SLAM_IMPACT' });
+        }
       }
       if (spec.projectileSpawnFrame !== undefined && frame === spec.projectileSpawnFrame) {
         this.emit({ ...basePayload, type: 'ON_PROJECTILE_SPAWN' });

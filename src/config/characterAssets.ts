@@ -786,6 +786,7 @@ export function mapStateToStandardClipId(state: FighterStateName): StandardAnima
     case 'forward_kick':
     case 'sweep':
       return 'kick';
+    case 'grabbed':
     case 'hurt':
     case 'knockback':
       return 'hit_react';

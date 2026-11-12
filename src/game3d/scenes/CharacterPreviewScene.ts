@@ -317,6 +317,11 @@ export class CharacterPreviewScene {
         this.shockwaveLifeSec = 0.65;
         this.previewShockwaveRing.scaling.setAll(0.6);
         this.previewShockwaveRing.isVisible = true;
+      } else if (evt.type === 'ON_GRAB_SLAM_IMPACT') {
+        this.vfxManager.spawnGrabSlamDustVFX({ x: 0.45, y: 0, z: 0 });
+        this.shockwaveLifeSec = 0.45;
+        this.previewShockwaveRing.scaling.setAll(0.5);
+        this.previewShockwaveRing.isVisible = true;
       }
     });
 
@@ -585,6 +590,8 @@ export class CharacterPreviewScene {
       this.stateDurationSec = this.characterId === 'action_sultan' ? 0.4 : 0.45;
     } else if (state === 'kick') {
       this.stateDurationSec = this.characterId === 'action_sultan' ? 0.6 : 0.55;
+    } else if (state === 'grab') {
+      this.stateDurationSec = this.characterId === 'action_sultan' ? 2.8 : 0.6;
     } else if (state === 'jump') {
       this.stateDurationSec = 0.65;
     } else if (state === 'super_shot') {

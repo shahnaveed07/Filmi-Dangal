@@ -644,6 +644,9 @@ export class BabylonFightEngine {
           ev.isSuperMove,
           attackerChar.visuals.primaryColor
         );
+        if (ev.isGrab) {
+          this.vfxManager.spawnGrabSlamDustVFX(ev.contactPoint3D);
+        }
 
         if (ev.blocked) {
           audio.playSound('block');
@@ -659,6 +662,11 @@ export class BabylonFightEngine {
           AudioManager3D.playHitReact(ev.defenderId);
           this.addCameraTrauma(0.38);
           this.hitstopTimer = Math.max(this.hitstopTimer, 5);
+        } else if (ev.isGrab) {
+          audio.playSound('dishoom');
+          AudioManager3D.playHitReact(ev.defenderId);
+          this.addCameraTrauma(0.42);
+          this.hitstopTimer = Math.max(this.hitstopTimer, 6);
         } else if (ev.causedKnockdown) {
           audio.playSound('dishoom');
           AudioManager3D.playHitReact(ev.defenderId);
@@ -741,6 +749,11 @@ export class BabylonFightEngine {
       this.specialCallout = `${fighter.def.superShotInfo.name}!`;
       this.specialCalloutFrames = 45;
       this.pushHUDUpdate();
+    } else if (fighter.state === 'grab' && fighter.id === 'action_sultan') {
+      AudioManager3D.playNormalAttack(fighter.id);
+      this.specialCallout = 'DHOBI PACHAD!';
+      this.specialCalloutFrames = 55;
+      this.pushHUDUpdate();
     } else if (fighter.isAttacking()) {
       AudioManager3D.playNormalAttack(fighter.id);
     } else if (fighter.state === 'jump') {
@@ -775,6 +788,27 @@ export class BabylonFightEngine {
         this.p2.facing,
         0
       );
+    }
+
+    // Apply analytical 2-bone arm IK contact during Action Sultan's Dhobi Pachad grab & lift (0.30s - 1.60s)
+    if (this.p1Rig && this.p2Rig) {
+      if (this.p1.activeGrabTarget === this.p2 && this.p1.state === 'grab') {
+        const t = this.p1.stateFrame / 60;
+        const sepX = Math.abs(this.p2.position.x - this.p1.position.x);
+        const elevY = this.p2.position.y - this.p1.position.y;
+        const p1Pose = this.animController.computeTargetPose(this.p1.id, 'grab', t, 1.0, 0);
+        const p2Pose = this.animController.computeTargetPose(this.p2.id, 'grabbed', t, 1.0, 0);
+        this.animController.applyDhobiPachadContactIK(p1Pose, p2Pose, t, sepX, elevY);
+        this.animController.applyProceduralPoseToRigBones(this.p1Rig, p1Pose, 1.0, 0.92);
+      } else if (this.p2.activeGrabTarget === this.p1 && this.p2.state === 'grab') {
+        const t = this.p2.stateFrame / 60;
+        const sepX = Math.abs(this.p1.position.x - this.p2.position.x);
+        const elevY = this.p1.position.y - this.p2.position.y;
+        const p2Pose = this.animController.computeTargetPose(this.p2.id, 'grab', t, 1.0, 0);
+        const p1Pose = this.animController.computeTargetPose(this.p1.id, 'grabbed', t, 1.0, 0);
+        this.animController.applyDhobiPachadContactIK(p2Pose, p1Pose, t, sepX, elevY);
+        this.animController.applyProceduralPoseToRigBones(this.p2Rig, p2Pose, 1.0, 0.92);
+      }
     }
 
     this.arenaHandle.update(dt);

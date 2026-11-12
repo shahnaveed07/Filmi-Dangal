@@ -272,7 +272,7 @@ test('4. Normal melee hitboxes/hurtboxes, Blocking, Guard-Breaking Grabs, and Kn
   assert.equal(blockedEvents[0].blocked, true, 'Standing block guards normal punch');
   assert.ok(blockedEvents[0].damage < p1.def.moves.punch.damage, 'Blocked punch only deals chip damage');
 
-  // Case D: Grab breaks standing guard and causes knockdown -> recovery -> idle
+  // Case D: Grab breaks standing guard, locks synchronized Dhobi Pachad throw, and causes knockdown -> recovery -> idle
   p1.resetForRound(0, 0, 0, true);
   p2.resetForRound(0.85, 0, 0, true);
   p2.isBlocking = true;
@@ -281,20 +281,31 @@ test('4. Normal melee hitboxes/hurtboxes, Blocking, Guard-Breaking Grabs, and Kn
   for (let i = 0; i < p1.def.moves.grab.startupFrames; i++) {
     p1.stepPhysics();
   }
-  const grabEvents = combat.updateAndResolveCombat(p1, p2);
-  assert.equal(grabEvents.length, 1);
+  combat.updateAndResolveCombat(p1, p2);
+  assert.equal(p1.activeGrabTarget, p2, 'Grab breaks standing guard and locks opponent at startup (0.30s / frame 18)');
+  assert.equal(p2.state, 'grabbed', 'Opponent enters synchronized grabbed state');
+  assert.equal(p2.isBlocking, false, 'Grab breaks opponent guard');
+
+  let grabEvents: ReturnType<typeof combat.updateAndResolveCombat> = [];
+  for (let f = p1.def.moves.grab.startupFrames + 1; f <= 132; f++) {
+    p1.stepPhysics();
+    p2.stepPhysics();
+    const evts = combat.updateAndResolveCombat(p1, p2);
+    if (evts.length > 0) grabEvents = evts;
+  }
+  assert.equal(grabEvents.length, 1, 'Dhobi Pachad registers damage once at ground impact (frame 132 = 2.20s)');
   assert.equal(grabEvents[0].blocked, false, 'Grab is unblockable and breaks guard');
   assert.equal(grabEvents[0].isGrab, true);
-  assert.equal(p2.state, 'knockback', 'Grab launches opponent into knockback');
+  assert.equal(p2.state, 'knockdown', 'Slam impact places opponent into grounded knockdown');
 
-  let enteredKnockdown = false;
+  let enteredKnockdown = p2.state === 'knockdown';
   let enteredRecovery = false;
   for (let f = 0; f < 90; f++) {
     p2.stepPhysics();
     if (p2.state === 'knockdown') enteredKnockdown = true;
     if (p2.state === 'recovery') enteredRecovery = true;
   }
-  assert.equal(enteredKnockdown, true, 'Knockback transitions to knockdown on landing');
+  assert.equal(enteredKnockdown, true, 'Slam impact transitions opponent to knockdown on landing');
   assert.equal(enteredRecovery, true, 'Knockdown transitions to wakeup recovery');
   assert.equal(p2.state, 'idle', 'Recovery returns fighter to idle');
 });
@@ -3291,8 +3302,156 @@ test('28. Phase 2–12 Regression Suite: Browse-Only vs Match Character Select, 
   assert.equal(kickAttacker.state, 'idle', 'Action Sultan returns cleanly to idle after 36-frame (0.60s) front kick');
   assert.equal(kickAttacker.startAttack('kick', 'fighting'), true, 'Action Sultan can immediately perform another attack after kick completion');
 
+  // 10. Action Sultan 2.80s Dhobi Pachad (8-Frame Storyboard Grab & Throw, Synchronized Opponent Trajectory, Arm IK Contact & Combat Integration)
+  const grabApproach0 = animCtrl.computeTargetPose('action_sultan', 'grab', 0.0, 1.0, 0);
+  const grabLock30 = animCtrl.computeTargetPose('action_sultan', 'grab', 0.3, 1.0, 0);
+  const grabPull60 = animCtrl.computeTargetPose('action_sultan', 'grab', 0.6, 1.0, 0);
+  const grabTurn90 = animCtrl.computeTargetPose('action_sultan', 'grab', 0.9, 1.0, 0);
+  const grabLift120 = animCtrl.computeTargetPose('action_sultan', 'grab', 1.2, 1.0, 0);
+  const grabThrow160 = animCtrl.computeTargetPose('action_sultan', 'grab', 1.6, 1.0, 0);
+  const grabImpact220 = animCtrl.computeTargetPose('action_sultan', 'grab', 2.2, 1.0, 0);
+  const grabRecover280 = animCtrl.computeTargetPose('action_sultan', 'grab', 2.8, 1.0, 0);
+
+  // Frame 1 (0.00s) & Frame 8 (2.80s): Start and end in balanced fighting stance
+  assert.ok(Math.abs(grabApproach0.Hips.ry - grabRecover280.Hips.ry) < 1e-6, 'Frame 8 returns Hips.ry to balanced fighting stance');
+  assert.ok(Math.abs(grabApproach0.RightUpperArm.rx - grabRecover280.RightUpperArm.rx) < 1e-6, 'Frame 8 returns RightUpperArm.rx to fighting stance');
+  assert.ok(Math.abs(grabApproach0.LeftUpperLeg.rx - grabRecover280.LeftUpperLeg.rx) < 1e-6, 'Frame 8 returns LeftUpperLeg.rx to fighting stance');
+
+  // Frame 2 (0.30s Grab): Both arms reach forward to establish upper-torso/shoulder and waist grip
+  assert.ok(grabLock30.RightUpperArm.rx < -1.0, 'Frame 2 extends right arm to control opponent upper torso/shoulder');
+  assert.ok(grabLock30.LeftUpperArm.rx < -0.8, 'Frame 2 extends left arm to establish stable waist/upper-body grip');
+  assert.ok(grabLock30.RightHand.fistCurl! >= 0.85 && grabLock30.LeftHand.fistCurl! >= 0.85, 'Frame 2 locks both hands in a firm grip');
+
+  // Frame 3 (0.60s Pull & Break Balance): Sultan pulls opponent in, shifting weight back
+  assert.ok((grabPull60.Hips.px ?? 0) < (grabLock30.Hips.px ?? 0), 'Frame 3 pulls back to break opponent balance');
+  assert.ok(grabPull60.RightLowerArm.rx < grabLock30.RightLowerArm.rx, 'Frame 3 flexes elbows to pull opponent inward');
+
+  // Frame 4 (0.90s Turning & Positioning): Sultan pivots hips and lowers stance to load opponent across hip/shoulder
+  assert.ok(grabTurn90.Hips.ry < -0.5, 'Frame 4 pivots hips into throwing rotation');
+  assert.ok((grabTurn90.Hips.py ?? 0) < (grabApproach0.Hips.py ?? 0) - 0.08, 'Frame 4 bends knees deep to load opponent across hip/shoulder');
+  assert.ok(grabTurn90.LeftLowerLeg.rx > 0.5 && grabTurn90.RightLowerLeg.rx > 0.5, 'Frame 4 bends both knees to support the lift');
+
+  // Frame 5 (1.20s Lift) -> Frame 6 (1.60s Throw) -> Frame 7 (2.20s Slam Impact):
+  assert.ok((grabLift120.Hips.py ?? 0) > (grabTurn90.Hips.py ?? 0), 'Frame 5 drives upward with legs and hips to lift opponent');
+  assert.ok(grabThrow160.Hips.ry < -0.9, 'Frame 6 whips hips and torso through throwing arc');
+  assert.ok(grabImpact220.Spine.rx > 0.2 && grabImpact220.Chest.rx > 0.25, 'Frame 7 follows through downward as opponent hits the floor');
+
+  // Verify Synchronized Opponent Reaction Pose ('grabbed') across all 8 storyboard frames
+  const oppGrab30 = animCtrl.computeTargetPose('romance_raja', 'grabbed', 0.3, 1.0, 0);
+  const oppPull60 = animCtrl.computeTargetPose('romance_raja', 'grabbed', 0.6, 1.0, 0);
+  const oppLift120 = animCtrl.computeTargetPose('romance_raja', 'grabbed', 1.2, 1.0, 0);
+  const oppThrow160 = animCtrl.computeTargetPose('romance_raja', 'grabbed', 1.6, 1.0, 0);
+  const oppImpact220 = animCtrl.computeTargetPose('romance_raja', 'grabbed', 2.2, 1.0, 0);
+
+  assert.ok(oppPull60.Spine.rx > oppGrab30.Spine.rx && oppPull60.Chest.rx > oppGrab30.Chest.rx, 'Opponent bends forward naturally at Frame 3 (0.60s) when balance is broken');
+  assert.ok(oppLift120.Hips.rx > 1.0 && oppLift120.Hips.rz < -0.4, 'Opponent rotates across Sultan hip/shoulder during Frame 5 lift (1.20s)');
+  assert.ok(oppThrow160.Hips.rx < -1.0, 'Opponent rotates airborne through the throw at Frame 6 (1.60s)');
+  assert.ok(oppImpact220.Hips.rx < -1.3, 'Opponent lands flat on back/shoulders at Frame 7 (2.20s)');
+
+  // Verify Analytical 2-Bone Arm Contact IK adjusts Sultan's arms to lock onto opponent torso/waist during grab & lift
+  const ikTestPose = animCtrl.computeTargetPose('action_sultan', 'grab', 0.6, 1.0, 0);
+  const rUpperBefore = ikTestPose.RightUpperArm.rx;
+  animCtrl.applyDhobiPachadContactIK(ikTestPose, oppPull60, 0.6, 0.38, 0.0);
+  assert.ok(Number.isFinite(ikTestPose.RightUpperArm.rx) && Number.isFinite(ikTestPose.LeftUpperArm.rx), 'Contact IK produces finite joint angles');
+  assert.notEqual(ikTestPose.RightUpperArm.rx, rUpperBefore, 'Contact IK actively aligns Sultan arm joints to opponent contact sockets');
+
+  // Verify Full 168-Frame (2.80s) Combat Simulation: Grab Lock (Frame 18), Lift (Frame 72), Throw (Frame 96), Single-Hit Slam (Frame 132), Recovery (Frame 168)
+  const grabSpec = FighterAnimationEvents.getMoveSpec('action_sultan', 'grab');
+  assert.equal(grabSpec.totalFrames, 168, 'Dhobi Pachad totalFrames is 168 (2.80s at 60 FPS)');
+  assert.equal(grabSpec.grabLockFrame, 18);
+  assert.equal(grabSpec.grabLiftFrame, 72);
+  assert.equal(grabSpec.grabThrowReleaseFrame, 96);
+  assert.equal(grabSpec.grabSlamImpactFrame, 132);
+
+  const dhobiAttacker = new Fighter3D(0, CHARACTERS.action_sultan, 0, 0, 0);
+  const dhobiDefender = new Fighter3D(1, CHARACTERS.romance_raja, 0.9, 0, 0);
+  const dhobiCombat = new CombatSystem3D();
+  const initialDefenderHP = dhobiDefender.health;
+
+  const dhobiEventsFired: string[] = [];
+  dhobiAttacker.animEvents.onEvent((evt) => {
+    if (evt.state === 'grab') {
+      dhobiEventsFired.push(`${evt.frame}:${evt.type}`);
+    }
+  });
+
+  assert.equal(dhobiAttacker.startAttack('grab', 'fighting'), true);
+  let slamHitEvents = 0;
+  let slamImpactFrame = -1;
+  let defenderAirborneAtLift = false;
+  let maxDefenderAirborneY = 0;
+
+  for (let f = 1; f <= 168; f++) {
+    dhobiAttacker.stepPhysics();
+    dhobiDefender.stepPhysics();
+    const hits = dhobiCombat.updateAndResolveCombat(dhobiAttacker, dhobiDefender, 1 / 60, 'fighting');
+
+    if (f === 20) {
+      assert.equal(dhobiAttacker.activeGrabTarget, dhobiDefender, 'Sultan locks opponent in grab at 0.30s');
+      assert.equal(dhobiDefender.state, 'grabbed', 'Opponent is locked in grabbed state');
+      assert.equal(dhobiDefender.canAct(), false, 'Grabbed opponent cannot act independently');
+      assert.equal(dhobiDefender.startAttack('punch', 'fighting'), false, 'Grabbed opponent cannot trigger attacks during throw');
+    }
+    if (f === 72) {
+      defenderAirborneAtLift = !dhobiDefender.isGrounded && dhobiDefender.position.y > 0.55;
+    }
+    if (dhobiDefender.position.y > maxDefenderAirborneY) {
+      maxDefenderAirborneY = dhobiDefender.position.y;
+    }
+    if (hits.length > 0) {
+      slamHitEvents += hits.length;
+      slamImpactFrame = f;
+    }
+  }
+
+  assert.equal(defenderAirborneAtLift, true, 'Opponent feet leave the ground during Frame 5 Lift (1.20s / Frame 72)');
+  assert.ok(maxDefenderAirborneY > 0.65, `Opponent reaches airborne throw arc height > 0.65m (max=${maxDefenderAirborneY})`);
+  assert.equal(slamHitEvents, 1, 'Dhobi Pachad registers damage exactly once during the entire 2.80s throw');
+  assert.equal(slamImpactFrame, 132, 'Single-hit slam damage is registered at Frame 132 (2.20s Ground Impact)');
+  assert.ok(dhobiDefender.health < initialDefenderHP, 'Opponent takes Dhobi Pachad slam damage at 2.20s');
+  assert.equal(dhobiAttacker.state, 'idle', 'Action Sultan returns cleanly to balanced idle stance at Frame 168 (2.80s)');
+  assert.equal(dhobiAttacker.activeGrabTarget, null, 'Grab constraint is released after throw');
+  assert.equal(dhobiDefender.grabbedBy, null, 'Opponent grabbedBy reference is cleared');
+  assert.ok(
+    dhobiEventsFired.includes('18:ON_GRAB_LOCK') &&
+      dhobiEventsFired.includes('72:ON_GRAB_LIFT') &&
+      dhobiEventsFired.includes('96:ON_GRAB_THROW_RELEASE') &&
+      dhobiEventsFired.includes('132:ON_GRAB_SLAM_IMPACT'),
+    `Dhobi Pachad emits all 4 storyboard phase events (${dhobiEventsFired.join(', ')})`
+  );
+
+  // Verify Out-of-Range Grab Whiff Recovery (recovers cleanly at Frame 36 = 0.60s without locking opponent)
+  const whiffAttacker = new Fighter3D(0, CHARACTERS.action_sultan, -3.0, 0, 0);
+  const farDefender = new Fighter3D(1, CHARACTERS.romance_raja, 3.0, 0, 0);
+  assert.equal(whiffAttacker.startAttack('grab', 'fighting'), true);
+  for (let f = 1; f <= 36; f++) {
+    whiffAttacker.stepPhysics();
+    farDefender.stepPhysics();
+    dhobiCombat.updateAndResolveCombat(whiffAttacker, farDefender, 1 / 60, 'fighting');
+  }
+  assert.equal(whiffAttacker.activeGrabTarget, null, 'Out-of-range grab does not lock distant opponent');
+  assert.equal(whiffAttacker.state, 'idle', 'Whiffed grab recovers cleanly to idle at Frame 36 (0.60s)');
+  assert.equal(farDefender.state, 'idle', 'Distant opponent remains unaffected');
+
+  // Verify Interruption / Cancellation Cleanly Releases Both Fighters
+  const cancelAttacker = new Fighter3D(0, CHARACTERS.action_sultan, 0, 0, 0);
+  const cancelDefender = new Fighter3D(1, CHARACTERS.romance_raja, 0.85, 0, 0);
+  cancelAttacker.startAttack('grab', 'fighting');
+  for (let f = 1; f <= 60; f++) {
+    cancelAttacker.stepPhysics();
+    cancelDefender.stepPhysics();
+    dhobiCombat.updateAndResolveCombat(cancelAttacker, cancelDefender, 1 / 60, 'fighting');
+  }
+  assert.equal(cancelDefender.state, 'grabbed');
+  cancelAttacker.releaseGrabConstraint(true);
+  assert.equal(cancelAttacker.activeGrabTarget, null);
+  assert.equal(cancelDefender.grabbedBy, null);
+  assert.equal(cancelDefender.state, 'idle', 'Interrupted grab cleanly restores opponent to grounded idle state');
+  assert.equal(cancelDefender.position.y, 0, 'Interrupted grab restores opponent to floor Y = 0');
+
   bridge.returnToMenu();
 });
+
 
 
 

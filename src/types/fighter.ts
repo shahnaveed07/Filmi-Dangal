@@ -49,6 +49,7 @@ export type FighterStateName =
   | 'forward_punch'
   | 'forward_kick'
   | 'grab'
+  | 'grabbed'
   | 'super_shot'
   | 'super_move'
   | 'super'

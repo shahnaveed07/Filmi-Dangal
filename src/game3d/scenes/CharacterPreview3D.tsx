@@ -29,6 +29,7 @@ const PREVIEW_STATES: Array<{
   { state: 'walk', label: 'Walk', accent: 'gold' },
   { state: 'punch', label: 'Punch', accent: 'gold' },
   { state: 'kick', label: 'Kick', accent: 'gold' },
+  { state: 'grab', label: 'Grab', accent: 'gold' },
   { state: 'super_shot', label: 'SuperShot', accent: 'cyan' },
   { state: 'super_move', label: 'SuperMove', accent: 'crimson' },
 ];

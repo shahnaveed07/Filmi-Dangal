@@ -94,6 +94,43 @@ export class VFXManager3D {
   }
 
   /**
+   * Spawns a ground-impact dust ring & debris puff when a takedown slam (Dhobi Pachad) hits the floor.
+   */
+  public spawnGrabSlamDustVFX(pos: Vector3D): void {
+    const group = new TransformNode('grabSlamDustGroup', this.scene);
+    group.parent = this.rootNode;
+    group.position.set(pos.x, 0.04, pos.z);
+
+    const dustMat = this.createUnlitMat('grabSlamDustMat', '#D6A447', 0.86);
+    const smokeMat = this.createUnlitMat('grabSlamSmokeMat', '#94A3B8', 0.68);
+
+    const outerDustRing = MeshBuilder.CreateTorus(
+      'grabSlamDustRing',
+      { diameter: 0.92, thickness: 0.09, tessellation: 24 },
+      this.scene
+    );
+    outerDustRing.parent = group;
+    outerDustRing.material = dustMat;
+
+    const innerSmokeRing = MeshBuilder.CreateTorus(
+      'grabSlamSmokeRing',
+      { diameter: 0.58, thickness: 0.12, tessellation: 20 },
+      this.scene
+    );
+    innerSmokeRing.position.y = 0.03;
+    innerSmokeRing.parent = group;
+    innerSmokeRing.material = smokeMat;
+
+    this.bursts.push({
+      node: group,
+      materials: [dustMat, smokeMat],
+      age: 0,
+      maxAge: 0.45,
+      expandRate: 4.8,
+    });
+  }
+
+  /**
    * Spawns character-specific SuperShot CHARGE visual effects at `ON_CHARGE_START`.
    */
   public spawnSuperShotChargeVFX(

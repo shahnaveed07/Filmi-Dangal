@@ -89,6 +89,14 @@ export class Fighter3D {
   public pendingProjectileSpawn = false;
   public pendingSpecialImpact = false;
 
+  // Synchronized two-character Grab & Throw (Dhobi Pachad) constraint state
+  public activeGrabTarget: Fighter3D | null = null;
+  public grabbedBy: Fighter3D | null = null;
+  public grabActivationId: string | null = null;
+  public grabDamageResolved = false;
+  public grabAnchorX = 0;
+  public grabWhiffed = false;
+
   public hitstunFrames = 0;
   public blockstunFrames = 0;
   public knockdownFrames = 0;
@@ -266,6 +274,12 @@ export class Fighter3D {
     this.specialDamageResolvedForActivation = false;
     this.pendingProjectileSpawn = false;
     this.pendingSpecialImpact = false;
+    this.activeGrabTarget = null;
+    this.grabbedBy = null;
+    this.grabActivationId = null;
+    this.grabDamageResolved = false;
+    this.grabAnchorX = startX3D;
+    this.grabWhiffed = false;
     this.hitstunFrames = 0;
     this.blockstunFrames = 0;
     this.knockdownFrames = 0;
@@ -278,6 +292,40 @@ export class Fighter3D {
     this.comboCount = 0;
     this.comboDamage = 0;
     this.comboTimerFrames = 0;
+  }
+
+  /**
+   * Releases any active two-character grab constraint on this fighter and their partner,
+   * restoring valid combat states if interrupted or cancelled.
+   */
+  public releaseGrabConstraint(restoreIdleIfGrabbed = true): void {
+    const target = this.activeGrabTarget;
+    const captor = this.grabbedBy;
+    this.activeGrabTarget = null;
+    this.grabbedBy = null;
+
+    if (target) {
+      target.grabbedBy = null;
+      if (restoreIdleIfGrabbed && target.state === 'grabbed') {
+        target.position.y = 0;
+        target.velocity.x = 0;
+        target.velocity.y = 0;
+        target.isGrounded = true;
+        target.state = target.health <= 0 ? 'defeat' : 'idle';
+        target.stateFrame = 0;
+      }
+    }
+    if (captor) {
+      captor.activeGrabTarget = null;
+    }
+    if (restoreIdleIfGrabbed && this.state === 'grabbed') {
+      this._position.y = 0;
+      this._velocity.x = 0;
+      this._velocity.y = 0;
+      this.isGrounded = true;
+      this.state = this.health <= 0 ? 'defeat' : 'idle';
+      this.stateFrame = 0;
+    }
   }
 
   public isEligibleTarget(): boolean {
@@ -328,7 +376,14 @@ export class Fighter3D {
   }
 
   public updateFacing(opponent: Fighter3D): void {
-    if (this.isAttacking() || this.state === 'knockdown' || this.state === 'defeat') {
+    if (
+      this.isAttacking() ||
+      this.state === 'grabbed' ||
+      this.grabbedBy !== null ||
+      this.activeGrabTarget !== null ||
+      this.state === 'knockdown' ||
+      this.state === 'defeat'
+    ) {
       return;
     }
     if (Math.abs(opponent.position.x - this._position.x) > 0.05) {
@@ -348,6 +403,9 @@ export class Fighter3D {
     this.updateFacing(opponent);
 
     if (
+      this.state === 'grabbed' ||
+      this.grabbedBy !== null ||
+      this.activeGrabTarget !== null ||
       this.state === 'hurt' ||
       this.state === 'knockback' ||
       this.state === 'knockdown' ||
@@ -499,7 +557,13 @@ export class Fighter3D {
     type: AttackType,
     matchPhase: MatchPhase = 'fighting'
   ): boolean {
-    if (matchPhase !== 'fighting' || !this.isEligibleTarget()) {
+    if (
+      matchPhase !== 'fighting' ||
+      !this.isEligibleTarget() ||
+      this.state === 'grabbed' ||
+      this.grabbedBy !== null ||
+      this.activeGrabTarget !== null
+    ) {
       return false;
     }
 
@@ -532,6 +596,18 @@ export class Fighter3D {
     this.pendingSpecialImpact = false;
     this.isBlocking = false;
 
+    if (resolvedType === 'grab') {
+      Fighter3D.activationSequence += 1;
+      this.grabActivationId = `${this.id}_grab_act_${Fighter3D.activationSequence}`;
+      this.grabDamageResolved = false;
+      this.grabAnchorX = this._position.x;
+      this.grabWhiffed = false;
+    } else {
+      this.grabActivationId = null;
+      this.grabDamageResolved = false;
+      this.grabWhiffed = false;
+    }
+
     if (resolvedType === 'super_move' || resolvedType === 'super_shot') {
       Fighter3D.activationSequence += 1;
       this.currentSpecialActivationId = `${this.id}_${resolvedType}_act_${Fighter3D.activationSequence}`;
@@ -557,7 +633,7 @@ export class Fighter3D {
     } else if (resolvedType === 'forward_punch' || resolvedType === 'forward_kick') {
       this._velocity.x = this.facing * 3.8;
     } else if (resolvedType === 'grab') {
-      this._velocity.x = this.facing * 2.2;
+      this._velocity.x = this.facing * (this.id === 'action_sultan' ? 1.6 : 2.2);
     } else if (this.isGrounded) {
       this._velocity.x *= 0.35;
     }
@@ -588,6 +664,16 @@ export class Fighter3D {
       this.superShotCooldownFrames -= 1;
     }
 
+    if (this.state === 'grabbed') {
+      if (!this.grabbedBy || !this.grabbedBy.isEligibleTarget() || this.grabbedBy.state !== 'grab') {
+        this.releaseGrabConstraint(true);
+      } else {
+        // While locked in a synchronized grab/throw, position & airborne arc are driven by CombatSystem3D
+        this._position.x = Math.max(bounds.minX, Math.min(bounds.maxX, this._position.x));
+        return;
+      }
+    }
+
     if (this.state === 'hurt' || this.state === 'knockback') {
       this.hitstunFrames -= 1;
       if (this.hitstunFrames <= 0 && this.isGrounded) {
@@ -613,14 +699,23 @@ export class Fighter3D {
         this.hitstunFrames = 0;
       }
     } else if (this.isAttacking() && this.currentMove) {
-      const totalMoveFrames =
-        this.currentMove.startupFrames +
-        this.currentMove.activeFrames +
-        this.currentMove.recoveryFrames;
+      // If Action Sultan's Dhobi Pachad grab whiffed (out of range or invalid target), recover cleanly at 0.60s (Frame 36)
+      const isWhiffedSultanGrab =
+        this.id === 'action_sultan' &&
+        this.state === 'grab' &&
+        this.grabWhiffed &&
+        !this.activeGrabTarget;
+      const totalMoveFrames = isWhiffedSultanGrab
+        ? 36
+        : this.currentMove.startupFrames +
+          this.currentMove.activeFrames +
+          this.currentMove.recoveryFrames;
       if (this.stateFrame >= totalMoveFrames) {
+        this.releaseGrabConstraint(false);
         this.currentMove = null;
         this.currentMoveType = null;
         this.moveHasHit = false;
+        this.grabWhiffed = false;
         this.pendingProjectileSpawn = false;
         this.pendingSpecialImpact = false;
         this.state = this.isGrounded ? (this.isCrouching ? 'crouch' : 'idle') : 'jump';
@@ -775,7 +870,8 @@ export class Fighter3D {
       this.currentMove.isProjectile ||
       this.currentMoveType === 'super_shot' ||
       this.currentMoveType === 'super_move' ||
-      this.currentMoveType === 'super'
+      this.currentMoveType === 'super' ||
+      (this.id === 'action_sultan' && this.currentMoveType === 'grab')
     ) {
       return null;
     }
