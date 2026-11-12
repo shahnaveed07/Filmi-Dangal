@@ -401,9 +401,19 @@ function createCoreClipMappings(
 /**
  * Section 9: Production GLB Asset Contract for Final 3D Character Replacement.
  *
- * All four characters currently ship with `isTemporaryPlaceholder: true` and `PLACEHOLDER` status.
+ * Current Roster Asset Status:
+ * - `action_sultan` (Action Sultan): Production Skinned GLB (`isTemporaryPlaceholder: false`, `PRODUCTION_SKINNED`).
+ * - `romance_raja`  (Romance Raja) : Temporary Placeholder (`isTemporaryPlaceholder: true`, `TEMPORARY_PLACEHOLDER`).
+ * - `duggu`         (Duggu)        : Temporary Placeholder (`isTemporaryPlaceholder: true`, `TEMPORARY_PLACEHOLDER`).
+ * - `bhidu`         (Bhidu)        : Temporary Placeholder (`isTemporaryPlaceholder: true`, `TEMPORARY_PLACEHOLDER`).
+ *
+ * Important: Replacing a `.glb` file on disk alone does NOT activate a production model while
+ * `isTemporaryPlaceholder: true` is set in `CHARACTER_ASSET_MANIFEST`. Conversely, setting
+ * `isTemporaryPlaceholder: false` without providing a valid skinned production `.glb` will fail
+ * production eligibility checks and safely fall back to the procedural rig.
+ *
  * To replace a temporary character with a final production 3D model, drop a compliant `.glb` file
- * into `modelPath` and set `isTemporaryPlaceholder: false` in `CHARACTER_ASSET_MANIFEST`:
+ * into `modelPath`, validate it, and set `isTemporaryPlaceholder: false` in `CHARACTER_ASSET_MANIFEST`:
  *
  * 1. Exact File Path:
  *    - Action Sultan : `public/assets/characters/action-sultan/model.glb`
@@ -414,11 +424,11 @@ function createCoreClipMappings(
  * 3. Hierarchy: Single clean character root or valid multi-root hierarchy where every imported node attaches cleanly under `modelTransformNode`.
  * 4. Skinning: At least one glTF `skin` with valid `joints`, mesh-node skin binding, and primitives containing valid `POSITION`, `JOINTS_0`, and normalized non-zero `WEIGHTS_0`.
  * 5. Humanoid Bones: All 20 canonical humanoid bones (`Root`, `Hips`, `Spine`, `Chest`, `Neck`, `Head`, `LeftShoulder`, `LeftUpperArm`, `LeftForeArm`, `LeftHand`, `RightShoulder`, `RightUpperArm`, `RightForeArm`, `RightHand`, `LeftUpLeg`, `LeftLeg`, `LeftFoot`, `RightUpLeg`, `RightLeg`, `RightFoot`) or supported Mixamo/Rigify/Biped aliases in `DEFAULT_HUMANOID_BONE_ALIASES`.
- * 6. Ground Origin: Root/feet positioned at local ground origin `(0, 0, 0)`.
+ * 6. Ground Origin: Root/feet positioned at local ground origin `(0, 0, 0)` (or calibrated via `calibrateImportedModelTransform`).
  * 7. Scale & Bounds: Consistent meter-scale humanoid proportions (width `0.15m–4.0m`, height `0.5m–4.5m`, depth `0.08m–4.0m`).
  * 8. Forward Axis: Consistent `+Z` local forward axis (rotated onto the 2D `XY` fighting plane via `facingRotationY`).
  * 9. Materials: Valid glTF PBR materials (`pbrMetallicRoughness`) and embedded textures.
- * 10. Animations & Fallback: Embedded `AnimationGroup` clips matching `ALL_STANDARD_ANIMATION_CLIP_IDS` plus character-specific SuperShot/SuperMove clips; any omitted clips automatically fall back to procedural bone poses without crashing or freezing.
+ * 10. Animations & Fallback: Embedded `AnimationGroup` clips matching `ALL_STANDARD_ANIMATION_CLIP_IDS` plus character-specific SuperShot/SuperMove clips; any omitted or static clips (such as Action Sultan's `mixamo_com` bind pose) automatically fall back to procedural bone poses without crashing or freezing.
  */
 export const PRODUCTION_GLB_ASSET_CONTRACT = {
   format: 'glTF 2.0 Binary (.glb)',
@@ -721,8 +731,29 @@ export const CHARACTER_ASSET_MANIFEST: Record<FighterId, CharacterAssetConfig> =
   },
 };
 
+export const ALL_FIGHTER_IDS: readonly FighterId[] = [
+  'action_sultan',
+  'romance_raja',
+  'duggu',
+  'bhidu',
+] as const;
+
+export function isValidFighterId(id: unknown): id is FighterId {
+  return (
+    typeof id === 'string' &&
+    (id === 'action_sultan' ||
+      id === 'romance_raja' ||
+      id === 'duggu' ||
+      id === 'bhidu')
+  );
+}
+
 export function getCharacterAssetConfig(characterId: FighterId): CharacterAssetConfig {
-  return CHARACTER_ASSET_MANIFEST[characterId] || CHARACTER_ASSET_MANIFEST.action_sultan;
+  if (isValidFighterId(characterId)) {
+    return CHARACTER_ASSET_MANIFEST[characterId];
+  }
+  const normalized = normalizeFighterId(String(characterId));
+  return CHARACTER_ASSET_MANIFEST[normalized];
 }
 
 /**

@@ -203,21 +203,57 @@ export function validateGLBBuffer(
   };
 }
 
+export interface CharacterRigLoadOptions {
+  modelPathOverride?: string;
+  isTemporaryPlaceholderOverride?: boolean;
+}
+
+/**
+ * Synchronously or asynchronously builds a safe, character-specific procedural fallback rig
+ * (`renderState: 'LOAD_FAILED'`) for `charDef` when GLB loading encounters an unrecoverable error.
+ * Preserves `charDef.id` and never substitutes another fighter (such as `action_sultan`).
+ */
+export async function buildFallbackCharacterRig3D(
+  scene: Scene,
+  charDef: CharacterDef,
+  instancePrefix: string,
+  shadowGenerator?: ShadowGenerator | null,
+  failureReason?: unknown
+): Promise<CharacterRig3D> {
+  const errText =
+    failureReason instanceof Error
+      ? failureReason.message
+      : failureReason
+      ? String(failureReason)
+      : 'Forced fallback rig creation';
+  const rig = await loadCharacterRig3D(scene, charDef, instancePrefix, shadowGenerator, {
+    modelPathOverride: `/assets/characters/__missing_fallback_${charDef.id}__/model.glb`,
+  });
+  if (rig.diagnostics && !rig.diagnostics.errors.includes(errText)) {
+    rig.diagnostics.errors.push(errText);
+  }
+  return rig;
+}
+
 /**
  * Loads a character rig via `CharacterAssetLoader` using the centralized manifest
  * (`src/config/characterAssets.ts`).
+ * If an unexpected exception occurs, falls back to the requested character's own
+ * procedural rig (`LOAD_FAILED`) while preserving `characterId === charDef.id`.
  */
 export async function loadCharacterRig3D(
   scene: Scene,
   charDef: CharacterDef,
   instancePrefix: string,
-  shadowGenerator?: ShadowGenerator | null
+  shadowGenerator?: ShadowGenerator | null,
+  options?: CharacterRigLoadOptions
 ): Promise<CharacterRig3D> {
   const loaded = await CharacterAssetLoader.loadCharacterFromManifest(
     scene,
     charDef,
     instancePrefix,
-    shadowGenerator
+    shadowGenerator,
+    options
   );
 
   let currentRenderMode: 'stylized' | 'graybox' = 'stylized';
@@ -276,3 +312,4 @@ export async function loadCharacterRig3D(
     dispose: loaded.dispose,
   };
 }
+

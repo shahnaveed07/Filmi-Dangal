@@ -1,92 +1,99 @@
 {
   "characterId": "romance_raja",
-  "characterName": "ROMANCE RAJA",
-  "inspiration": "Shah Rukh Khan-inspired (Configurable Parody Persona)",
-  "isPlaceholder": true,
-  "productionStatus": "PLACEHOLDER",
+  "slug": "romance-raja",
+  "displayName": "Romance Raja",
+  "realLifeInspiration": "Shah Rukh Khan",
+  "modelPath": "/assets/characters/romance-raja/model.glb",
   "format": "glTF 2.0 Binary (.glb)",
-  "modelFile": "/assets/characters/romance-raja/model.glb",
-  "groundOrigin": [
-    0,
-    0,
-    0
-  ],
-  "forwardOrientation": "+Z",
-  "skeletonStandard": "FilmiDangal_SharedHumanoid_26",
-  "bones": [
-    "Root",
-    "Hips",
-    "Spine",
-    "Chest",
-    "Neck",
-    "Head",
-    "Hair",
-    "Jaw",
-    "LeftBrow",
-    "RightBrow",
-    "LeftEyelid",
-    "RightEyelid",
-    "LeftShoulder",
-    "LeftUpperArm",
-    "LeftForeArm",
-    "LeftHand",
-    "RightShoulder",
-    "RightUpperArm",
-    "RightForeArm",
-    "RightHand",
-    "LeftUpLeg",
-    "LeftLeg",
-    "LeftFoot",
-    "RightUpLeg",
-    "RightLeg",
-    "RightFoot"
-  ],
-  "facialRigNodes": [
-    "Jaw",
-    "LeftBrow",
-    "RightBrow",
-    "LeftEyelid",
-    "RightEyelid"
-  ],
-  "lodLevels": [
-    "LOD0_High",
-    "LOD1_Medium",
-    "LOD2_Low"
-  ],
-  "materials": [
-    "romance_raja_Pants_PBR",
-    "romance_raja_Costume_Primary_PBR",
-    "romance_raja_Skin_Subsurface_PBR",
-    "romance_raja_Hair_And_Boots_PBR",
-    "romance_raja_Signature_Accessory_PBR"
-  ],
-  "specialAttacks": {
-    "superShot": {
-      "name": "ICONIC OPEN-ARMS POSE",
-      "animationClip": "Anim_RR_SuperShot_OpenArmsPose"
-    },
-    "superMove": {
-      "name": "MONARCH'S GRAND GESTURE",
-      "animationClip": "Anim_RR_SuperMove_BaadshahGrandGesture"
+  "version": "3.0.0",
+  "assetStatus": "TEMPORARY_PLACEHOLDER",
+  "renderState": "TEMPORARY_PLACEHOLDER",
+  "isPlaceholder": true,
+  "isTemporaryPlaceholder": true,
+  "productionReady": false,
+  "productionRigValid": false,
+  "skinningValid": false,
+  "animationValid": false,
+  "note": "Temporary placeholder GLB containing unskinned box proxy geometry (0 glTF skins, 0 vertex skin weights). At runtime, CharacterAssetLoader disposes the proxy meshes and constructs an articulated 20-bone + 5-facial-bone procedural humanoid rig (Path A) until a validated production skinned GLB is installed and isTemporaryPlaceholder is set to false in src/config/characterAssets.ts.",
+  "scale": 1.0,
+  "groundOffset": 0.0,
+  "forwardAxis": "+Z",
+  "skeleton": {
+    "skinName": null,
+    "jointCount": 0,
+    "canonicalHumanoidBonesResolved": 20,
+    "boneAliases": {
+      "Root": ["Root", "Armature", "Hips_Root"],
+      "Hips": ["Hips", "mixamorig:Hips", "pelvis"],
+      "Spine": ["Spine", "mixamorig:Spine", "spine_01"],
+      "Chest": ["Chest", "UpperChest", "mixamorig:Spine2", "mixamorig:Spine1"],
+      "Neck": ["Neck", "mixamorig:Neck", "neck_01"],
+      "Head": ["Head", "mixamorig:Head", "head"],
+      "LeftShoulder": ["LeftShoulder", "mixamorig:LeftShoulder", "clavicle_l"],
+      "LeftUpperArm": ["LeftUpperArm", "LeftArm", "mixamorig:LeftArm", "upperarm_l"],
+      "LeftForeArm": ["LeftForeArm", "LeftLowerArm", "mixamorig:LeftForeArm", "lowerarm_l"],
+      "LeftHand": ["LeftHand", "mixamorig:LeftHand", "hand_l"],
+      "RightShoulder": ["RightShoulder", "mixamorig:RightShoulder", "clavicle_r"],
+      "RightUpperArm": ["RightUpperArm", "RightArm", "mixamorig:RightArm", "upperarm_r"],
+      "RightForeArm": ["RightForeArm", "RightLowerArm", "mixamorig:RightForeArm", "lowerarm_r"],
+      "RightHand": ["RightHand", "mixamorig:RightHand", "hand_r"],
+      "LeftUpLeg": ["LeftUpLeg", "LeftUpperLeg", "mixamorig:LeftUpLeg", "thigh_l"],
+      "LeftLeg": ["LeftLeg", "LeftLowerLeg", "mixamorig:LeftLeg", "calf_l"],
+      "LeftFoot": ["LeftFoot", "mixamorig:LeftFoot", "foot_l"],
+      "RightUpLeg": ["RightUpLeg", "RightUpperLeg", "mixamorig:RightUpLeg", "thigh_r"],
+      "RightLeg": ["RightLeg", "RightLowerLeg", "mixamorig:RightLeg", "calf_r"],
+      "RightFoot": ["RightFoot", "mixamorig:RightFoot", "foot_r"]
     }
   },
-  "documentedAnimations": [
-    "Idle",
-    "Walk",
-    "Run",
-    "Jump",
-    "Crouch",
-    "Block",
-    "Punch",
-    "Kick",
-    "Grab",
-    "HitReaction",
-    "Knockback",
-    "Knockdown",
-    "Recovery",
-    "Victory",
-    "Defeat",
-    "Anim_RR_SuperShot_OpenArmsPose",
-    "Anim_RR_SuperMove_BaadshahGrandGesture"
-  ]
+  "materials": [
+    { "name": "romance_raja_Skin_PBR", "baseColorHex": "#E2A77F", "metallic": 0.05, "roughness": 0.62 },
+    { "name": "romance_raja_OutfitPrimary_PBR", "baseColorHex": "#BE123C", "metallic": 0.2, "roughness": 0.35 },
+    { "name": "romance_raja_OutfitAccent_PBR", "baseColorHex": "#FB7185", "metallic": 0.65, "roughness": 0.25 },
+    { "name": "romance_raja_Pants_PBR", "baseColorHex": "#0F172A", "metallic": 0.12, "roughness": 0.72 },
+    { "name": "romance_raja_Hair_PBR", "baseColorHex": "#18181B", "metallic": 0.15, "roughness": 0.48 }
+  ],
+  "animations": {
+    "embeddedAnimations": ["Idle", "Punch", "SuperMove"],
+    "embeddedAnimationNote": "Placeholder GLB contains 3 basic node-translation/rotation clips ('Idle', 'Punch', 'SuperMove') targeting unskinned box proxy nodes. At runtime, Path A disposes proxy nodes and drives all 15 combat and special states procedurally via CharacterAnimationController.",
+    "canPlayImportedAnimations": false,
+    "canUseProceduralBoneFallback": true,
+    "proceduralFallbackAnimations": [
+      "Idle",
+      "Walk",
+      "Run",
+      "Jump",
+      "Landing",
+      "Crouch",
+      "Block",
+      "Punch",
+      "Kick",
+      "HitReact",
+      "Knockout",
+      "Victory",
+      "Defeat",
+      "Anim_RR_SuperShot_OpenArmsWave",
+      "Anim_RR_SuperMove_MonarchGrandGesture"
+    ],
+    "specialAttackAnimations": {
+      "superShot": {
+        "title": "OPEN ARMS WAVE",
+        "clipName": "Anim_RR_SuperShot_OpenArmsWave",
+        "executionMode": "PROCEDURAL_BONE_FALLBACK",
+        "embeddedInGlb": false,
+        "chargeStartFrame": 6,
+        "projectileReleaseFrame": 14,
+        "specialImpactFrame": 22,
+        "animationCompleteFrame": 38
+      },
+      "superMove": {
+        "title": "PALATPULSE / MONARCH GRAND GESTURE",
+        "clipName": "Anim_RR_SuperMove_MonarchGrandGesture",
+        "executionMode": "PROCEDURAL_BONE_FALLBACK",
+        "embeddedInGlb": false,
+        "chargeStartFrame": 9,
+        "climaxImpactFrame": 24,
+        "animationCompleteFrame": 50
+      }
+    }
+  }
 }

@@ -54,9 +54,16 @@ import {
   GLBAnimationGroupController,
   REQUIRED_FACIAL_BONES,
   REQUIRED_HUMANOID_BONES,
+  buildFallbackCharacterRig3D,
   loadCharacterRig3D,
   validateGLBBuffer,
 } from '../../game3d/assets/AssetLoader3D';
+import {
+  ALL_FIGHTER_IDS,
+  applyFighterSelection,
+  resolveAuthoritativeCharacterMapping,
+  verifyAllAuthoritativeCharacterMappings,
+} from '../../game3d/characters/CharacterRoster3D';
 import {
   CharacterAssetValidator,
   CharacterAssetValidationReport,
@@ -2314,6 +2321,375 @@ test('21. Phase 9 Action Sultan Blender Model Grounding Calibration, Independent
   scene.dispose();
   engine.dispose();
 });
+
+test('22. Phase 6.1 — Player 1 & Player 2 Character Selection, Duplicate Replacement & Navigation Persistence', () => {
+  const bridge = GameBridge.getInstance();
+
+  // 1. Verify Player 1 can select all 4 characters without corrupting a non-conflicting P2
+  for (const p1Target of ALL_FIGHTER_IDS) {
+    const initialP2 = ALL_FIGHTER_IDS.find((id) => id !== p1Target)!;
+    const next = applyFighterSelection(
+      { p1Id: initialP2, p2Id: initialP2, selectingFor: 'p1' },
+      p1Target
+    );
+    assert.equal(next.p1Id, p1Target, `P1 should update to ${p1Target}`);
+    assert.equal(next.p2Id, initialP2, `P2 should remain ${initialP2}`);
+    assert.notEqual(next.p1Id, next.p2Id);
+  }
+
+  // 2. Verify Player 2 can select all 4 characters without corrupting a non-conflicting P1
+  for (const p2Target of ALL_FIGHTER_IDS) {
+    const initialP1 = ALL_FIGHTER_IDS.find((id) => id !== p2Target)!;
+    const next = applyFighterSelection(
+      { p1Id: initialP1, p2Id: initialP1, selectingFor: 'p2' },
+      p2Target
+    );
+    assert.equal(next.p2Id, p2Target, `P2 should update to ${p2Target}`);
+    assert.equal(next.p1Id, initialP1, `P1 should remain ${initialP1}`);
+    assert.notEqual(next.p1Id, next.p2Id);
+  }
+
+  // 3. Verify automatic duplicate selection replacement in both directions
+  // P1 = action_sultan, P2 = romance_raja -> P1 selects romance_raja => P1 becomes romance_raja, P2 swaps to action_sultan
+  const dupP1 = applyFighterSelection(
+    { p1Id: 'action_sultan', p2Id: 'romance_raja', selectingFor: 'p1' },
+    'romance_raja'
+  );
+  assert.equal(dupP1.p1Id, 'romance_raja');
+  assert.equal(dupP1.p2Id, 'action_sultan');
+
+  // P1 = duggu, P2 = bhidu -> P2 selects duggu => P2 becomes duggu, P1 swaps to bhidu
+  const dupP2 = applyFighterSelection(
+    { p1Id: 'duggu', p2Id: 'bhidu', selectingFor: 'p2' },
+    'duggu'
+  );
+  assert.equal(dupP2.p2Id, 'duggu');
+  assert.equal(dupP2.p1Id, 'bhidu');
+
+  // 4. Verify all 12 ordered (P1, P2) distinct combinations persist across arena selection and returning to character select
+  let combinationCount = 0;
+  for (const p1 of ALL_FIGHTER_IDS) {
+    for (const p2 of ALL_FIGHTER_IDS) {
+      if (p1 === p2) continue;
+      combinationCount++;
+      bridge.gameMode = 'vs_cpu';
+      bridge.setScreen('character_select');
+      bridge.p1CharacterId = p1;
+      bridge.p2CharacterId = p2;
+
+      // Proceed to arena select
+      bridge.setScreen('arena_select');
+      assert.equal(bridge.p1CharacterId, p1);
+      assert.equal(bridge.p2CharacterId, p2);
+
+      // Return to character select
+      bridge.setScreen('character_select');
+      assert.equal(bridge.p1CharacterId, p1);
+      assert.equal(bridge.p2CharacterId, p2);
+    }
+  }
+  assert.equal(combinationCount, 12, 'Must verify all 12 distinct (P1, P2) pairings');
+});
+
+test('23. Phase 6.2 — Authoritative Character Mapping, Manifest JSON Accuracy & Non-Sultan Fallback Identity', async () => {
+  // 1. Verify authoritative character mapping across all 4 fighters
+  const verification = verifyAllAuthoritativeCharacterMappings();
+  assert.equal(
+    verification.valid,
+    true,
+    `Authoritative character mapping failed: ${verification.errors.join('; ')}`
+  );
+
+  for (const id of ALL_FIGHTER_IDS) {
+    const mapping = resolveAuthoritativeCharacterMapping(id);
+    assert.equal(mapping.fighterId, id);
+    assert.equal(mapping.characterDef.id, id);
+    assert.equal(mapping.assetConfig.id, id);
+    assert.equal(mapping.modelPath, CHARACTER_ASSET_MANIFEST[id].modelPath);
+    assert.equal(
+      mapping.isTemporaryPlaceholder,
+      id !== 'action_sultan',
+      `Placeholder flag mismatch for ${id}`
+    );
+
+    // 2. Verify public/assets/characters/<slug>/manifest.json accuracy
+    const manifestPath = path.resolve(
+      process.cwd(),
+      'public',
+      'assets',
+      'characters',
+      mapping.assetConfig.slug,
+      'manifest.json'
+    );
+    assert.equal(fs.existsSync(manifestPath), true, `manifest.json must exist at ${manifestPath}`);
+    const manifestJson = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+    assert.equal(manifestJson.characterId, id);
+    assert.equal(manifestJson.displayName, mapping.characterDef.name);
+    assert.equal(manifestJson.modelPath, mapping.modelPath);
+    assert.equal(manifestJson.isTemporaryPlaceholder, id !== 'action_sultan');
+    assert.equal(manifestJson.isPlaceholder, id !== 'action_sultan');
+    assert.ok(manifestJson.skeleton?.boneAliases, `${id} manifest.json must document boneAliases`);
+    assert.ok(
+      Array.isArray(manifestJson.animations?.proceduralFallbackAnimations) &&
+        manifestJson.animations.proceduralFallbackAnimations.length >= 15,
+      `${id} manifest.json must list proceduralFallbackAnimations`
+    );
+    assert.ok(
+      manifestJson.animations?.specialAttackAnimations?.superShot &&
+        manifestJson.animations?.specialAttackAnimations?.superMove,
+      `${id} manifest.json must document specialAttackAnimations`
+    );
+
+    if (id === 'action_sultan') {
+      assert.deepEqual(
+        manifestJson.animations.embeddedAnimations,
+        ['mixamo_com'],
+        'action_sultan manifest.json must accurately state only mixamo_com is embedded in model.glb'
+      );
+      assert.equal(manifestJson.animations.canPlayImportedAnimations, false);
+      assert.equal(manifestJson.animations.canUseProceduralBoneFallback, true);
+    }
+  }
+
+  // 3. Verify that prematurely flipping isTemporaryPlaceholderOverride: false on a box-primitive placeholder GLB
+  // is caught and falls back to TEMPORARY_PLACEHOLDER (never misclassified as PRODUCTION_SKINNED or VISUAL_ONLY)
+  const engine = new NullEngine();
+  const scene = new Scene(engine);
+
+  for (const id of ['romance_raja', 'duggu', 'bhidu'] as const) {
+    const prematureRig = await loadCharacterRig3D(scene, CHARACTERS[id], `premature_${id}`, null, {
+      isTemporaryPlaceholderOverride: false,
+    });
+    assert.equal(prematureRig.characterId, id);
+    assert.equal(
+      prematureRig.renderState,
+      'TEMPORARY_PLACEHOLDER',
+      `Box placeholder GLB for ${id} must remain TEMPORARY_PLACEHOLDER even if isTemporaryPlaceholder is false`
+    );
+    assert.equal(prematureRig.isVisualOnly, false);
+    assert.equal(prematureRig.productionRigValid, false);
+    assert.ok(
+      prematureRig.diagnostics?.productionEligibilityReasons.some((r) =>
+        r.includes('generated box-primitive placeholder proxy')
+      ),
+      `Diagnostics for ${id} must explain why box proxy GLB was rejected for production`
+    );
+    prematureRig.dispose();
+  }
+
+  // 4. Verify that a failed GLB load for ANY fighter preserves that fighter's identity and NEVER substitutes action_sultan
+  for (const id of ALL_FIGHTER_IDS) {
+    const failedRig = await buildFallbackCharacterRig3D(
+      scene,
+      CHARACTERS[id],
+      `failed_${id}`,
+      null,
+      `Simulated network/disk error for ${id}`
+    );
+    assert.equal(
+      failedRig.characterId,
+      id,
+      `Fallback rig for ${id} must preserve characterId="${id}" (never substitute action_sultan)`
+    );
+    assert.equal(failedRig.renderState, 'LOAD_FAILED');
+    assert.equal(failedRig.glbLoaded, false);
+    assert.equal(failedRig.isPlaceholderAsset, true);
+    assert.ok(
+      failedRig.diagnostics?.errors.some((e) => e.includes(`Simulated network/disk error for ${id}`)),
+      `Fallback rig for ${id} must record the diagnostic error`
+    );
+    failedRig.dispose();
+  }
+
+  scene.dispose();
+  engine.dispose();
+});
+
+test('24. Phase 6.3 — Rapid 3D Preview Switching (action_sultan -> duggu -> bhidu -> romance_raja) & Zero Resource Leaks', async () => {
+  const previewScene = new CharacterPreviewScene(null, 'action_sultan');
+
+  // Fire rapid un-awaited switches followed by final selection 'romance_raja'
+  const p1 = previewScene.loadCharacterAsset('action_sultan');
+  const p2 = previewScene.loadCharacterAsset('duggu');
+  const p3 = previewScene.loadCharacterAsset('bhidu');
+  const p4 = previewScene.loadCharacterAsset('romance_raja');
+
+  const [r1, r2, r3, r4] = await Promise.all([p1, p2, p3, p4]);
+  assert.equal(r1, null, 'Superseded load 1 (action_sultan) must return null and dispose');
+  assert.equal(r2, null, 'Superseded load 2 (duggu) must return null and dispose');
+  assert.equal(r3, null, 'Superseded load 3 (bhidu) must return null and dispose');
+  assert.ok(r4 !== null, 'Final load 4 (romance_raja) must succeed');
+
+  const finalRig = previewScene.getCurrentRig();
+  assert.ok(finalRig !== null);
+  assert.equal(
+    finalRig!.characterId,
+    'romance_raja',
+    'Final preview rig must be romance_raja'
+  );
+  assert.equal(
+    finalRig!.diagnostics?.characterId,
+    'romance_raja',
+    'Final preview diagnostics must match romance_raja'
+  );
+
+  // Measure baseline scene mesh & material count with romance_raja loaded, then cycle through all 4 characters 3 times
+  const baselineMeshCount = previewScene.getScene().meshes.length;
+  const baselineMatCount = previewScene.getScene().materials.length;
+
+  for (let cycle = 0; cycle < 3; cycle++) {
+    for (const id of ['action_sultan', 'duggu', 'bhidu', 'romance_raja'] as const) {
+      const loaded = await previewScene.loadCharacterAsset(id);
+      assert.ok(loaded !== null);
+      assert.equal(loaded!.characterId, id);
+      assert.equal(previewScene.getCurrentRig()?.characterId, id);
+    }
+  }
+
+  // After ending back on romance_raja, mesh and material counts must match baseline (zero leaks!)
+  assert.equal(
+    previewScene.getScene().meshes.length,
+    baselineMeshCount,
+    `Preview scene mesh count must not grow after 12 character switches (expected ${baselineMeshCount}, got ${previewScene.getScene().meshes.length})`
+  );
+  assert.equal(
+    previewScene.getScene().materials.length,
+    baselineMatCount,
+    `Preview scene material count must not grow after 12 character switches (expected ${baselineMatCount}, got ${previewScene.getScene().materials.length})`
+  );
+
+  previewScene.dispose();
+});
+
+test('25. Phase 6.4 — All 6 Gameplay Matchups, Rematch, Reselection, Arcade Ladder Progression & Training Mode', async () => {
+  const engine = new NullEngine();
+  const scene = new Scene(engine);
+  const bridge = GameBridge.getInstance();
+  const combat3D = new CombatSystem3D();
+  const cpu3D = new CPUController3D('normal');
+  const match3D = new MatchManager3D();
+  const anim3D = new AnimationController3D();
+
+  const p1Fighter = new Fighter3D(0, CHARACTERS.action_sultan, MatchManager3D.P1_SPAWN_X_3D, 0, 0);
+  const p2Fighter = new Fighter3D(1, CHARACTERS.romance_raja, MatchManager3D.P2_SPAWN_X_3D, 0, 0);
+
+  const ALL_SIX_MATCHUPS: ReadonlyArray<readonly [typeof ALL_FIGHTER_IDS[number], typeof ALL_FIGHTER_IDS[number]]> = [
+    ['action_sultan', 'romance_raja'],
+    ['action_sultan', 'duggu'],
+    ['action_sultan', 'bhidu'],
+    ['romance_raja', 'duggu'],
+    ['romance_raja', 'bhidu'],
+    ['duggu', 'bhidu'],
+  ];
+
+  // 1. Test all 6 distinct matchups (and verify Fighter3D + CharacterRig3D identity match P1 and P2)
+  for (const [p1Id, p2Id] of ALL_SIX_MATCHUPS) {
+    bridge.gameMode = 'vs_cpu';
+    bridge.p1CharacterId = p1Id;
+    bridge.p2CharacterId = p2Id;
+    bridge.startMatch();
+
+    const p1Def = CHARACTERS[bridge.p1CharacterId];
+    const p2Def = CHARACTERS[bridge.p2CharacterId];
+    p1Fighter.setCharacterDef(p1Def);
+    p2Fighter.setCharacterDef(p2Def);
+    match3D.resetMatch(p1Fighter, p2Fighter, combat3D, cpu3D);
+
+    const [p1Rig, p2Rig] = await Promise.all([
+      loadCharacterRig3D(scene, p1Def, `match_p1_${p1Id}`),
+      loadCharacterRig3D(scene, p2Def, `match_p2_${p2Id}`),
+    ]);
+
+    assert.equal(p1Fighter.id, p1Id);
+    assert.equal(p1Fighter.def.id, p1Id);
+    assert.equal(p1Rig.characterId, p1Id);
+    assert.equal(p1Rig.diagnostics?.requestedModelPath, CHARACTER_ASSET_MANIFEST[p1Id].modelPath);
+
+    assert.equal(p2Fighter.id, p2Id);
+    assert.equal(p2Fighter.def.id, p2Id);
+    assert.equal(p2Rig.characterId, p2Id);
+    assert.equal(p2Rig.diagnostics?.requestedModelPath, CHARACTER_ASSET_MANIFEST[p2Id].modelPath);
+
+    // Step 10 frames of combat + pose updates
+    for (let f = 0; f < 10; f++) {
+      p1Fighter.stepPhysics(ARENAS.award_night.bounds3D, 1 / 60);
+      p2Fighter.stepPhysics(ARENAS.award_night.bounds3D, 1 / 60);
+      anim3D.updateRigPose(p1Rig, p1Fighter.id, p1Fighter.state, p1Fighter.stateFrame / 60, 1 / 60, p1Fighter.facing, 0);
+      anim3D.updateRigPose(p2Rig, p2Fighter.id, p2Fighter.state, p2Fighter.stateFrame / 60, 1 / 60, p2Fighter.facing, 0);
+    }
+
+    p1Rig.dispose();
+    p2Rig.dispose();
+  }
+
+  // 2. Test Rematch preserves selected characters
+  bridge.p1CharacterId = 'duggu';
+  bridge.p2CharacterId = 'bhidu';
+  bridge.startMatch();
+  bridge.setScreen('results');
+  bridge.rematch();
+  assert.equal(bridge.screen, 'fighting');
+  assert.equal(bridge.p1CharacterId, 'duggu');
+  assert.equal(bridge.p2CharacterId, 'bhidu');
+
+  // 3. Test Character Reselection after match results
+  bridge.setScreen('results');
+  bridge.setScreen('character_select');
+  bridge.p1CharacterId = 'bhidu';
+  bridge.p2CharacterId = 'romance_raja';
+  bridge.startMatch();
+  assert.equal(bridge.p1CharacterId, 'bhidu');
+  assert.equal(bridge.p2CharacterId, 'romance_raja');
+
+  // 4. Test Arcade Mode 3-Stage Ladder Progression for all 4 P1 characters
+  for (const p1Hero of ALL_FIGHTER_IDS) {
+    bridge.gameMode = 'arcade';
+    bridge.p1CharacterId = p1Hero;
+    bridge.startMatch();
+
+    assert.equal(bridge.arcadeLadder.length, 3);
+    assert.ok(!bridge.arcadeLadder.includes(p1Hero), `Arcade ladder must not include P1 (${p1Hero})`);
+    assert.equal(bridge.arcadeStageIndex, 0);
+    assert.equal(bridge.p2CharacterId, bridge.arcadeLadder[0]);
+    assert.equal(bridge.hasNextArcadeStage(), true);
+
+    // Stage 1 -> Stage 2
+    const hasStage2 = bridge.advanceArcadeStage();
+    assert.equal(hasStage2, true);
+    assert.equal(bridge.arcadeStageIndex, 1);
+    assert.equal(bridge.p1CharacterId, p1Hero);
+    assert.equal(bridge.p2CharacterId, bridge.arcadeLadder[1]);
+    assert.equal(bridge.hasNextArcadeStage(), true);
+
+    // Stage 2 -> Stage 3 (Final Boss Stage)
+    const hasStage3 = bridge.advanceArcadeStage();
+    assert.equal(hasStage3, true);
+    assert.equal(bridge.arcadeStageIndex, 2);
+    assert.equal(bridge.p1CharacterId, p1Hero);
+    assert.equal(bridge.p2CharacterId, bridge.arcadeLadder[2]);
+    assert.equal(bridge.hasNextArcadeStage(), false);
+
+    // Completing Stage 3 finishes the ladder
+    const hasStage4 = bridge.advanceArcadeStage();
+    assert.equal(hasStage4, false);
+  }
+
+  // 5. Test Training Mode dummy behaviors and reset
+  bridge.gameMode = 'training';
+  bridge.p1CharacterId = 'action_sultan';
+  bridge.p2CharacterId = 'duggu';
+  bridge.startMatch();
+  assert.equal(bridge.trainingDummyBehavior, 'stand');
+  assert.equal(bridge.cycleTrainingDummyBehavior(), 'block');
+  assert.equal(bridge.cycleTrainingDummyBehavior(), 'crouch');
+  assert.equal(bridge.cycleTrainingDummyBehavior(), 'jump');
+  assert.equal(bridge.cycleTrainingDummyBehavior(), 'cpu_spar');
+  assert.equal(bridge.cycleTrainingDummyBehavior(), 'stand');
+
+  scene.dispose();
+  engine.dispose();
+});
+
 
 
 
