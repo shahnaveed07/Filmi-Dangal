@@ -104,12 +104,12 @@ const CHARACTER_MOVE_SPECS: Record<FighterId, Record<string, MoveFrameTimingSpec
     },
     punch: {
       clipName: 'Punch',
-      totalFrames: 22,
-      startupFrames: 6,
+      totalFrames: 48,
+      startupFrames: 24,
       activeFrames: 5,
-      recoveryFrames: 11,
+      recoveryFrames: 19,
       activeBone: 'RightHand',
-      hitboxRadius: 0.34,
+      hitboxRadius: 0.36,
       isLooping: false,
     },
     kick: {

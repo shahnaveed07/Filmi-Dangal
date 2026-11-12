@@ -464,7 +464,7 @@ export const CHARACTER_ASSET_MANIFEST: Record<FighterId, CharacterAssetConfig> =
       right: Math.PI * 0.5,
       left: -Math.PI * 0.5,
     },
-    groundOffset: 0.969,
+    groundOffset: -0.002,
     defaultSpawnX: {
       p1: -2.4,
       p2: 2.4,

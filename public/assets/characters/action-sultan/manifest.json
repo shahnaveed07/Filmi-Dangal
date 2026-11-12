@@ -16,7 +16,7 @@
   "animationValid": false,
   "note": "Production skinned 3D character mesh (Ch33 Mixamo rig: 16,133 vertices, 24,522 triangles, 1 skin with 52 Mixamo joints, 1 PBR material 'Material.001' with embedded JPEG diffuse and PNG normal maps). The GLB contains only 1 static bind-pose clip ('mixamo_com'), which is automatically excluded at runtime so all 15 combat states and signature specials run via quaternion-safe procedural bone animation on the 52-bone Mixamo skeleton.",
   "scale": 1.94,
-  "groundOffset": 0.969,
+  "groundOffset": -0.002,
   "forwardAxis": "+Z",
   "skeleton": {
     "skinName": "Armature",

@@ -582,7 +582,7 @@ export class CharacterPreviewScene {
     if (state === 'idle' || state === 'walk' || state === 'block') {
       this.stateDurationSec = 0;
     } else if (state === 'punch') {
-      this.stateDurationSec = 0.45;
+      this.stateDurationSec = this.characterId === 'action_sultan' ? 0.8 : 0.45;
     } else if (state === 'kick') {
       this.stateDurationSec = 0.55;
     } else if (state === 'jump') {

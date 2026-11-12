@@ -510,15 +510,18 @@ export class CharacterAssetValidator {
       );
       const lodLevelsFound = REQUIRED_LOD_LEVELS.filter((lod) => nodeNames.has(lod));
 
-      const rootNode = nodes.find(
-        (n) =>
-          n.name === 'Root' ||
-          n.name === 'Armature' ||
-          n.name === 'FBX_Root' ||
-          n.name === 'empty_1' ||
-          stripBoneNamespacePrefix(n.name || '') === 'Root' ||
-          stripBoneNamespacePrefix(n.name || '') === 'Hips'
-      );
+      const rootNode =
+        nodes.find(
+          (n) =>
+            n.name === 'Root' ||
+            n.name === 'Armature' ||
+            n.name === 'FBX_Root' ||
+            n.name === 'empty_1' ||
+            stripBoneNamespacePrefix(n.name || '') === 'Root'
+        ) ||
+        nodes.find(
+          (n) => stripBoneNamespacePrefix(n.name || '') === 'Hips'
+        );
       const groundOriginVerified = Boolean(
         rootNode &&
           (!Array.isArray(rootNode.translation) ||
@@ -542,7 +545,7 @@ export class CharacterAssetValidator {
         accessors[idx].bufferView! >= 0 &&
         accessors[idx].bufferView! < bufferViews.length;
 
-      // Estimate bounds from POSITION accessors + node translations
+      // Estimate bounds from POSITION accessors (with fallback to node translations if no POSITION bounds exist)
       let minX = Infinity,
         minY = Infinity,
         minZ = Infinity;
@@ -585,20 +588,35 @@ export class CharacterAssetValidator {
           }
         }
       }
-      for (const n of nodes) {
-        if (Array.isArray(n.translation) && n.translation.length === 3) {
-          minX = Math.min(minX, n.translation[0]);
-          minY = Math.min(minY, n.translation[1]);
-          minZ = Math.min(minZ, n.translation[2]);
-          maxX = Math.max(maxX, n.translation[0]);
-          maxY = Math.max(maxY, n.translation[1]);
-          maxZ = Math.max(maxZ, n.translation[2]);
+      if (!Number.isFinite(maxY - minY)) {
+        for (const n of nodes) {
+          if (Array.isArray(n.translation) && n.translation.length === 3) {
+            minX = Math.min(minX, n.translation[0]);
+            minY = Math.min(minY, n.translation[1]);
+            minZ = Math.min(minZ, n.translation[2]);
+            maxX = Math.max(maxX, n.translation[0]);
+            maxY = Math.max(maxY, n.translation[1]);
+            maxZ = Math.max(maxZ, n.translation[2]);
+          }
         }
       }
 
-      const estWidth = Number.isFinite(maxX - minX) ? Math.max(0, maxX - minX) : 0;
-      const estHeight = Number.isFinite(maxY - minY) ? Math.max(0, maxY - minY) : 0;
-      const estDepth = Number.isFinite(maxZ - minZ) ? Math.max(0, maxZ - minZ) : 0;
+      const rawWidth = Number.isFinite(maxX - minX) ? Math.max(0, maxX - minX) : 0;
+      const rawHeight = Number.isFinite(maxY - minY) ? Math.max(0, maxY - minY) : 0;
+      const rawDepth = Number.isFinite(maxZ - minZ) ? Math.max(0, maxZ - minZ) : 0;
+      const rootScaleY =
+        rootNode && Array.isArray(rootNode.scale) && typeof rootNode.scale[1] === 'number'
+          ? Math.abs(rootNode.scale[1])
+          : 1;
+      const unitScale =
+        rawHeight > 6.0 && rootScaleY > 0 && rootScaleY < 1
+          ? rootScaleY
+          : rawHeight > 50
+            ? 0.01
+            : 1;
+      const estWidth = rawWidth * unitScale;
+      const estHeight = rawHeight * unitScale;
+      const estDepth = rawDepth * unitScale;
       const plausibleBoundsVerified =
         hasPositionAccessor &&
         estWidth > 0.1 &&

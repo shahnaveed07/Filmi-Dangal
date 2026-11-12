@@ -21,12 +21,51 @@ export interface BonePoseTransform {
   px?: number;
   py?: number;
   pz?: number;
+  fistCurl?: number;
 }
 
 export type RigPoseMap = Record<string, BonePoseTransform>;
 
 function lerp(a: number, b: number, t: number): number {
   return a + (b - a) * t;
+}
+
+function clamp01(x: number): number {
+  return Math.max(0, Math.min(1, x));
+}
+
+function smoothstep01(x: number): number {
+  const c = clamp01(x);
+  return c * c * (3 - 2 * c);
+}
+
+function interpolatePoseMaps(a: RigPoseMap, b: RigPoseMap, alpha: number): RigPoseMap {
+  const t = clamp01(alpha);
+  const result: RigPoseMap = {};
+  const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
+  for (const key of keys) {
+    const ba = a[key] || { rx: 0, ry: 0, rz: 0 };
+    const bb = b[key] || ba;
+    const merged: BonePoseTransform = {
+      rx: lerp(ba.rx, bb.rx, t),
+      ry: lerp(ba.ry, bb.ry, t),
+      rz: lerp(ba.rz, bb.rz, t),
+    };
+    if (ba.px !== undefined || bb.px !== undefined) {
+      merged.px = lerp(ba.px ?? 0, bb.px ?? 0, t);
+    }
+    if (ba.py !== undefined || bb.py !== undefined) {
+      merged.py = lerp(ba.py ?? 0, bb.py ?? 0, t);
+    }
+    if (ba.pz !== undefined || bb.pz !== undefined) {
+      merged.pz = lerp(ba.pz ?? 0, bb.pz ?? 0, t);
+    }
+    if (ba.fistCurl !== undefined || bb.fistCurl !== undefined) {
+      merged.fistCurl = lerp(ba.fistCurl ?? 0, bb.fistCurl ?? 0, t);
+    }
+    result[key] = merged;
+  }
+  return result;
 }
 
 const CORE_COMPATIBLE_BONES = [
@@ -142,7 +181,11 @@ export class AnimationController3D {
         heightScale,
         0
       );
-      const blendSpeed = Math.min(1, dt * 18);
+      const isPunchState = state === 'punch' || state === 'forward_punch';
+      const blendSpeed =
+        isNewStateEntry && isPunchState
+          ? 0.85
+          : Math.min(1, dt * (isPunchState ? 30 : 18));
       this.applyProceduralPoseToRigBones(rig, pose, heightScale, blendSpeed);
       return;
     }
@@ -250,6 +293,104 @@ export class AnimationController3D {
       }
       if (target.pz !== undefined) {
         node.position.z = lerp(node.position.z, target.pz, blendSpeed);
+      }
+    }
+
+    this.applyHandFistCurl(
+      rig,
+      'Left',
+      pose.LeftHand?.fistCurl ?? 0,
+      blendSpeed
+    );
+    this.applyHandFistCurl(
+      rig,
+      'Right',
+      pose.RightHand?.fistCurl ?? 0,
+      blendSpeed
+    );
+  }
+
+  /**
+   * Curls or relaxes Mixamo finger phalanges (`Index1..3`, `Middle1..3`, `Ring1..3`, `Pinky1..3`, `Thumb1..3`)
+   * so the character forms tight closed fists during combat attacks and relaxes fingers during idle poses.
+   */
+  private applyHandFistCurl(
+    rig: CharacterRig3D,
+    side: 'Left' | 'Right',
+    fistCurl: number,
+    blendSpeed: number
+  ): void {
+    if (!rig.rootNode) return;
+    if (!rig.rootNode.metadata) {
+      rig.rootNode.metadata = {};
+    }
+    const meta = rig.rootNode.metadata as Record<string, unknown>;
+    let fingerCache = meta.fingerNodesCache as
+      | Record<'Left' | 'Right', Array<{ node: CharacterRig3D['rootNode']; isThumb: boolean; phalanxIndex: number }>>
+      | undefined;
+
+    if (!fingerCache) {
+      fingerCache = { Left: [], Right: [] };
+      const allNodes = rig.rootNode.getChildTransformNodes(false);
+      for (const n of allNodes) {
+        for (const s of ['Left', 'Right'] as const) {
+          const prefix = `mixamorig:${s}Hand`;
+          if (n.name.startsWith(prefix) && n.name.length > prefix.length) {
+            const suffix = n.name.slice(prefix.length);
+            const isThumb = suffix.startsWith('Thumb');
+            const digitChar = suffix.charAt(suffix.length - 1);
+            const phalanxIndex = Number.parseInt(digitChar, 10) || 1;
+            if (!n.metadata) n.metadata = {};
+            if (!n.metadata.fingerBindQuat && n.rotationQuaternion) {
+              n.metadata.fingerBindQuat = n.rotationQuaternion.clone();
+            }
+            fingerCache[s].push({ node: n, isThumb, phalanxIndex });
+          }
+        }
+      }
+      meta.fingerNodesCache = fingerCache;
+    }
+
+    const entries = fingerCache[side];
+    if (!entries || entries.length === 0) return;
+
+    const curlAmount = clamp01(fistCurl);
+    for (const { node, isThumb, phalanxIndex } of entries) {
+      const bindQuat =
+        (node.metadata?.fingerBindQuat as Quaternion | undefined) ||
+        node.rotationQuaternion;
+      if (!bindQuat) continue;
+
+      let targetQuat = bindQuat;
+      if (curlAmount > 0.001) {
+        let curlDelta: Quaternion;
+        if (isThumb) {
+          const thumbAxis = new Vector3(
+            0.35,
+            0,
+            side === 'Right' ? 0.75 : -0.75
+          ).normalize();
+          const thumbAngle =
+            (phalanxIndex === 1 ? 0.65 : 0.95) * curlAmount;
+          curlDelta = Quaternion.RotationAxis(thumbAxis, thumbAngle);
+        } else {
+          const fingerAngle =
+            (phalanxIndex === 1 ? 1.38 : phalanxIndex === 2 ? 1.52 : 1.35) *
+            curlAmount;
+          curlDelta = Quaternion.RotationAxis(Vector3.Right(), fingerAngle);
+        }
+        targetQuat = bindQuat.multiply(curlDelta);
+      }
+
+      if (!node.rotationQuaternion) {
+        node.rotationQuaternion = targetQuat.clone();
+      } else {
+        Quaternion.SlerpToRef(
+          node.rotationQuaternion,
+          targetQuat,
+          blendSpeed,
+          node.rotationQuaternion
+        );
       }
     }
   }
@@ -455,39 +596,133 @@ export class AnimationController3D {
 
     switch (state) {
       case 'idle': {
-        // Seamless ~3s idle loop: subtle sinusoidal breathing + slow confident head turn/return
-        const breath = Math.sin(t * (Math.PI * 2) / 3);
-        const headTurn = Math.sin(t * (Math.PI * 2) / 3) * 0.06;
+        const breath = Math.sin(t * 4.2);
         const sway = Math.cos(t * 2.1);
 
         if (characterId === 'action_sultan') {
-          // AS IDLE – "Hands In Pockets" confident stance (storyboard pose)
-          // Base: calm, relaxed, dominant – both hands inside front pockets.
-          pose.Hips.px = 0;
+          // AS IDLE – Iconic "Hands-in-Pockets" 3.0-second seamless loop (Storyboard Frames 1–6)
+          const loopDuration = 3.0;
+          const cycleT = ((t % loopDuration) + loopDuration) % loopDuration;
+          const loopPhase = (cycleT / loopDuration) * Math.PI * 2;
+
+          // Smooth Hermite helper for controlled head-turn and settle transitions
+          const smooth01 = (x: number): number => {
+            const c = Math.max(0, Math.min(1, x));
+            return c * c * (3 - 2 * c);
+          };
+
+          // Continuous subtle breathing across the 3.0s loop:
+          // Rises naturally through Frame 2 (0.5s inhalation), stays composed during the 1.0–1.5s hold,
+          // and settles seamlessly back to neutral at 3.0s (periodic C-infinity wave).
+          const breathWave =
+            0.65 * Math.sin(loopPhase) + 0.35 * Math.sin(loopPhase * 2);
+          const breathInhale = Math.max(0, breathWave);
+
+          // 6-Frame Head & Chin Choreography:
+          // Frame 1 (0.0–0.5s): Initial stance / settle, head facing forward, calm confident gaze.
+          // Frame 2 (0.5s): Subtle inhalation (chest rises slightly, shoulders respond subtly).
+          // Frame 3 (0.5–1.0s): Smoothly turn head slightly to the side with subtle chin angle change.
+          // Frame 4 (1.0–1.5s): Confident attitude hold on the side-facing look while breathing continues.
+          // Frame 5 (1.5–2.2s): Smoothly return head and eyes back to front without sudden movement.
+          // Frame 6 (2.2–3.0s): Settle in neutral forward idle pose and blend seamlessly into 0.0s.
+          let headTurnFactor = 0;
+          let attitudeTiltFactor = 0;
+          if (cycleT >= 0.5 && cycleT < 1.0) {
+            headTurnFactor = smooth01((cycleT - 0.5) / 0.5);
+            attitudeTiltFactor = smooth01((cycleT - 0.5) / 0.5);
+          } else if (cycleT >= 1.0 && cycleT < 1.5) {
+            const holdMicro = Math.sin(((cycleT - 1.0) / 0.5) * Math.PI);
+            headTurnFactor = 1.0 + holdMicro * 0.05;
+            attitudeTiltFactor = 1.0 + holdMicro * 0.08;
+          } else if (cycleT >= 1.5 && cycleT < 2.2) {
+            const returnProgress = 1.0 - smooth01((cycleT - 1.5) / 0.7);
+            headTurnFactor = returnProgress;
+            attitudeTiltFactor = returnProgress;
+          }
+
+          const totalHeadYaw = 0.145 * headTurnFactor; // Subtle natural side scan (~8.3 deg)
+          const totalHeadPitch =
+            -0.042 - 0.016 * attitudeTiltFactor - breathWave * 0.005; // Chin slightly raised
+          const totalHeadRoll = -0.024 * attitudeTiltFactor; // Subtle confident attitude tilt
+
+          // Hips: almost stationary, tiny natural weight adjustment, no lateral sliding
+          pose.Hips.px = Math.sin(loopPhase) * 0.002;
+          pose.Hips.py = baseHipsY + breathWave * 0.004;
           pose.Hips.pz = 0;
-          pose.Hips.py = baseHipsY + Math.sin(t * (Math.PI * 2) / 3) * 0.012;
-          pose.Hips.ry = -0.22 + Math.sin(t * (Math.PI * 2) / 3) * 0.015;
+          pose.Hips.rx = 0;
+          pose.Hips.ry = -0.025 + Math.sin(loopPhase) * 0.006;
+          pose.Hips.rz = 0;
 
-          pose.Spine.rx = 0;
-          pose.Chest.rx = 0.08 + breath * 0.02;
-          pose.Chest.ry = 0.18;
-          pose.Chest.rz = 0;
+          // Spine & Chest: upright dominant posture with chest slightly pushed forward + subtle breathing
+          pose.Spine = {
+            rx: -0.018 - breathWave * 0.01,
+            ry: 0,
+            rz: 0,
+          };
+          pose.Chest = {
+            rx: -0.042 - breathWave * 0.02,
+            ry: 0.015,
+            rz: 0,
+          };
 
-          // Shoulders relaxed but slightly pulled back
-          pose.LeftShoulder = { rx: 0, ry: -0.08, rz: 0 };
-          pose.RightShoulder = { rx: 0, ry: -0.08, rz: 0 };
+          // Shoulders: relaxed but slightly pulled backward, subtle rise with inhalation
+          pose.LeftShoulder = {
+            rx: -0.015 - breathInhale * 0.008,
+            ry: -0.065,
+            rz: -0.015 - breathInhale * 0.008,
+          };
+          pose.RightShoulder = {
+            rx: -0.015 - breathInhale * 0.008,
+            ry: 0.065,
+            rz: 0.015 + breathInhale * 0.008,
+          };
 
-          // Hands stay inside pockets (relaxed bent arms, forearms tucked)
-          pose.LeftUpperArm = { rx: -0.65 + breath * 0.05, ry: 0.25, rz: 0.38 };
-          pose.LeftLowerArm = { rx: -1.35 + breath * 0.02, ry: 0, rz: 0 };
-          pose.RightUpperArm = { rx: -0.45 - breath * 0.05, ry: -0.2, rz: -0.42 };
-          pose.RightLowerArm = { rx: -1.25 + breath * 0.02, ry: 0, rz: 0 };
+          // Upper Arms, Forearms & Hands: calibrated so elbows angle naturally outward (|x| ~ 0.25m)
+          // while forearms angle inward (ry = 0 to avoid twisting the elbow axis) and both hands
+          // tuck directly into the front jeans pockets (wrist x ~ +-0.15m, fingers x ~ +-0.11m, y ~ 1.07m -> 0.94m).
+          pose.LeftUpperArm = {
+            rx: 0.08 - breathWave * 0.005,
+            ry: 0,
+            rz: -0.06 - breathInhale * 0.005,
+          };
+          pose.LeftLowerArm = {
+            rx: -0.15 + breathWave * 0.005,
+            ry: 0,
+            rz: 0.7,
+          };
+          pose.LeftHand = { rx: 0.06, ry: 0, rz: -0.16 };
 
-          // Neck/head: calm confident expression, subtle turn returning smoothly
-          pose.Neck.ry = headTurn * 0.6;
-          pose.Head.rx = 0.05;
-          pose.Head.ry = headTurn;
-          pose.Head.rz = 0;
+          pose.RightUpperArm = {
+            rx: 0.08 - breathWave * 0.005,
+            ry: 0,
+            rz: 0.06 + breathInhale * 0.005,
+          };
+          pose.RightLowerArm = {
+            rx: -0.15 + breathWave * 0.005,
+            ry: 0,
+            rz: -0.7,
+          };
+          pose.RightHand = { rx: 0.06, ry: 0, rz: 0.16 };
+
+          // Neck & Head: smooth side turn, confident hold, and smooth return to front
+          pose.Neck = {
+            rx: totalHeadPitch * 0.35,
+            ry: totalHeadYaw * 0.4,
+            rz: totalHeadRoll * 0.35,
+          };
+          pose.Head = {
+            rx: totalHeadPitch * 0.65,
+            ry: totalHeadYaw * 0.6,
+            rz: totalHeadRoll * 0.65,
+          };
+
+          // Legs & Feet: shoulder-width apart, planted firmly on the ground with zero sliding
+          pose.LeftUpperLeg = { rx: 0, ry: 0, rz: 0 };
+          pose.LeftLowerLeg = { rx: 0, ry: 0, rz: 0 };
+          pose.LeftFoot = { rx: 0, ry: 0, rz: 0 };
+          pose.RightUpperLeg = { rx: 0, ry: 0, rz: 0 };
+          pose.RightLowerLeg = { rx: 0, ry: 0, rz: 0 };
+          pose.RightFoot = { rx: 0, ry: 0, rz: 0 };
         } else if (characterId === 'romance_raja') {
           pose.Hips.py = baseHipsY + breath * 0.03;
           pose.Hips.ry = -0.3;
@@ -622,80 +857,188 @@ export class AnimationController3D {
         const isHeavy = state === 'forward_punch';
 
         if (characterId === 'action_sultan') {
-          // AS RIGHT STRAIGHT PUNCH – ~0.80s one-shot: combat guard → wind-up → power → extension → impact → retract → return-to-guard
-          const punchT = Math.min(t, 0.8);
+          // AS RIGHT STRAIGHT PUNCH – ~0.80s one-shot (Storyboard Frames 1–7):
+          // Frame 1 (0.00s): Combat Guard (orthodox stance, left fist guarding chin, right fist ready beside jaw, knees slightly bent)
+          // Frame 2 (0.10s): Anticipation / Wind-up (right shoulder pulled back, torso coils away from target, weight shifts slightly to rear leg)
+          // Frame 3 (0.20s): Power Generation (hips & pelvis drive rotation toward target, weight transfers forward, right arm begins straight extension)
+          // Frame 4 (0.35s): Punch Extension (right fist accelerates straight toward opponent, right shoulder rotates forward, left hand guards chin)
+          // Frame 5 (0.45s): Impact / Hit (near-full straight extension at center-line, closed fist faces opponent, shoulder & hip rotation complete)
+          // Frame 6 (0.60s): Retraction (right fist retracts quickly, elbow bends naturally, torso reverses rotation)
+          // Frame 7 (0.80s): Return to Combat Guard (stance, shoulder & hip rotation restored, ready for next move)
+          const punchT = Math.max(0, Math.min(t, 0.8));
+          const heavyReachBoost = isHeavy ? -0.06 : 0;
 
+          const frame1Guard: RigPoseMap = {
+            Hips: { rx: 0, ry: 0.18, rz: 0, px: 0, py: baseHipsY - 0.03, pz: 0 },
+            Spine: { rx: 0.03, ry: 0.08, rz: 0 },
+            Chest: { rx: 0.05, ry: 0.14, rz: 0 },
+            Neck: { rx: 0.03, ry: -0.15, rz: 0 },
+            Head: { rx: 0.06, ry: -0.25, rz: 0 },
+            LeftShoulder: { rx: -0.05, ry: -0.08, rz: -0.05 },
+            LeftUpperArm: { rx: -0.36, ry: 0, rz: 0.14 },
+            LeftLowerArm: { rx: -1.46, ry: 0, rz: 0.48 },
+            LeftHand: { rx: 0.08, ry: 0, rz: 0, fistCurl: 1 },
+            RightShoulder: { rx: -0.05, ry: 0.08, rz: 0.05 },
+            RightUpperArm: { rx: -0.28, ry: 0, rz: -0.1 },
+            RightLowerArm: { rx: -1.56, ry: 0, rz: -0.56 },
+            RightHand: { rx: 0.08, ry: 0, rz: 0, fistCurl: 1 },
+            LeftUpperLeg: { rx: -0.18, ry: 0, rz: 0.06 },
+            LeftLowerLeg: { rx: 0.24, ry: 0, rz: 0 },
+            LeftFoot: { rx: -0.06, ry: 0, rz: 0 },
+            RightUpperLeg: { rx: 0.16, ry: 0, rz: -0.06 },
+            RightLowerLeg: { rx: 0.24, ry: 0, rz: 0 },
+            RightFoot: { rx: -0.18, ry: 0, rz: 0 },
+          };
+
+          const frame2Windup: RigPoseMap = {
+            Hips: { rx: 0, ry: 0.26, rz: 0, px: -0.018, py: baseHipsY - 0.038, pz: 0 },
+            Spine: { rx: 0.02, ry: 0.12, rz: 0 },
+            Chest: { rx: 0.04, ry: 0.24, rz: 0 },
+            Neck: { rx: 0.03, ry: -0.22, rz: 0 },
+            Head: { rx: 0.06, ry: -0.38, rz: 0 },
+            LeftShoulder: { rx: -0.05, ry: -0.1, rz: -0.05 },
+            LeftUpperArm: { rx: -0.38, ry: 0, rz: 0.16 },
+            LeftLowerArm: { rx: -1.48, ry: 0, rz: 0.52 },
+            LeftHand: { rx: 0.08, ry: 0, rz: 0, fistCurl: 1 },
+            RightShoulder: { rx: -0.04, ry: 0.22, rz: 0.06 },
+            RightUpperArm: { rx: -0.12, ry: 0, rz: -0.16 },
+            RightLowerArm: { rx: -1.62, ry: 0, rz: -0.44 },
+            RightHand: { rx: 0.08, ry: 0, rz: 0, fistCurl: 1 },
+            LeftUpperLeg: { rx: -0.14, ry: 0, rz: 0.06 },
+            LeftLowerLeg: { rx: 0.2, ry: 0, rz: 0 },
+            LeftFoot: { rx: -0.06, ry: 0, rz: 0 },
+            RightUpperLeg: { rx: 0.2, ry: 0, rz: -0.06 },
+            RightLowerLeg: { rx: 0.28, ry: 0, rz: 0 },
+            RightFoot: { rx: -0.2, ry: 0, rz: 0 },
+          };
+
+          const frame3Power: RigPoseMap = {
+            Hips: { rx: 0, ry: -0.04, rz: 0, px: 0.008, py: baseHipsY - 0.032, pz: 0 },
+            Spine: { rx: 0.04, ry: -0.02, rz: 0 },
+            Chest: { rx: 0.07, ry: -0.04, rz: 0 },
+            Neck: { rx: 0.03, ry: 0.04, rz: 0 },
+            Head: { rx: 0.06, ry: 0.06, rz: 0 },
+            LeftShoulder: { rx: -0.05, ry: 0, rz: -0.05 },
+            LeftUpperArm: { rx: -0.44, ry: 0, rz: 0.22 },
+            LeftLowerArm: { rx: -1.5, ry: 0, rz: 0.64 },
+            LeftHand: { rx: 0.08, ry: 0, rz: 0, fistCurl: 1 },
+            RightShoulder: { rx: -0.05, ry: -0.06, rz: 0.05 },
+            RightUpperArm: { rx: -0.62, ry: 0, rz: 0.08 },
+            RightLowerArm: { rx: -1.12, ry: 0, rz: -0.28 },
+            RightHand: { rx: 0.05, ry: 0, rz: 0, fistCurl: 1 },
+            LeftUpperLeg: { rx: -0.2, ry: 0, rz: 0.06 },
+            LeftLowerLeg: { rx: 0.27, ry: 0, rz: 0 },
+            LeftFoot: { rx: -0.06, ry: 0, rz: 0 },
+            RightUpperLeg: { rx: 0.18, ry: 0, rz: -0.06 },
+            RightLowerLeg: { rx: 0.23, ry: 0, rz: 0 },
+            RightFoot: { rx: -0.19, ry: 0, rz: 0 },
+          };
+
+          const frame4Extend: RigPoseMap = {
+            Hips: { rx: 0, ry: -0.18, rz: 0, px: 0.028, py: baseHipsY - 0.036, pz: 0 },
+            Spine: { rx: 0.05, ry: -0.11, rz: 0 },
+            Chest: { rx: 0.09, ry: -0.2, rz: 0 },
+            Neck: { rx: 0.02, ry: 0.18, rz: 0 },
+            Head: { rx: 0.05, ry: 0.3, rz: 0 },
+            LeftShoulder: { rx: -0.04, ry: 0.06, rz: -0.04 },
+            LeftUpperArm: { rx: -0.52, ry: 0, rz: 0.3 },
+            LeftLowerArm: { rx: -1.52, ry: 0, rz: 0.78 },
+            LeftHand: { rx: 0.08, ry: 0, rz: 0, fistCurl: 1 },
+            RightShoulder: { rx: -0.05, ry: -0.2, rz: 0.04 },
+            RightUpperArm: { rx: -1.08 + heavyReachBoost * 0.5, ry: 0, rz: 0.26 },
+            RightLowerArm: { rx: -0.42, ry: 0, rz: -0.1 },
+            RightHand: { rx: 0.02, ry: 0, rz: 0, fistCurl: 1 },
+            LeftUpperLeg: { rx: -0.22, ry: 0, rz: 0.06 },
+            LeftLowerLeg: { rx: 0.29, ry: 0, rz: 0 },
+            LeftFoot: { rx: -0.06, ry: 0, rz: 0 },
+            RightUpperLeg: { rx: 0.2, ry: 0, rz: -0.06 },
+            RightLowerLeg: { rx: 0.21, ry: 0, rz: 0 },
+            RightFoot: { rx: -0.21, ry: 0, rz: 0 },
+          };
+
+          const frame5Impact: RigPoseMap = {
+            Hips: { rx: 0, ry: -0.22, rz: 0, px: 0.038, py: baseHipsY - 0.04, pz: 0 },
+            Spine: { rx: 0.06, ry: -0.14, rz: 0 },
+            Chest: { rx: 0.11, ry: -0.26, rz: 0 },
+            Neck: { rx: 0.02, ry: 0.22, rz: 0 },
+            Head: { rx: 0.05, ry: 0.36, rz: 0 },
+            LeftShoulder: { rx: -0.04, ry: 0.08, rz: -0.04 },
+            LeftUpperArm: { rx: -0.56, ry: 0, rz: 0.34 },
+            LeftLowerArm: { rx: -1.52, ry: 0, rz: 0.84 },
+            LeftHand: { rx: 0.08, ry: 0, rz: 0, fistCurl: 1 },
+            RightShoulder: { rx: -0.04, ry: -0.26, rz: 0.04 },
+            RightUpperArm: { rx: -1.24 + heavyReachBoost, ry: 0, rz: 0.36 },
+            RightLowerArm: { rx: -0.15, ry: 0, rz: -0.05 },
+            RightHand: { rx: 0, ry: 0, rz: 0, fistCurl: 1 },
+            LeftUpperLeg: { rx: -0.24, ry: 0, rz: 0.06 },
+            LeftLowerLeg: { rx: 0.3, ry: 0, rz: 0 },
+            LeftFoot: { rx: -0.06, ry: 0, rz: 0 },
+            RightUpperLeg: { rx: 0.22, ry: 0, rz: -0.06 },
+            RightLowerLeg: { rx: 0.2, ry: 0, rz: 0 },
+            RightFoot: { rx: -0.22, ry: 0, rz: 0 },
+          };
+
+          const frame6Retract: RigPoseMap = {
+            Hips: { rx: 0, ry: 0.02, rz: 0, px: 0.012, py: baseHipsY - 0.034, pz: 0 },
+            Spine: { rx: 0.04, ry: 0.01, rz: 0 },
+            Chest: { rx: 0.07, ry: 0.02, rz: 0 },
+            Neck: { rx: 0.03, ry: -0.02, rz: 0 },
+            Head: { rx: 0.06, ry: -0.04, rz: 0 },
+            LeftShoulder: { rx: -0.05, ry: -0.02, rz: -0.05 },
+            LeftUpperArm: { rx: -0.44, ry: 0, rz: 0.2 },
+            LeftLowerArm: { rx: -1.48, ry: 0, rz: 0.6 },
+            LeftHand: { rx: 0.08, ry: 0, rz: 0, fistCurl: 1 },
+            RightShoulder: { rx: -0.05, ry: -0.04, rz: 0.05 },
+            RightUpperArm: { rx: -0.65, ry: 0, rz: 0.06 },
+            RightLowerArm: { rx: -1.25, ry: 0, rz: -0.35 },
+            RightHand: { rx: 0.06, ry: 0, rz: 0, fistCurl: 1 },
+            LeftUpperLeg: { rx: -0.2, ry: 0, rz: 0.06 },
+            LeftLowerLeg: { rx: 0.26, ry: 0, rz: 0 },
+            LeftFoot: { rx: -0.06, ry: 0, rz: 0 },
+            RightUpperLeg: { rx: 0.18, ry: 0, rz: -0.06 },
+            RightLowerLeg: { rx: 0.22, ry: 0, rz: 0 },
+            RightFoot: { rx: -0.19, ry: 0, rz: 0 },
+          };
+
+          let interpolated: RigPoseMap;
           if (punchT < 0.1) {
-            // Frame 1 – Combat Guard (0.00–0.10s)
-            pose.Hips.py = baseHipsY;
-            pose.Hips.ry = 0.12;
-            pose.Chest.rx = 0.04;
-            pose.Chest.ry = 0.05;
-            pose.RightUpperArm = { rx: -1.1, ry: -0.12, rz: -0.2 };
-            pose.RightLowerArm = { rx: -0.5, ry: 0, rz: 0 };
-            pose.LeftUpperArm = { rx: -0.5, ry: 0.35, rz: 0.45 };
-            pose.LeftLowerArm = { rx: -1.5, ry: 0, rz: 0 };
+            // 0.00–0.10s: Establish Combat Guard (0.00–0.03s) then coil smoothly into Wind-up (0.03–0.10s)
+            const coilAlpha = punchT <= 0.03 ? 0 : smoothstep01((punchT - 0.03) / 0.07);
+            interpolated = interpolatePoseMaps(frame1Guard, frame2Windup, coilAlpha);
           } else if (punchT < 0.2) {
-            // Frame 2 – Anticipation / Wind-up (0.10–0.20s)
-            pose.Hips.ry = 0.3;
-            pose.Chest.rx = 0.1;
-            pose.Chest.ry = 0.3;
-            pose.RightShoulder = { rx: 0, ry: 0.45, rz: 0 };
-            pose.RightUpperArm = { rx: -1.35, ry: -0.3, rz: -0.25 };
-            pose.RightLowerArm = { rx: -0.6, ry: 0, rz: 0 };
-            pose.LeftUpperArm = { rx: -0.5, ry: 0.35, rz: 0.45 };
-            pose.LeftLowerArm = { rx: -1.5, ry: 0, rz: 0 };
+            // 0.10–0.20s: Wind-up -> Power Generation (accelerating hip & torso drive)
+            const u = clamp01((punchT - 0.1) / 0.1);
+            const accelAlpha = Math.pow(u, 1.35);
+            interpolated = interpolatePoseMaps(frame2Windup, frame3Power, accelAlpha);
           } else if (punchT < 0.35) {
-            // Frame 3 – Power Generation (0.20–0.35s)
-            pose.Hips.ry = 0.38;
-            pose.Chest.rx = 0.16;
-            pose.Chest.ry = 0.42;
-            pose.RightShoulder = { rx: 0, ry: 0.55, rz: 0 };
-            pose.RightUpperArm = { rx: -1.5, ry: -0.42, rz: -0.3 };
-            pose.RightLowerArm = { rx: -0.9, ry: 0, rz: 0 };
-            pose.LeftUpperArm = { rx: -0.5, ry: 0.35, rz: 0.45 };
-            pose.LeftLowerArm = { rx: -1.5, ry: 0, rz: 0 };
+            // 0.20–0.35s: Power Generation -> Punch Extension (high-velocity straight punch acceleration)
+            const u = clamp01((punchT - 0.2) / 0.15);
+            const fastAlpha = Math.pow(u, 1.15);
+            interpolated = interpolatePoseMaps(frame3Power, frame4Extend, fastAlpha);
           } else if (punchT < 0.45) {
-            // Frame 4 – Punch Extension (0.35–0.45s)
-            pose.Hips.ry = 0.46;
-            pose.Chest.rx = 0.2;
-            pose.Chest.ry = 0.48;
-            pose.RightShoulder = { rx: 0, ry: 0.6, rz: 0 };
-            pose.RightUpperArm = { rx: -1.6, ry: -0.45, rz: -0.35 };
-            pose.RightLowerArm = { rx: -0.15, ry: 0, rz: 0 };
-            pose.LeftUpperArm = { rx: -0.5, ry: 0.35, rz: 0.45 };
-            pose.LeftLowerArm = { rx: -1.5, ry: 0, rz: 0 };
+            // 0.35–0.45s: Punch Extension -> Impact (crisp snap into full extension at 0.45s)
+            const u = clamp01((punchT - 0.35) / 0.1);
+            const snapAlpha = 1 - Math.pow(1 - u, 2.2);
+            interpolated = interpolatePoseMaps(frame4Extend, frame5Impact, snapAlpha);
           } else if (punchT < 0.6) {
-            // Frame 5/6 – Impact (0.45s) then Retraction (0.45–0.60s)
-            pose.Hips.ry = 0.5;
-            pose.Chest.rx = 0.22;
-            pose.Chest.ry = 0.5;
-            pose.RightShoulder = { rx: 0, ry: 0.65, rz: 0 };
-            pose.RightUpperArm = { rx: -1.65, ry: -0.48, rz: -0.38 };
-            pose.RightLowerArm = { rx: -0.1, ry: 0, rz: 0 };
-            pose.LeftUpperArm = { rx: -0.5, ry: 0.35, rz: 0.45 };
-            pose.LeftLowerArm = { rx: -1.5, ry: 0, rz: 0 };
-
-            if (punchT > 0.45) {
-              // Retraction – reverse the punch after impact
-              pose.Hips.ry = 0.35;
-              pose.Chest.rx = 0.12;
-              pose.Chest.ry = 0.35;
-              pose.RightShoulder = { rx: 0, ry: 0.35, rz: 0 };
-              pose.RightUpperArm = { rx: -1.4, ry: -0.3, rz: -0.25 };
-              pose.RightLowerArm = { rx: -0.7, ry: 0, rz: 0 };
+            // 0.45–0.60s: Impact compression/recoil (0.45–0.475s) -> Controlled Retraction (0.475–0.60s)
+            if (punchT < 0.475) {
+              const recoilPulse = Math.sin(((punchT - 0.45) / 0.025) * Math.PI);
+              interpolated = interpolatePoseMaps(frame5Impact, frame5Impact, 0);
+              interpolated.RightLowerArm.rx -= 0.035 * recoilPulse;
+              interpolated.RightShoulder.ry += 0.018 * recoilPulse;
+              interpolated.Chest.rx += 0.012 * recoilPulse;
+            } else {
+              const u = smoothstep01((punchT - 0.475) / 0.125);
+              interpolated = interpolatePoseMaps(frame5Impact, frame6Retract, u);
             }
           } else {
-            // Frame 7 – Return to Combat Guard (0.60–0.80s)
-            pose.Hips.py = baseHipsY;
-            pose.Hips.ry = 0.12;
-            pose.Chest.rx = 0.04;
-            pose.Chest.ry = 0.05;
-            pose.RightUpperArm = { rx: -1.1, ry: -0.12, rz: -0.2 };
-            pose.RightLowerArm = { rx: -0.5, ry: 0, rz: 0 };
-            pose.LeftUpperArm = { rx: -0.5, ry: 0.35, rz: 0.45 };
-            pose.LeftLowerArm = { rx: -1.5, ry: 0, rz: 0 };
+            // 0.60–0.80s: Retraction -> Return to Combat Guard (smooth recovery ready for next attack)
+            const u = smoothstep01((punchT - 0.6) / 0.2);
+            interpolated = interpolatePoseMaps(frame6Retract, frame1Guard, u);
           }
+
+          Object.assign(pose, interpolated);
           break;
         }
 

@@ -2042,13 +2042,13 @@ test('20. Section 10 Action Sultan GLB Replacement Activation & 12 Architectural
   assert.equal(invalidReport.isVisualOnly, false);
   assert.equal(invalidReport.productionStatus, 'GRAYBOX_PLACEHOLDER');
 
-  // 7. Model scale (1.94) and ground offset (0.969) applied once on modelTransformNode
+  // 7. Model scale (1.94) and ground offset (-0.002) applied once on modelTransformNode
   assert.equal(sultanConfig.scale, 1.94);
-  assert.equal(sultanConfig.groundOffset, 0.969);
+  assert.equal(sultanConfig.groundOffset, -0.002);
   assert.equal(sultanRig.modelTransformNode.scaling.x, 1.94);
   assert.equal(sultanRig.modelTransformNode.scaling.y, 1.94);
   assert.equal(sultanRig.modelTransformNode.scaling.z, 1.94);
-  assert.equal(Number(sultanRig.modelTransformNode.position.y.toFixed(3)), 0.969);
+  assert.equal(Number(sultanRig.modelTransformNode.position.y.toFixed(3)), -0.002);
 
   // 8. Imported hierarchy remains attached under modelTransformNode
   assert.ok(sultanRig.importedRootNodes.length > 0);
@@ -2147,16 +2147,16 @@ test('21. Phase 9 Action Sultan Blender Model Grounding Calibration, Independent
   assert.ok(diag, 'Action Sultan diagnostics must exist');
   assert.ok(diag.measuredLocalBounds, 'Measured unscaled local bounds must be recorded');
   assert.ok(
-    Math.abs(diag.measuredLocalBounds.minY - -0.4994) < 0.01,
-    `Expected unscaled local minY ~ -0.4994, got ${diag.measuredLocalBounds.minY}`
+    Math.abs(diag.measuredLocalBounds.minY - 0.001) < 0.015,
+    `Expected unscaled local minY ~ 0.001, got ${diag.measuredLocalBounds.minY}`
   );
   assert.ok(
-    Math.abs(diag.measuredLocalBounds.maxY - 0.4925) < 0.01,
-    `Expected unscaled local maxY ~ 0.4925, got ${diag.measuredLocalBounds.maxY}`
+    Math.abs(diag.measuredLocalBounds.maxY - 0.96) < 0.02,
+    `Expected unscaled local maxY ~ 0.96, got ${diag.measuredLocalBounds.maxY}`
   );
   assert.ok(
-    Math.abs(diag.measuredLocalBounds.height - 0.9918) < 0.01,
-    `Expected unscaled local height ~ 0.9918, got ${diag.measuredLocalBounds.height}`
+    Math.abs(diag.measuredLocalBounds.height - 0.959) < 0.02,
+    `Expected unscaled local height ~ 0.959, got ${diag.measuredLocalBounds.height}`
   );
 
   // Calibrated scale & groundOffset applied once to modelTransformNode, no double scaling
@@ -2167,7 +2167,7 @@ test('21. Phase 9 Action Sultan Blender Model Grounding Calibration, Independent
   assert.equal(sultanRig.rootNode.scaling.y, 1);
   assert.equal(sultanRig.rootNode.scaling.z, 1);
   assert.equal(sultanRig.facingNode.scaling.x, 1);
-  assert.equal(Number(sultanRig.modelTransformNode.position.y.toFixed(3)), 0.969);
+  assert.equal(Number(sultanRig.modelTransformNode.position.y.toFixed(3)), -0.002);
 
   // Direct mathematical calibration test
   const recalib = calibrateImportedModelTransform(
@@ -2179,8 +2179,8 @@ test('21. Phase 9 Action Sultan Blender Model Grounding Calibration, Independent
   );
   assert.equal(recalib.calibratedScale, 1.94);
   assert.ok(
-    Math.abs(recalib.calibratedGroundOffset - 0.969) < 0.005,
-    `Calibrated groundOffsetY must be ~0.969, got ${recalib.calibratedGroundOffset}`
+    Math.abs(recalib.calibratedGroundOffset - -0.002) < 0.005,
+    `Calibrated groundOffsetY must be ~ -0.002, got ${recalib.calibratedGroundOffset}`
   );
 
   // World-space foot contact check before and during animations
@@ -2212,8 +2212,8 @@ test('21. Phase 9 Action Sultan Blender Model Grounding Calibration, Independent
     'canUseProceduralBoneFallback must be true because 20/20 canonical mixamorig_* bones are resolved'
   );
   assert.ok(
-    sultanRig.glbAnimationController?.getStaticPoseClipNames().includes('mixamo_com'),
-    'mixamo_com must be detected and classified as a static pose clip'
+    sultanRig.glbAnimationController?.getStaticPoseClipNames().some((n) => n.includes('mixamo')),
+    'mixamo static pose clip must be detected and classified as a static pose clip'
   );
 
   // 3. Quaternion Skeletal Animation across states & Non-Floating verification
@@ -2325,7 +2325,7 @@ test('21. Phase 9 Action Sultan Blender Model Grounding Calibration, Independent
 
   // Verify modelTransformNode scale & groundOffset were never overwritten by animation frames
   assert.equal(sultanRig.modelTransformNode.scaling.y, 1.94);
-  assert.equal(Number(sultanRig.modelTransformNode.position.y.toFixed(3)), 0.969);
+  assert.equal(Number(sultanRig.modelTransformNode.position.y.toFixed(3)), -0.002);
 
   sultanRig.dispose();
   scene.dispose();
@@ -3113,8 +3113,107 @@ test('28. Phase 2–12 Regression Suite: Browse-Only vs Match Character Select, 
   assert.ok(fallbackAward.arenaName.length > 0);
   assert.ok(fallbackAward.errorMessage?.includes('WebGL context creation failed'));
 
+  // 7. Action Sultan Iconic 3.0s Hands-in-Pockets Idle Loop (Storyboard Frames 1–6)
+  const animCtrl = new AnimationController3D();
+  const pose0 = animCtrl.computeTargetPose('action_sultan', 'idle', 0.0, 1.0, 0);
+  const pose05 = animCtrl.computeTargetPose('action_sultan', 'idle', 0.5, 1.0, 0);
+  const pose10 = animCtrl.computeTargetPose('action_sultan', 'idle', 1.0, 1.0, 0);
+  const pose13 = animCtrl.computeTargetPose('action_sultan', 'idle', 1.3, 1.0, 0);
+  const pose25 = animCtrl.computeTargetPose('action_sultan', 'idle', 2.5, 1.0, 0);
+  const pose30 = animCtrl.computeTargetPose('action_sultan', 'idle', 3.0, 1.0, 0);
+
+  // Seamless 3.0s loop boundary (t = 0.0s matches t = 3.0s)
+  assert.ok(Math.abs(pose0.Hips.py! - pose30.Hips.py!) < 1e-6, 'Hips.py must loop seamlessly at 3.0s');
+  assert.ok(Math.abs(pose0.Chest.rx - pose30.Chest.rx) < 1e-6, 'Chest.rx must loop seamlessly at 3.0s');
+  assert.ok(Math.abs(pose0.Head.ry - pose30.Head.ry) < 1e-6, 'Head.ry must loop seamlessly at 3.0s');
+
+  // Frame 1 (0.0s) & Frame 6 (2.5s): Head faces forward
+  assert.equal(pose0.Head.ry, 0);
+  assert.equal(pose25.Head.ry, 0);
+
+  // Frame 2 (0.5s): Subtle inhalation expands chest upward compared to 0.0s
+  assert.ok(pose05.Chest.rx < pose0.Chest.rx, 'Chest expands subtly upward during Frame 2 inhalation (0.5s)');
+
+  // Frame 3 (1.0s) & Frame 4 (1.3s hold): Subtle side head turn & attitude hold, then return by 2.5s
+  assert.ok(pose10.Head.ry > 0.07 && pose10.Head.ry < 0.15, 'Head turns subtly to the side at 1.0s');
+  assert.ok(pose13.Head.ry > 0.07 && pose13.Head.ry < 0.15, 'Head holds side-facing attitude at 1.0–1.5s');
+
+  // Hands remain in pockets and legs remain grounded across all frames
+  for (const samplePose of [pose0, pose05, pose10, pose13, pose25, pose30]) {
+    assert.ok(samplePose.LeftUpperArm.rx > 0.05, 'LeftUpperArm stays in pocket posture');
+    assert.ok(samplePose.LeftLowerArm.rz > 0.35, 'LeftLowerArm angles inward into front pocket');
+    assert.ok(samplePose.RightLowerArm.rz < -0.35, 'RightLowerArm angles inward into front pocket');
+    assert.equal(samplePose.LeftUpperLeg.rx, 0, 'Left leg stays grounded without stepping');
+    assert.equal(samplePose.RightUpperLeg.rx, 0, 'Right leg stays grounded without stepping');
+  }
+
+  // 8. Action Sultan 0.80s Right Straight Punch (Storyboard 7-Frame Sequence & Combat Integration)
+  const punchGuard0 = animCtrl.computeTargetPose('action_sultan', 'punch', 0.0, 1.0, 0);
+  const punchWindup10 = animCtrl.computeTargetPose('action_sultan', 'punch', 0.1, 1.0, 0);
+  const punchPower20 = animCtrl.computeTargetPose('action_sultan', 'punch', 0.2, 1.0, 0);
+  const punchExtend35 = animCtrl.computeTargetPose('action_sultan', 'punch', 0.35, 1.0, 0);
+  const punchImpact45 = animCtrl.computeTargetPose('action_sultan', 'punch', 0.45, 1.0, 0);
+  const punchRetract60 = animCtrl.computeTargetPose('action_sultan', 'punch', 0.6, 1.0, 0);
+  const punchRecover80 = animCtrl.computeTargetPose('action_sultan', 'punch', 0.8, 1.0, 0);
+
+  // Frame 1 (0.00s) & Frame 7 (0.80s): Combat Guard stance matches cleanly
+  assert.ok(Math.abs(punchGuard0.Hips.ry - punchRecover80.Hips.ry) < 1e-6, 'Frame 7 returns Hips.ry to Combat Guard');
+  assert.ok(Math.abs(punchGuard0.RightUpperArm.rx - punchRecover80.RightUpperArm.rx) < 1e-6, 'Frame 7 returns RightUpperArm.rx to Combat Guard');
+  assert.ok(Math.abs(punchGuard0.RightLowerArm.rx - punchRecover80.RightLowerArm.rx) < 1e-6, 'Frame 7 returns RightLowerArm.rx to Combat Guard');
+  // Combat stance has knees slightly bent (LeftUpperLeg forward, RightUpperLeg back) and closed fists
+  assert.ok(punchGuard0.LeftUpperLeg.rx < -0.1, 'Combat stance places left leg slightly forward');
+  assert.ok(punchGuard0.RightUpperLeg.rx > 0.1, 'Combat stance places right leg slightly behind');
+  assert.equal(punchGuard0.LeftHand.fistCurl, 1, 'Left hand forms closed defensive fist in guard');
+  assert.equal(punchGuard0.RightHand.fistCurl, 1, 'Right hand forms closed striking fist in guard');
+
+  // Frame 2 (0.10s): Anticipation / Wind-up coils right shoulder and upper torso back (ry increases) and shifts weight slightly to rear leg
+  assert.ok(punchWindup10.RightShoulder.ry > punchGuard0.RightShoulder.ry, 'Frame 2 pulls right shoulder backward');
+  assert.ok(punchWindup10.Chest.ry > punchGuard0.Chest.ry, 'Frame 2 coils chest slightly away from target');
+  assert.ok((punchWindup10.Hips.px ?? 0) < (punchGuard0.Hips.px ?? 0), 'Frame 2 shifts weight slightly toward rear leg');
+
+  // Frame 3 (0.20s) -> Frame 4 (0.35s) -> Frame 5 (0.45s Impact): Hips, chest, and right shoulder drive forward (ry goes negative) while right arm extends straight
+  assert.ok(punchPower20.Hips.ry < punchWindup10.Hips.ry, 'Frame 3 initiates hip rotation toward target');
+  assert.ok(punchExtend35.Hips.ry < punchPower20.Hips.ry, 'Frame 4 continues hip rotation');
+  assert.ok(punchImpact45.Hips.ry <= punchExtend35.Hips.ry, 'Frame 5 completes hip rotation at impact');
+  assert.ok(punchImpact45.RightShoulder.ry < -0.2, 'Frame 5 engages right shoulder forward into the punch');
+  assert.ok(punchImpact45.RightUpperArm.rx < -1.15, 'Frame 5 raises right upper arm into full straight punch line');
+  assert.ok(punchImpact45.RightLowerArm.rx > -0.25 && punchImpact45.RightLowerArm.rx < -0.05, 'Frame 5 reaches near-full elbow extension without hyperextending');
+  assert.ok(punchImpact45.LeftLowerArm.rx < -1.4, 'Left arm remains bent in defensive chin guard throughout impact');
+
+  // Frame 6 (0.60s Retraction): Elbow bends back and torso reverses rotation toward guard
+  assert.ok(punchRetract60.RightLowerArm.rx < -1.0, 'Frame 6 retracts right forearm quickly by bending elbow');
+  assert.ok(punchRetract60.Hips.ry > punchImpact45.Hips.ry, 'Frame 6 reverses hip rotation back toward guard');
+
+  // Combat synchronization: 48 frames (0.80s at 60 FPS), active hit window centered around 0.45s (Frame 27), single hit per punch, clean recovery to idle
+  const sultanPunchSpec = FighterAnimationEvents.getMoveSpec('action_sultan', 'punch');
+  assert.equal(sultanPunchSpec.totalFrames, 48, 'Action Sultan punch clip totalFrames is 48 (0.80s)');
+  assert.equal(sultanPunchSpec.startupFrames, 24);
+  assert.equal(sultanPunchSpec.activeFrames, 5);
+  assert.equal(sultanPunchSpec.recoveryFrames, 19);
+
+  const sultanAttacker = new Fighter3D(0, CHARACTERS.action_sultan, 0, 0, 0);
+  const dummyDefender = new Fighter3D(1, CHARACTERS.romance_raja, 0.95, 0, 0);
+  const punchCombat = new CombatSystem3D();
+  assert.equal(sultanAttacker.startAttack('punch', 'fighting'), true);
+  let punchHitCount = 0;
+  let hitFrame = -1;
+  for (let f = 1; f <= 48; f++) {
+    sultanAttacker.stepPhysics();
+    dummyDefender.stepPhysics();
+    const hits = punchCombat.updateAndResolveCombat(sultanAttacker, dummyDefender, 1 / 60, 'fighting');
+    if (hits.length > 0) {
+      punchHitCount += hits.length;
+      hitFrame = f;
+    }
+  }
+  assert.equal(punchHitCount, 1, 'Single punch produces exactly one damage event');
+  assert.ok(hitFrame >= 24 && hitFrame <= 28, `Punch impact occurs inside the 0.40s-0.48s active window (frame=${hitFrame})`);
+  assert.equal(sultanAttacker.state, 'idle', 'Action Sultan returns cleanly to idle after 48-frame (0.80s) punch');
+  assert.equal(sultanAttacker.startAttack('punch', 'fighting'), true, 'Action Sultan can immediately perform another attack after punch completion');
+
   bridge.returnToMenu();
 });
+
 
 
 

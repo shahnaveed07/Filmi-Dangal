@@ -141,7 +141,11 @@ export class CharacterAnimationController {
         eventPayload
       );
 
-      const blendSpeed = Math.min(1, dt * 18);
+      const isPunchState = state === 'punch' || state === 'forward_punch';
+      const blendSpeed =
+        isNewStateEntry && isPunchState
+          ? 0.85
+          : Math.min(1, dt * (isPunchState ? 30 : 18));
       this.baseAnim.applyProceduralPoseToRigBones(
         rig,
         pose,
