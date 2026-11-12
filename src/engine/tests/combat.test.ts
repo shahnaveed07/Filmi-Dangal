@@ -1108,7 +1108,8 @@ test('15. Training Mode: Infinite Timer, Non-Lethal HP Floor, Auto Health/Meter 
   assert.ok(p2.health > 1, 'Training dummy auto-regenerates health after idle recovery');
   assert.equal(p1.specialMeter, 100, 'Training mode auto-refills P1 special meter to 100%');
 
-  // Reset back to vs_cpu for clean state
+  // Reset back to vs_cpu and 'stand' for clean state
+  bridge.setTrainingDummyBehavior('stand');
   bridge.gameMode = 'vs_cpu';
 });
 
@@ -2783,7 +2784,10 @@ test('26. Phase 3, 4, 6 & 7 — Preview vs. Gameplay Animation Parity, Reverse P
 
   const titleScreenTsx = fs.readFileSync(path.resolve(process.cwd(), 'src/components/TitleScreen.tsx'), 'utf8');
   assert.ok(titleScreenTsx.includes('FIGHT FUN'), 'TitleScreen.tsx must display FIGHT FUN');
-  assert.ok(titleScreenTsx.includes('LIGHTS. CAMERA. KNOCKOUT!'), 'TitleScreen.tsx must display tagline');
+  assert.ok(
+    !titleScreenTsx.includes('LIGHTS. CAMERA. KNOCKOUT!'),
+    'TitleScreen.tsx must remove the tagline completely per Phase 2.1'
+  );
   assert.ok(!titleScreenTsx.includes('FILMI DANGAL'), 'TitleScreen.tsx must not display FILMI DANGAL');
 
   const disclaimerTsx = fs.readFileSync(path.resolve(process.cwd(), 'src/components/DisclaimerModal.tsx'), 'utf8');
@@ -2823,6 +2827,83 @@ test('26. Phase 3, 4, 6 & 7 — Preview vs. Gameplay Animation Parity, Reverse P
     );
   }
 });
+
+test('27. UI Redesign & 3D Arena Enhancement Verification: Screen Flow (title -> game_mode -> character_select -> character_overview -> arena_select -> fighting -> results), Interactive Preview Rotation & Enhanced 3D Stages', async () => {
+  const bridge = GameBridge.getInstance();
+  bridge.returnToMenu();
+  assert.equal(bridge.screen, 'title');
+
+  // 1. Verify complete navigation flow: MAIN MENU -> GAME MODE -> CHARACTER SELECT -> CHARACTER OVERVIEW -> ARENA SELECT -> FIGHT -> RESULTS
+  const observedScreens: string[] = [];
+  const unsub = bridge.subscribeScreen((s) => observedScreens.push(s));
+
+  bridge.setScreen('game_mode');
+  assert.equal(bridge.screen, 'game_mode');
+
+  bridge.gameMode = 'vs_cpu';
+  bridge.setScreen('character_select');
+  assert.equal(bridge.screen, 'character_select');
+
+  bridge.inspectedCharacterId = 'duggu';
+  bridge.setScreen('character_overview');
+  assert.equal(bridge.screen, 'character_overview');
+  assert.equal(bridge.inspectedCharacterId, 'duggu');
+
+  bridge.setScreen('arena_select');
+  assert.equal(bridge.screen, 'arena_select');
+
+  bridge.arenaId = 'film_city';
+  bridge.startMatch();
+  assert.equal(bridge.screen, 'fighting');
+
+  bridge.matchWinner = 'p1';
+  bridge.setScreen('results');
+  assert.equal(bridge.screen, 'results');
+
+  bridge.returnToMenu();
+  assert.equal(bridge.screen, 'title');
+  unsub();
+
+  assert.deepEqual(observedScreens, [
+    'game_mode',
+    'character_select',
+    'character_overview',
+    'arena_select',
+    'fighting',
+    'results',
+    'title',
+  ]);
+
+  // 2. Verify CharacterPreviewScene interactive turntable rotation & viewport variants
+  const previewScene = new CharacterPreviewScene(null, 'action_sultan', undefined, undefined, 'overview');
+  await previewScene.loadCharacterAsset('romance_raja');
+  assert.equal(previewScene.getCurrentRig()?.characterId, 'romance_raja');
+  previewScene.rotateModel(0.5);
+  previewScene.resetRotation();
+  previewScene.dispose();
+
+  // 3. Verify enhanced Award Night and Film City 3D arenas have 3-point + accent lighting (4 lights) and rich multi-layered geometry
+  const engine = new NullEngine();
+  const scene = new Scene(engine);
+
+  const award = ArenaBuilder3D.buildArena(scene, 'award_night', true);
+  assert.equal(scene.lights.length, 4, 'Award Night arena configures 4 lights (Hemi, Key, Rim, Accent)');
+  assert.ok(scene.meshes.length >= 30, 'Award Night arena builds rich multi-layered 3D stage & VIP seating meshes');
+  award.dispose();
+  assert.equal(scene.meshes.length, 0);
+  assert.equal(scene.lights.length, 0);
+
+  const film = ArenaBuilder3D.buildArena(scene, 'film_city', true);
+  assert.equal(scene.lights.length, 4, 'Film City arena configures 4 lights (Hemi, Key, Rim, Accent)');
+  assert.ok(scene.meshes.length >= 30, 'Film City arena builds rich 3D soundstage, set facades, and articulated crane meshes');
+  film.dispose();
+  assert.equal(scene.meshes.length, 0);
+  assert.equal(scene.lights.length, 0);
+
+  scene.dispose();
+  engine.dispose();
+});
+
 
 
 

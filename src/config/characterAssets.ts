@@ -596,7 +596,7 @@ export const CHARACTER_ASSET_MANIFEST: Record<FighterId, CharacterAssetConfig> =
     superShotTitle: 'KAHO NAA DANCE WAVE',
     superShotConcept:
       'Enters a confident dancer stance, performs energetic Kaho Naa... Pyaar Hai-inspired footwork, expressive arm waves, and an original 360-degree acrobatic spin that releases a rhythmic sonic energy wave.',
-    isTemporaryPlaceholder: false,
+    isTemporaryPlaceholder: true,
     modelPath: '/assets/characters/duggu/model.glb',
     legacyModelPath: '/assets/characters/duggu/model.glb',
     portraitPath: '/assets/characters/duggu/portrait.png',

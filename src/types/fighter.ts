@@ -22,9 +22,11 @@ export type TrainingDummyBehavior =
 
 export type ScreenName =
   | 'title'
+  | 'game_mode'
   | 'disclaimer'
   | 'select'
   | 'character_select'
+  | 'character_overview'
   | 'arena_select'
   | 'controls'
   | 'fighting'

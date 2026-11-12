@@ -1940,6 +1940,7 @@ export class CharacterAssetLoader {
     let importedAnimGroups: AnimationGroup[] = [];
     let glbLoaded = false;
     let loadedFromPath: string | null = null;
+    const newlyCreatedSceneMaterials = new Set<Material>();
 
     for (const candidatePath of attemptedPaths) {
       try {
@@ -1979,7 +1980,13 @@ export class CharacterAssetLoader {
           sceneFilename = candidatePath.substring(lastSlash + 1);
         }
 
+        const matsBeforeImport = new Set<Material>(scene.materials);
         const result = await SceneLoader.ImportMeshAsync('', rootUrl, sceneFilename, scene);
+        for (const mat of scene.materials) {
+          if (!matsBeforeImport.has(mat)) {
+            newlyCreatedSceneMaterials.add(mat);
+          }
+        }
         if (result && ((result.meshes && result.meshes.length > 0) || (result.transformNodes && result.transformNodes.length > 0))) {
           glbLoaded = true;
           loadedFromPath = candidatePath;
@@ -2042,19 +2049,13 @@ export class CharacterAssetLoader {
       instancePrefix
     );
 
-    // Detect if the imported GLB is a generated 5-box placeholder proxy (LOD0_High/LOD1_Medium/LOD2_Low + 24-vertex boxes + 0 skins)
+    // Detect if the imported GLB is a generated box placeholder proxy (24-vertex boxes + 0 skins)
     const meshesWithVerts = importedMeshes.filter((m) => m.getTotalVertices() > 0);
     const isGeneratedBoxPlaceholderProxy =
       glbLoaded &&
       boneResolution.allSkeletons.length === 0 &&
       meshesWithVerts.length > 0 &&
-      meshesWithVerts.every((m) => m.getTotalVertices() === 24) &&
-      importedTransformNodes.some(
-        (tn) =>
-          tn.name === 'LOD0_High' ||
-          tn.name === 'LOD1_Medium' ||
-          tn.name === 'LOD2_Low'
-      );
+      meshesWithVerts.every((m) => m.getTotalVertices() === 24);
 
     // Phase 2: Calibrate model scale and groundOffset mathematically from actual unscaled local bounds
     let calibratedScale = manifest.scale;
@@ -2134,7 +2135,7 @@ export class CharacterAssetLoader {
       : 'TEMPORARY_PLACEHOLDER';
 
     // Collect imported materials for diagnostics and disposal
-    const importedMaterialSet = new Set<Material>();
+    const importedMaterialSet = new Set<Material>(newlyCreatedSceneMaterials);
     for (const m of importedMeshes) {
       if (m.material) {
         importedMaterialSet.add(m.material);

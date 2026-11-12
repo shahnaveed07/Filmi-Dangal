@@ -5,11 +5,11 @@
 
 import React, { useCallback, useEffect, useState } from 'react';
 import { ArenaSelect } from './components/ArenaSelect';
+import { CharacterOverview } from './components/CharacterOverview';
 import { CharacterSelect } from './components/CharacterSelect';
-import { ControlsModal } from './components/ControlsModal';
-import { DisclaimerModal } from './components/DisclaimerModal';
 import { FightHUD } from './components/FightHUD';
 import { GameCanvas } from './components/GameCanvas';
+import { GameModeSelect } from './components/GameModeSelect';
 import { MobileControls } from './components/MobileControls';
 import { PauseModal } from './components/PauseModal';
 import { ResultsModal } from './components/ResultsModal';
@@ -18,7 +18,8 @@ import { TitleScreen } from './components/TitleScreen';
 import { CHARACTERS } from './data/characters';
 import { AudioManager } from './engine/AudioManager';
 import { GameBridge, GameHUDState, GameScreen } from './engine/GameBridge';
-import { GameMode } from './types/fighter';
+import { applyFighterSelection } from './game3d/characters/CharacterRoster3D';
+import { FighterId, GameMode } from './types/fighter';
 import { RotateCcw } from 'lucide-react';
 
 export default function App() {
@@ -27,8 +28,6 @@ export default function App() {
 
   const [currentScreen, setCurrentScreen] = useState<GameScreen>(bridge.screen);
   const [isPaused, setIsPaused] = useState<boolean>(bridge.isPaused);
-  const [showControls, setShowControls] = useState(false);
-  const [showDisclaimer, setShowDisclaimer] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [isPortrait, setIsPortrait] = useState(false);
   const [dismissedPortraitPrompt, setDismissedPortraitPrompt] = useState(false);
@@ -89,7 +88,11 @@ export default function App() {
       const params = new URLSearchParams(window.location.search);
       if (params.get('autostart') === '1' && bridge.screen === 'title') {
         const modeParam = params.get('mode');
-        if (modeParam === 'training' || modeParam === 'vs_cpu' || modeParam === 'arcade') {
+        if (
+          modeParam === 'training' ||
+          modeParam === 'vs_cpu' ||
+          modeParam === 'arcade'
+        ) {
           bridge.gameMode = modeParam;
         }
         bridge.startMatch();
@@ -113,9 +116,49 @@ export default function App() {
     };
   }, [bridge, audio]);
 
-  const handleStartGame = useCallback(
+  const handleOpenGameModes = useCallback(() => {
+    bridge.characterSelectBrowseOnly = false;
+    bridge.setScreen('game_mode');
+  }, [bridge]);
+
+  const handleOpenFightersFromMenu = useCallback(() => {
+    bridge.characterSelectBrowseOnly = true;
+    bridge.selectingPlayerSlot = 'p1';
+    bridge.inspectedCharacterId = bridge.p1CharacterId;
+    bridge.setScreen('character_select');
+  }, [bridge]);
+
+  const handleSelectGameMode = useCallback(
     (mode: GameMode) => {
       bridge.gameMode = mode;
+      bridge.characterSelectBrowseOnly = false;
+      bridge.selectingPlayerSlot = 'p1';
+      bridge.setScreen('character_select');
+    },
+    [bridge]
+  );
+
+  const handleOpenCharacterOverview = useCallback(
+    (id: FighterId) => {
+      bridge.inspectedCharacterId = id;
+      bridge.setScreen('character_overview');
+    },
+    [bridge]
+  );
+
+  const handleSelectFromOverview = useCallback(
+    (id: FighterId) => {
+      const next = applyFighterSelection(
+        {
+          p1Id: bridge.p1CharacterId,
+          p2Id: bridge.p2CharacterId,
+          selectingFor: bridge.selectingPlayerSlot || 'p1',
+        },
+        id
+      );
+      bridge.p1CharacterId = next.p1Id;
+      bridge.p2CharacterId = next.p2Id;
+      bridge.inspectedCharacterId = id;
       bridge.setScreen('character_select');
     },
     [bridge]
@@ -160,25 +203,47 @@ export default function App() {
     <div
       data-screen={currentScreen}
       data-mode={bridge.gameMode}
-      className="relative w-screen h-screen bg-[#10111B] text-[#F1E7D0] overflow-hidden select-none font-sans"
+      className="relative w-screen h-screen bg-[#0D0C16] text-[#F1E7D0] overflow-hidden select-none font-sans"
     >
-      {/* SCREEN ROUTING */}
+      {/* 1. MAIN MENU */}
       {currentScreen === 'title' && (
         <TitleScreen
-          onStartGame={handleStartGame}
-          onOpenControls={() => setShowControls(true)}
-          onOpenDisclaimer={() => setShowDisclaimer(true)}
+          onPlay={handleOpenGameModes}
+          onOpenFighters={handleOpenFightersFromMenu}
           onOpenSettings={() => setShowSettings(true)}
         />
       )}
 
-      {currentScreen === 'character_select' && (
-        <CharacterSelect
+      {/* 2. GAME MODE SELECT */}
+      {currentScreen === 'game_mode' && (
+        <GameModeSelect
           onBack={handleReturnToTitle}
-          onProceed={handleProceedToArena}
+          onSelectMode={handleSelectGameMode}
         />
       )}
 
+      {/* 3. CHARACTER SELECT */}
+      {currentScreen === 'character_select' && (
+        <CharacterSelect
+          onBack={() =>
+            bridge.characterSelectBrowseOnly
+              ? handleReturnToTitle()
+              : bridge.setScreen('game_mode')
+          }
+          onProceed={handleProceedToArena}
+          onOpenOverview={handleOpenCharacterOverview}
+        />
+      )}
+
+      {/* 4. CHARACTER OVERVIEW */}
+      {currentScreen === 'character_overview' && (
+        <CharacterOverview
+          onBackToRoster={() => bridge.setScreen('character_select')}
+          onSelectCharacter={handleSelectFromOverview}
+        />
+      )}
+
+      {/* 5. ARENA SELECT */}
       {currentScreen === 'arena_select' && (
         <ArenaSelect
           onBack={() => bridge.setScreen('character_select')}
@@ -186,27 +251,23 @@ export default function App() {
         />
       )}
 
+      {/* 6. ACTIVE FIGHT */}
       {currentScreen === 'fighting' && (
         <div className="relative w-full h-full flex items-center justify-center">
-          {/* ISOLATED 60FPS SIMULATION CANVAS */}
           <GameCanvas />
 
-          {/* RETRO ARCADE HUD OVERLAY */}
           <FightHUD
             hudState={hudState}
             onPause={handlePauseFight}
             onToggleMute={handleToggleMute}
           />
 
-          {/* MULTITOUCH MOBILE CONTROLS OVERLAY */}
           <MobileControls />
 
-          {/* PAUSE MODAL */}
           {isPaused && (
             <PauseModal
               onResume={handleResumeFight}
               onRestart={handleRestartRound}
-              onOpenControls={() => setShowControls(true)}
               onOpenSettings={() => setShowSettings(true)}
               onMainMenu={handleReturnToTitle}
             />
@@ -214,6 +275,7 @@ export default function App() {
         </div>
       )}
 
+      {/* 7. RESULTS */}
       {currentScreen === 'results' && (
         <ResultsModal
           onRematch={handleRematch}
@@ -222,28 +284,24 @@ export default function App() {
         />
       )}
 
-      {/* GLOBAL MODALS */}
-      {showControls && <ControlsModal onClose={() => setShowControls(false)} />}
-      {showDisclaimer && <DisclaimerModal onClose={() => setShowDisclaimer(false)} />}
+      {/* SETTINGS MODAL */}
       {showSettings && <SettingsModal onClose={() => setShowSettings(false)} />}
 
-      {/* MOBILE PORTRAIT ROTATE DEVICE PROMPT (During active fighting, non-destructive & dismissible) */}
+      {/* MOBILE PORTRAIT ROTATE DEVICE PROMPT */}
       {isPortrait && currentScreen === 'fighting' && !dismissedPortraitPrompt && (
-        <div className="fixed inset-0 bg-[#10111B]/95 z-50 flex flex-col items-center justify-center p-6 text-center">
+        <div className="fixed inset-0 bg-[#0D0C16]/95 z-50 flex flex-col items-center justify-center p-6 text-center">
           <div className="w-16 h-16 rounded-full bg-[#BE123C] border-2 border-[#D6A447] flex items-center justify-center mb-4 text-[#FEF08A]">
             <RotateCcw size={32} />
           </div>
           <h2 className="font-['Bungee'] text-2xl text-[#FEF08A] mb-2 tracking-wider">
-            ROTATE FOR WIDESCREEN ACTION
+            ROTATE DEVICE
           </h2>
-          <p className="text-xs text-[#F1E7D0]/80 max-w-xs leading-relaxed font-['Rajdhani'] font-bold mb-5">
-            Fight Fun is optimized for landscape widescreen combat, or you can continue playing in portrait mode below.
-          </p>
           <button
+            type="button"
             onClick={() => setDismissedPortraitPrompt(true)}
-            className="px-5 py-2.5 bg-[#1A1829] hover:bg-[#25203B] text-[#FEF08A] font-['Cinzel'] font-bold text-xs rounded border border-[#D6A447] cursor-pointer"
+            className="mt-3 px-5 py-2.5 bg-[#171526] hover:bg-[#231F38] text-[#FEF08A] font-['Cinzel'] font-bold text-xs rounded-lg border border-[#D6A447] cursor-pointer"
           >
-            CONTINUE IN PORTRAIT
+            CONTINUE
           </button>
         </div>
       )}

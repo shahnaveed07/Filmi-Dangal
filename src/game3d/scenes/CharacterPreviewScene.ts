@@ -25,16 +25,7 @@ import { CharacterRig3D, loadCharacterRig3D } from '../assets/AssetLoader3D';
 import { detectSoftwareWebGL } from '../engine/BabylonFightEngine';
 import { VFXManager3D } from '../vfx/VFXManager3D';
 
-/**
- * CharacterPreviewScene
- *
- * Dedicated Babylon.js 3D Character Preview & Vertical Slice Verification Scene.
- * - Loads GLB 2.0 character assets via CharacterAssetLoader & validates via CharacterAssetValidator
- * - Protects against rapid character switching via async load tokens
- * - Plays back Idle, Walk, Punch, Kick, Block, Jump, SuperShot, and SuperMove animations
- * - Renders live bone-attached 3D active hitbox spheres, 3D SuperShot projectile VFX,
- *   and 3D SuperMove shockwave VFX triggered by FighterAnimationEvents
- */
+export type PreviewViewportVariant = 'select' | 'overview' | 'hero';
 
 export interface PreviewTelemetrySnapshot {
   characterId: FighterId;
@@ -61,12 +52,11 @@ export interface PreviewTelemetrySnapshot {
 }
 
 /**
- * Section 7: Cancellable Preview Audio Timer Manager.
+ * Cancellable Preview Audio Timer Manager.
  * Tracks all scheduled preview audio `setTimeout` IDs and ensures pending timers are cancelled:
  * - When a new preview animation state is triggered,
  * - When the selected `characterId` changes,
  * - When the preview component/scene unmounts or disposes.
- * Also guards timer callbacks so stale character audio never fires after switching or unmounting.
  */
 export class PreviewAudioTimerManager {
   private activeTimers = new Set<ReturnType<typeof setTimeout>>();
@@ -139,14 +129,17 @@ export class CharacterPreviewScene {
   private characterId: FighterId;
   private activeState: FighterStateName = 'idle';
   private stateElapsedSec = 0;
-  private stateDurationSec = 0; // 0 = continuous loop (Idle / Walk / Block)
+  private stateDurationSec = 0;
   private renderMode: 'stylized' | 'graybox' = 'stylized';
   private lodLevel: 0 | 1 | 2 = 0;
+  private manualYawOffset = 0;
+  private autoTurntable = true;
 
   private activeHitboxSphere: Mesh;
   private previewProjectileMesh: Mesh;
   private previewShockwaveRing: Mesh;
   private ringMat: PBRMaterial;
+  private outerRingMat: PBRMaterial;
   private projMat: PBRMaterial;
   private shockMat: PBRMaterial;
   private projectileLifeSec = 0;
@@ -161,7 +154,8 @@ export class CharacterPreviewScene {
     canvas: HTMLCanvasElement | null,
     initialCharacterId: FighterId,
     onTelemetryUpdate?: (snap: PreviewTelemetrySnapshot) => void,
-    existingEngine?: Engine
+    existingEngine?: Engine,
+    variant: PreviewViewportVariant = 'select'
   ) {
     this.characterId = initialCharacterId;
     this.onTelemetryUpdate = onTelemetryUpdate;
@@ -182,59 +176,85 @@ export class CharacterPreviewScene {
     }
 
     this.scene = new Scene(this.engine);
-    this.scene.clearColor = new Color4(0.06, 0.05, 0.11, 1);
+    this.scene.clearColor = new Color4(0.05, 0.04, 0.1, 1);
     this.vfxManager = new VFXManager3D(this.scene);
 
     // Centered full-body framing that frames head (Y~1.92) to pedestal feet (Y~0)
+    const camZ = variant === 'overview' ? -3.35 : variant === 'hero' ? -3.25 : -3.5;
+    const camY = variant === 'overview' ? 0.98 : 0.96;
     this.camera = new UniversalCamera(
       'previewCam',
-      new Vector3(0, 0.96, -3.6),
+      new Vector3(0, camY, camZ),
       this.scene
     );
-    this.camera.fov = 0.72;
+    this.camera.fov = variant === 'overview' ? 0.68 : 0.72;
     this.camera.setTarget(new Vector3(0, 0.96, 0));
 
+    // 3-Point Studio Lighting for clear silhouette separation
     const hemi = new HemisphericLight('prevHemi', new Vector3(0, 1, 0), this.scene);
     hemi.intensity = 0.98;
     hemi.diffuse = new Color3(1, 0.96, 0.88);
-    hemi.groundColor = new Color3(0.24, 0.2, 0.32);
+    hemi.groundColor = new Color3(0.24, 0.2, 0.34);
 
     const key = new DirectionalLight(
       'prevKey',
-      new Vector3(-0.4, -0.8, 0.5).normalize(),
+      new Vector3(-0.38, -0.82, 0.45).normalize(),
       this.scene
     );
-    key.intensity = 1.65;
+    key.intensity = 1.75;
+    key.diffuse = new Color3(1.0, 0.95, 0.86);
+
+    const rim = new DirectionalLight(
+      'prevRim',
+      new Vector3(0.3, -0.35, -0.88).normalize(),
+      this.scene
+    );
+    rim.intensity = 0.9;
+    rim.diffuse = new Color3(0.95, 0.78, 0.38);
 
     const charDef = CHARACTERS[initialCharacterId] || CHARACTERS.action_sultan;
 
     // 3D Stage Pedestal (Ground Origin Y = 0)
     const pedMat = new PBRMaterial('pedMat', this.scene);
-    pedMat.albedoColor = Color3.FromHexString('#1E1B2E');
-    pedMat.metallic = 0.55;
-    pedMat.roughness = 0.25;
+    pedMat.albedoColor = Color3.FromHexString('#171426');
+    pedMat.metallic = 0.6;
+    pedMat.roughness = 0.22;
 
     this.ringMat = new PBRMaterial('ringMat', this.scene);
     this.ringMat.albedoColor = Color3.FromHexString(charDef.visuals.primaryColor);
-    this.ringMat.emissiveColor = Color3.FromHexString(charDef.visuals.primaryColor).scale(0.6);
-    this.ringMat.metallic = 0.7;
-    this.ringMat.roughness = 0.2;
+    this.ringMat.emissiveColor = Color3.FromHexString(charDef.visuals.primaryColor).scale(0.65);
+    this.ringMat.metallic = 0.75;
+    this.ringMat.roughness = 0.18;
+
+    this.outerRingMat = new PBRMaterial('outerRingMat', this.scene);
+    this.outerRingMat.albedoColor = Color3.FromHexString(charDef.visuals.secondaryColor);
+    this.outerRingMat.emissiveColor = Color3.FromHexString(charDef.visuals.secondaryColor).scale(0.45);
+    this.outerRingMat.metallic = 0.8;
+    this.outerRingMat.roughness = 0.22;
 
     const pedestal = MeshBuilder.CreateCylinder(
       'previewPedestal',
-      { height: 0.14, diameterTop: 1.55, diameterBottom: 1.75, tessellation: 24 },
+      { height: 0.16, diameterTop: 1.62, diameterBottom: 1.88, tessellation: 28 },
       this.scene
     );
-    pedestal.position.y = -0.07;
+    pedestal.position.y = -0.08;
     pedestal.material = pedMat;
 
     const glowRing = MeshBuilder.CreateTorus(
       'previewRing',
-      { diameter: 1.6, thickness: 0.045, tessellation: 28 },
+      { diameter: 1.66, thickness: 0.048, tessellation: 32 },
       this.scene
     );
     glowRing.position.y = 0.01;
     glowRing.material = this.ringMat;
+
+    const outerRing = MeshBuilder.CreateTorus(
+      'previewOuterRing',
+      { diameter: 1.96, thickness: 0.025, tessellation: 32 },
+      this.scene
+    );
+    outerRing.position.y = -0.02;
+    outerRing.material = this.outerRingMat;
 
     // Live 3D Hitbox Indicator Sphere (shown during ACTIVE attack frames)
     const hbMat = new PBRMaterial('hbMat', this.scene);
@@ -317,9 +337,11 @@ export class CharacterPreviewScene {
       }
 
       if (this.currentRig && this.currentRig.characterId === this.characterId) {
-        // Bounded jump vertical arc in preview so head never clips top of viewport
         if (this.activeState === 'jump') {
-          const jumpProgress = Math.min(1, this.stateElapsedSec / Math.max(0.01, this.stateDurationSec));
+          const jumpProgress = Math.min(
+            1,
+            this.stateElapsedSec / Math.max(0.01, this.stateDurationSec)
+          );
           this.currentRig.rootNode.position.y = Math.sin(jumpProgress * Math.PI) * 0.42;
         } else {
           this.currentRig.rootNode.position.y = 0;
@@ -335,15 +357,16 @@ export class CharacterPreviewScene {
           0
         );
 
-        // Gently rotate character in 3/4 view so 3D depth, strike extension, and costume are clear
-        turntableAngle += dt * 0.95;
+        if (this.autoTurntable) {
+          turntableAngle += dt * 0.85;
+        }
+        const autoSway = this.autoTurntable ? Math.sin(turntableAngle) * 0.34 : 0;
         const baseYaw =
           this.activeState === 'idle' || this.activeState === 'walk'
-            ? Math.PI + Math.sin(turntableAngle) * 0.36
-            : Math.PI - 0.52;
+            ? Math.PI + autoSway + this.manualYawOffset
+            : Math.PI - 0.48 + this.manualYawOffset;
         this.currentRig.facingNode.rotation.y = baseYaw;
 
-        // Update active bone-attached hitbox sphere
         if (evtPayload.phase === 'ACTIVE' && evtPayload.activeBone) {
           const bonePos = this.animController.getSocketWorldPosition(
             this.currentRig,
@@ -382,7 +405,6 @@ export class CharacterPreviewScene {
         });
       }
 
-      // Step preview SuperShot projectile
       if (this.projectileLifeSec > 0) {
         this.projectileLifeSec = Math.max(0, this.projectileLifeSec - dt);
         this.previewProjectileMesh.position.x += dt * 2.4;
@@ -393,7 +415,6 @@ export class CharacterPreviewScene {
         }
       }
 
-      // Step preview SuperMove shockwave
       if (this.shockwaveLifeSec > 0) {
         this.shockwaveLifeSec = Math.max(0, this.shockwaveLifeSec - dt);
         const s = 0.6 + (0.65 - this.shockwaveLifeSec) * 2.8;
@@ -404,6 +425,7 @@ export class CharacterPreviewScene {
       }
 
       glowRing.rotation.y += dt * 0.8;
+      outerRing.rotation.y -= dt * 0.5;
       this.vfxManager.syncProjectiles([], dt);
       this.scene.render();
     });
@@ -424,16 +446,27 @@ export class CharacterPreviewScene {
     }
   }
 
+  public rotateModel(deltaYawRad: number): void {
+    this.autoTurntable = false;
+    this.manualYawOffset += deltaYawRad;
+  }
+
+  public resetRotation(): void {
+    this.manualYawOffset = 0;
+    this.autoTurntable = true;
+  }
+
   public async loadCharacterAsset(characterId: FighterId): Promise<CharacterRig3D | null> {
     const token = ++this.loadToken;
     this.characterId = characterId;
     this.isLoading = true;
     this.loadError = null;
+    this.manualYawOffset = 0;
+    this.autoTurntable = true;
     this.activeHitboxSphere.isVisible = false;
     this.previewProjectileMesh.isVisible = false;
     this.previewShockwaveRing.isVisible = false;
 
-    // Immediately dispose any previous character's rig so an old model never lingers during async loading
     if (this.currentRig && this.currentRig.characterId !== characterId) {
       this.currentRig.dispose();
       this.currentRig = null;
@@ -441,9 +474,10 @@ export class CharacterPreviewScene {
 
     const charDef = CHARACTERS[characterId] || CHARACTERS.action_sultan;
 
-    // Update accent colors on pedestal ring & preview VFX for the newly selected character
     this.ringMat.albedoColor = Color3.FromHexString(charDef.visuals.primaryColor);
-    this.ringMat.emissiveColor = Color3.FromHexString(charDef.visuals.primaryColor).scale(0.6);
+    this.ringMat.emissiveColor = Color3.FromHexString(charDef.visuals.primaryColor).scale(0.65);
+    this.outerRingMat.albedoColor = Color3.FromHexString(charDef.visuals.secondaryColor);
+    this.outerRingMat.emissiveColor = Color3.FromHexString(charDef.visuals.secondaryColor).scale(0.45);
     this.projMat.albedoColor = Color3.FromHexString(charDef.visuals.secondaryColor);
     this.projMat.emissiveColor = Color3.FromHexString(charDef.visuals.primaryColor).scale(0.95);
     this.shockMat.emissiveColor = Color3.FromHexString(charDef.visuals.primaryColor).scale(0.95);
@@ -524,7 +558,7 @@ export class CharacterPreviewScene {
     this.stateElapsedSec = 0;
 
     if (state === 'idle' || state === 'walk' || state === 'block') {
-      this.stateDurationSec = 0; // loop continuously until changed
+      this.stateDurationSec = 0;
     } else if (state === 'punch') {
       this.stateDurationSec = 0.45;
     } else if (state === 'kick') {

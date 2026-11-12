@@ -30,17 +30,22 @@ Use this guide to understand the runtime execution flow, locate the exact file r
 ### 1.2 Runtime Execution Flow (End-to-End Lifecycle)
 
 ```text
-[1. TitleScreen.tsx] ("FIGHT FUN — LIGHTS. CAMERA. KNOCKOUT!")
-   User selects mode ('arcade' | 'vs_cpu' | 'training')
+[1. TitleScreen.tsx] ("FIGHT FUN" — Visual-First Main Menu with Live 3D Hero Showcase)
+   ├─> "PLAY": bridge.setScreen('game_mode')
+   ├─> "FIGHTERS": bridge.characterSelectBrowseOnly = true; bridge.setScreen('character_select')
+   └─> "SETTINGS": opens SettingsModal
+
+[2. GameModeSelect.tsx]
+   User clicks visual mode card ('arcade' | 'vs_cpu' | 'training')
    └─> bridge.gameMode = mode; bridge.setScreen('character_select')
 
-[2. CharacterSelect.tsx]
-   User clicks character card for P1 or P2
+[3. CharacterSelect.tsx & CharacterOverview.tsx]
+   User clicks character card for P1 or P2 (or opens CharacterOverview for full-body 3D turntable & Attack/Defence/Speed bars)
    └─> applyFighterSelection(current, clickedId) (src/game3d/characters/CharacterRoster3D.ts)
        Updates p1Id / p2Id deterministically & writes bridge.p1CharacterId / bridge.p2CharacterId
    └─> CharacterPreview3D.tsx passes activeCharacterId to CharacterPreviewScene.loadCharacterAsset(characterId)
-       ├─> Monotonic requestId increments; immediately disposes previous preview rig
-       └─> AssetLoader3D.loadCharacterRig(scene, def) -> CharacterAssetLoader.loadAndValidateCharacter(...)
+       ├─> Monotonic loadToken increments; immediately disposes previous preview rig
+       └─> AssetLoader3D.loadCharacterRig3D(scene, def) -> CharacterAssetLoader.loadCharacterFromManifest(...)
            ├─> Validates GLB against CharacterAssetConfig (src/config/characterAssets.ts)
            ├─> If isTemporaryPlaceholder === true: disposes 24-vertex box proxy GLB and builds character-specific
            │   articulated 22-bone + 5-facial-bone procedural rig (renderState = 'TEMPORARY_PLACEHOLDER')
@@ -48,11 +53,11 @@ Use this guide to understand the runtime execution flow, locate the exact file r
                bones via boneAliases, registers dynamic AnimationGroups (excluding static 'mixamo_com' pose),
                and sets renderState = 'PRODUCTION_SKINNED'
 
-[3. ArenaSelect.tsx]
-   User selects arena ('award_night' | 'film_city') and clicks "ENTER THE ARENA - FIGHT!"
+[4. ArenaSelect.tsx & ArenaPreview3D.tsx]
+   User previews real-time 3D stage ('award_night' | 'film_city') via ArenaPreview3D and clicks "FIGHT!"
    └─> bridge.arenaId = selectedArena; bridge.startMatch() (sets screen = 'fighting')
 
-[4. GameCanvas.tsx -> BabylonFightEngine.ts]
+[5. GameCanvas.tsx -> BabylonFightEngine.ts]
    Mounts canvas and instantiates BabylonFightEngine(canvas)
    └─> initializeFullMatch():
        ├─> Creates Fighter3D(p1Def, -2.3, 1) and Fighter3D(p2Def, +2.3, -1)
@@ -69,11 +74,11 @@ Use this guide to understand the runtime execution flow, locate the exact file r
        ├─> CombatSystem3D steps physics, pushboxes, HitboxSystem3D collisions, SuperShot projectiles, SuperMoves
        └─> sync3DSceneVisuals() updates P1/P2 rig positions & unified AnimationController3D poses (only when rig.characterId === fighter.id)
 
-[5. ResultsModal.tsx]
+[6. ResultsModal.tsx]
    Match ends -> bridge.setScreen('results')
    ├─> "REMATCH": bridge.rematch() -> preserves p1CharacterId & p2CharacterId, reloads match
-   ├─> "NEXT OPPONENT" (Arcade win): bridge.advanceArcadeTower() -> sets p2CharacterId to next distinct fighter
-   └─> "CHANGE FIGHTERS": bridge.setScreen('character_select') -> returns to CharacterSelect with current IDs intact
+   ├─> "NEXT STAGE" (Arcade win): bridge.advanceArcadeStage() -> sets p2CharacterId to next distinct fighter
+   └─> "FIGHTERS": bridge.setScreen('character_select') -> returns to CharacterSelect with current IDs intact
 ```
 
 ---
@@ -152,16 +157,20 @@ bun install --frozen-lockfile
     │   ├── characters.ts               # Fighter gameplay stats, palettes, movesets, and arcade ladder
     │   └── arenas.ts                   # Arena definitions ('award_night', 'film_city')
     ├── components/
-    │   ├── TitleScreen.tsx             # Main menu ("FIGHT FUN"), mode selection, quick-launch
-    │   ├── CharacterSelect.tsx         # P1/P2 fighter selection UI, stats panel, 3D preview host
-    │   ├── ArenaSelect.tsx             # Stage selection screen ('award_night' vs 'film_city')
+    │   ├── ui/
+    │   │   └── FightFunUI.tsx          # Reusable UI design system (PrimaryButton, SecondaryButton, ScreenHeader, CharacterPortrait, CharacterCard, CharacterRoster, CharacterStats, ArenaCard, Modal, LoadingIndicator)
+    │   ├── TitleScreen.tsx             # Visual-first Main Menu ("FIGHT FUN", 3D hero showcase, Play/Fighters/Settings)
+    │   ├── GameModeSelect.tsx          # Dedicated Game Mode selection screen (Arcade, Versus CPU, Training)
+    │   ├── CharacterSelect.tsx         # P1/P2 fighter selection UI, roster grid, 3D preview host
+    │   ├── CharacterOverview.tsx       # Dedicated full-body 3D character overview, rotation controls, Attack/Defence/Speed stat bars
+    │   ├── ArenaSelect.tsx             # Stage selection screen with live 3D ArenaPreview3D viewport
     │   ├── GameCanvas.tsx              # Babylon.js WebGL canvas host & engine lifecycle wrapper
-    │   ├── FightHUD.tsx                # Health bars, super meters, timer, combo counters, training controls
+    │   ├── FightHUD.tsx                # Clean health bars, super meters, timer, combo counters, training controls
     │   ├── MobileControls.tsx          # Virtual D-pad and action buttons for touch devices
-    │   ├── PauseModal.tsx              # In-match pause overlay
-    │   ├── ResultsModal.tsx            # Victory/defeat screen, rematch, arcade tower progression
+    │   ├── PauseModal.tsx              # Simplified in-match pause overlay
+    │   ├── ResultsModal.tsx            # Winner showcase, rematch, arcade progression, and main menu actions
     │   ├── ControlsModal.tsx           # Keybinding reference & character move list modal
-    │   ├── SettingsModal.tsx           # Audio volume, CPU difficulty, and keybinding customization modal
+    │   ├── SettingsModal.tsx           # Audio, Gameplay, Display, and Controls settings modal
     │   └── DisclaimerModal.tsx         # Parody & legal disclaimer modal ("FIGHT FUN")
     ├── engine/
     │   ├── GameBridge.ts               # Singleton pub/sub bridge between React UI and 3D engine
@@ -175,7 +184,7 @@ bun install --frozen-lockfile
     │   ├── MatchManager.ts             # Legacy 2D round state machine
     │   ├── CPUController.ts            # Legacy 2D AI controller
     │   └── tests/
-    │       └── combat.test.ts          # Comprehensive automated test suite (26 tests)
+    │       └── combat.test.ts          # Comprehensive automated test suite (27 tests)
     └── game3d/
         ├── engine/
         │   └── BabylonFightEngine.ts   # Main 3D match engine, 60Hz loop, rig loader, scene coordinator
@@ -202,12 +211,13 @@ bun install --frozen-lockfile
         ├── managers/
         │   └── MatchManager3D.ts       # Best-of-3 round timer, intro/KO phases, win tracking
         ├── arenas/
-        │   └── ArenaBuilder3D.ts       # Procedural 3D stage builder & material disposer (Award Night & Film City)
+        │   └── ArenaBuilder3D.ts       # Multi-layered 3D stage builder & material disposer (Award Night & Film City)
         ├── cameras/
         │   └── DynamicFightCamera3D.ts # Side-view framing camera with zoom, shake, and Super zoom-ins
         ├── scenes/
-        │   ├── CharacterPreview3D.tsx  # React wrapper for the Character Select 3D viewport
-        │   └── CharacterPreviewScene.ts # Dedicated Babylon.js 3D preview scene with monotonic async guard
+        │   ├── ArenaPreview3D.tsx      # Real-time 3D Babylon.js arena preview viewport for ArenaSelect
+        │   ├── CharacterPreview3D.tsx  # React wrapper for the Character Select / Overview / Hero 3D viewport
+        │   └── CharacterPreviewScene.ts # Dedicated Babylon.js 3D preview scene with monotonic async guard & interactive rotation
         ├── audio/
         │   └── AudioManager3D.ts       # 3D combat audio event adapter
         └── vfx/
@@ -284,7 +294,7 @@ The existing `.glb` files in `public/assets/characters/romance-raja/model.glb`, 
 4. **Update `public/assets/characters/<character-slug>/manifest.json`**:
    - Set `"isPlaceholder": false` and `"isTemporaryPlaceholder": false`.
 5. **Verify in Character Select & Gameplay**:
-   - Run `npm test` and open Character Select to confirm the preview badge shows `PRODUCTION 3D GLB` (`renderState: 'PRODUCTION_SKINNED'`).
+   - Run `npm test` and open Character Select to confirm the preview container attribute `data-render-state` is `'PRODUCTION_SKINNED'`.
 
 ---
 
@@ -310,34 +320,34 @@ Both Gameplay (`AnimationController3D` in `src/game3d/animation/AnimationControl
 
 ## 7. Arena Management
 
-### 7.1 Existing Arenas
+### 7.1 Existing 3D Arenas
 Defined in `src/data/arenas.ts` and constructed in 3D by `src/game3d/arenas/ArenaBuilder3D.ts`:
-- **`'award_night'` (Filmfare Grand Stage)**: Red carpet stage deck, illuminated golden stage archways, rotating golden trophy statues on pedestals, and sweeping volumetric spotlight cones.
-- **`'film_city'` (Film City Backlot)**: Industrial soundstage floor, dolly track rails, overhead steel lighting truss with studio spotlights, and an articulated 3D camera crane rig that pans across the stage.
+- **`'award_night'` (Filmfare Grand Stage)**: Multi-layered stage floor (`Y = 0`) with sub-stage apron, crimson red carpet with gold trim & center star medallion, foreground footlight housings, grand upstage steps, brass perimeter stanchions with velvet ropes, 3 monumental golden stage archways, LED backdrop wall with gold louver columns, dual multi-part 3D Golden Trophy statues on tiered pedestals with rotating film-reel halos, tiered VIP audience seating risers with guest silhouettes on left/right wings, overhead concert lighting gantry, sweeping volumetric spotlight cones, and 4-light key/fill/rim/accent setup.
+- **`'film_city'` (Film City Backlot)**: Industrial soundstage deck (`Y = 0`) with yellow safety hazard boundary stripes, steel dolly track rails & cross-ties, neo-classical palace movie set facades on left/right wings (columns, walls, cornices), soundstage acoustic back wall, overhead steel box-truss catwalk & studio spotlights, tripod studio fresnel floodlight stands on stage wings, an articulated multi-part 3D camera crane rig (rolling dolly cart, turret column, counterweight, jib arm, 3D cinema camera & lens hood) that pans smoothly across the fight, and contrasting cool/warm studio lighting.
 
 ### 7.2 Arena Lifecycle & Memory Disposal
-- When a match starts or switches arenas, `BabylonFightEngine.initializeFullMatch()` calls `this.arenaHandle?.dispose()` before calling `ArenaBuilder3D.buildArena(...)`.
-- `ArenaBuilder3D.dispose()` disposes the `ShadowGenerator`, all three stage lights (`hemiLight`, `keyLight`, `accentLight`), all child mesh `PBRMaterial` instances, and `rootNode` so switching arenas never leaks GPU resources.
+- Both gameplay (`BabylonFightEngine`) and the Arena Select 3D preview (`ArenaPreview3D.tsx`) use `ArenaBuilder3D.buildArena(...)`.
+- `ArenaBuilder3D.dispose()` disposes the `ShadowGenerator`, all stage lights (`hemiLight`, `keyLight`, `rimLight`, `accentLight`), all tracked and child `PBRMaterial` instances, and `rootNode` so switching arenas never leaks GPU resources.
 
 ### 7.3 How to Add or Modify an Arena
 1. Add the new arena ID to `ArenaId` in `src/types/fighter.ts`.
 2. Add the metadata entry to `ARENAS` in `src/data/arenas.ts`.
-3. Add a builder method in `src/game3d/arenas/ArenaBuilder3D.ts` and parent all stage meshes to `rootNode` so `dispose()` automatically cleans up all meshes and materials.
+3. Add a builder method in `src/game3d/arenas/ArenaBuilder3D.ts` using `registerMat(...)` and parent all stage meshes to `rootNode` so `dispose()` automatically cleans up all meshes and materials.
 
 ---
 
 ## 8. Combat Management
 
 ### 8.1 2D Gameplay Plane & Stage Boundaries
-- **Coordinate System**: Fighters move along `X` (horizontal stage axis, bounded to `[-STAGE_HALF_WIDTH, +STAGE_HALF_WIDTH]` = `[-6.6, +6.6]`) and `Y` (vertical jump axis, `Y >= 0`). `Z` is locked to `0`.
+- **Coordinate System**: Fighters move along `X` (horizontal stage axis, bounded to `[-7.5, +7.5]`) and `Y` (vertical jump axis, `Y >= 0`). `Z` is locked to `0`.
 - **Spawn Positions**: Player 1 spawns at `X = -2.3` facing right (`+1`); Player 2 spawns at `X = +2.3` facing left (`-1`).
 
 ### 8.2 Moves, Hitboxes, Combos & Meter
 - **Move Frame Data (`src/data/characters.ts`)**: Each fighter defines `startup`, `active`, `recovery`, `damage`, `hitstun`, `blockstun`, `knockbackX`, `knockbackY`, `isLow`, `isOverhead`, `causesKnockdown`, and `meterCost` for `punch`, `kick`, `crouch_kick`, `uppercut`, `grab`, `super_shot`, and `super_move`.
 - **Hitbox & Hurtbox System (`src/game3d/hitboxes/HitboxSystem3D.ts`)**: Projects active attack hitboxes from 3D bone sockets (`RightHand`, `RightFoot`, `Chest`) onto the 2D `X/Y` combat plane with deterministic fallback coordinates.
 - **Meter & Specials (`src/game3d/combat/CombatSystem3D.ts`)**:
-  - **SuperShot (`Q` / `50` meter)**: Spawns a character-specific 3D projectile via `SuperShotProjectileSystem` (`Action Sultan` golden energy shot, `Romance Raja` rose-gold heart wave, `Duggu` cyan sonic dance wave, `Bhidu` amber ground shockwave).
-  - **SuperMove (`E` / `100` meter)**: Triggers cinematic camera zoom, arena blackout dimming (`setBlackoutIntensity`), and high-damage multi-phase climax impact.
+  - **SuperShot (`U` / `25%` meter)**: Fires a character-specific 3D projectile (`Action Sultan` Blackbuck Gunshot, `Romance Raja` Mohabbat Rose Wave, `Duggu` Cyber Hrithik Pulse, `Bhidu` Dada Shockwave).
+  - **SuperMove (`L` / `100%` meter)**: Triggers cinematic camera zoom, arena blackout dimming (`setBlackoutIntensity`), and multi-phase climax impact.
 
 ---
 
@@ -357,13 +367,17 @@ Defined in `src/data/arenas.ts` and constructed in 3D by `src/game3d/arenas/Aren
 
 | Component File | Responsibility |
 | :--- | :--- |
-| `src/App.tsx` | Top-level screen state router (`title`, `character_select`, `arena_select`, `fighting`, `results`), global modals, and mobile portrait orientation prompt. |
-| `src/components/TitleScreen.tsx` | Displays the **FIGHT FUN** title screen, tagline (**LIGHTS. CAMERA. KNOCKOUT!**), mode buttons (`ARCADE MODE`, `VERSUS CPU`, `TRAINING MODE`), and quick-access modals. |
-| `src/components/CharacterSelect.tsx` | P1/P2 slot selector (`SELECTING P1` / `SELECTING P2`), 4 fighter cards, live 3D `CharacterPreview3D` viewport, animation preview toolbar (`IDLE`, `WALK`, `PUNCH`, `KICK`, `SUPERSHOT`, `SUPERMOVE`, `VICTORY`), and stat bars. |
-| `src/components/ArenaSelect.tsx` | Stage cards for `award_night` and `film_city` with stage feature lists. |
-| `src/components/FightHUD.tsx` | Health bars, round win stars, 60-second countdown timer, combo banners, P1/P2 Super meters, and Training Mode dummy behavior selector (`STAND`, `CROUCH`, `JUMP`, `BLOCK ALL`, `CPU FIGHT`). |
-| `src/components/ResultsModal.tsx` | Winner announcement, round score summary, `REMATCH`, `NEXT OPPONENT` (Arcade Mode), `CHANGE FIGHTERS`, and `MAIN MENU` actions. |
-| `src/components/SettingsModal.tsx` | Master/SFX/BGM volume sliders, CPU difficulty selector (`easy`, `medium`, `hard`), and interactive keyboard binding remapper. |
+| `src/App.tsx` | Top-level screen state router (`title` -> `game_mode` -> `character_select` -> `character_overview` -> `arena_select` -> `fighting` -> `results`), global settings modal, and mobile portrait prompt. |
+| `src/components/ui/FightFunUI.tsx` | Reusable UI design system (`PrimaryButton`, `SecondaryButton`, `ScreenHeader`, `SelectionIndicator`, `CharacterPortrait`, `CharacterCard`, `CharacterRoster`, `CharacterStats`, `ArenaCard`, `Modal`, `LoadingIndicator`). |
+| `src/components/TitleScreen.tsx` | Minimal visual-first Main Menu with **FIGHT FUN** logo, live 3D character showcase, and `PLAY`, `FIGHTERS`, `SETTINGS` navigation. |
+| `src/components/GameModeSelect.tsx` | Visual mode selection cards for `ARCADE`, `VERSUS CPU`, and `TRAINING`. |
+| `src/components/CharacterSelect.tsx` | P1/P2 slot selector, 4-fighter `CharacterRoster` grid, large `CharacterPreview3D` viewport, `OVERVIEW` button, and `CONFIRM FIGHTERS` CTA. |
+| `src/components/CharacterOverview.tsx` | Dedicated full-body 3D character inspection screen with interactive turntable rotation, fighting style, and `Attack`, `Defence`, `Speed` stat bars. |
+| `src/components/ArenaSelect.tsx` | Real-time 3D stage preview (`ArenaPreview3D`) and visual `ArenaCard` selectors for `award_night` and `film_city`. |
+| `src/components/FightHUD.tsx` | Unobtrusive in-match HUD with P1/P2 health bars, character names, round timer, and compact special/super availability indicators. |
+| `src/components/PauseModal.tsx` | Simplified pause modal (`RESUME`, `RESTART MATCH`, `SETTINGS`, `MAIN MENU`, plus training dummy selector in Training mode). |
+| `src/components/ResultsModal.tsx` | Winner announcement, 3D winning character showcase, `REMATCH` / `NEXT STAGE`, `FIGHTERS`, and `MAIN MENU` actions. |
+| `src/components/SettingsModal.tsx` | Categorized `Audio`, `Gameplay`, `Display`, and `Controls` configuration modal. |
 
 ---
 

@@ -63,6 +63,9 @@ export class GameBridge {
   public gameMode: GameMode = 'arcade';
   public p1CharacterId: FighterId = 'action_sultan';
   public p2CharacterId: FighterId = 'romance_raja';
+  public inspectedCharacterId: FighterId = 'action_sultan';
+  public selectingPlayerSlot: 'p1' | 'p2' = 'p1';
+  public characterSelectBrowseOnly: boolean = false;
   public arenaId: ArenaId = 'award_night';
   public difficulty: Difficulty = 'normal';
   public trainingDummyBehavior: TrainingDummyBehavior = 'stand';
