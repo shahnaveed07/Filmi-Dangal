@@ -455,18 +455,39 @@ export class AnimationController3D {
 
     switch (state) {
       case 'idle': {
-        const breath = Math.sin(t * 4.2);
+        // Seamless ~3s idle loop: subtle sinusoidal breathing + slow confident head turn/return
+        const breath = Math.sin(t * (Math.PI * 2) / 3);
+        const headTurn = Math.sin(t * (Math.PI * 2) / 3) * 0.06;
         const sway = Math.cos(t * 2.1);
 
         if (characterId === 'action_sultan') {
-          pose.Hips.py = baseHipsY + breath * 0.025;
-          pose.Hips.ry = -0.22;
-          pose.Chest.rx = 0.08 + breath * 0.03;
+          // AS IDLE – "Hands In Pockets" confident stance (storyboard pose)
+          // Base: calm, relaxed, dominant – both hands inside front pockets.
+          pose.Hips.px = 0;
+          pose.Hips.pz = 0;
+          pose.Hips.py = baseHipsY + Math.sin(t * (Math.PI * 2) / 3) * 0.012;
+          pose.Hips.ry = -0.22 + Math.sin(t * (Math.PI * 2) / 3) * 0.015;
+
+          pose.Spine.rx = 0;
+          pose.Chest.rx = 0.08 + breath * 0.02;
           pose.Chest.ry = 0.18;
+          pose.Chest.rz = 0;
+
+          // Shoulders relaxed but slightly pulled back
+          pose.LeftShoulder = { rx: 0, ry: -0.08, rz: 0 };
+          pose.RightShoulder = { rx: 0, ry: -0.08, rz: 0 };
+
+          // Hands stay inside pockets (relaxed bent arms, forearms tucked)
           pose.LeftUpperArm = { rx: -0.65 + breath * 0.05, ry: 0.25, rz: 0.38 };
-          pose.LeftLowerArm = { rx: -1.35, ry: 0, rz: 0 };
+          pose.LeftLowerArm = { rx: -1.35 + breath * 0.02, ry: 0, rz: 0 };
           pose.RightUpperArm = { rx: -0.45 - breath * 0.05, ry: -0.2, rz: -0.42 };
-          pose.RightLowerArm = { rx: -1.25, ry: 0, rz: 0 };
+          pose.RightLowerArm = { rx: -1.25 + breath * 0.02, ry: 0, rz: 0 };
+
+          // Neck/head: calm confident expression, subtle turn returning smoothly
+          pose.Neck.ry = headTurn * 0.6;
+          pose.Head.rx = 0.05;
+          pose.Head.ry = headTurn;
+          pose.Head.rz = 0;
         } else if (characterId === 'romance_raja') {
           pose.Hips.py = baseHipsY + breath * 0.03;
           pose.Hips.ry = -0.3;
@@ -599,6 +620,85 @@ export class AnimationController3D {
       case 'punch':
       case 'forward_punch': {
         const isHeavy = state === 'forward_punch';
+
+        if (characterId === 'action_sultan') {
+          // AS RIGHT STRAIGHT PUNCH – ~0.80s one-shot: combat guard → wind-up → power → extension → impact → retract → return-to-guard
+          const punchT = Math.min(t, 0.8);
+
+          if (punchT < 0.1) {
+            // Frame 1 – Combat Guard (0.00–0.10s)
+            pose.Hips.py = baseHipsY;
+            pose.Hips.ry = 0.12;
+            pose.Chest.rx = 0.04;
+            pose.Chest.ry = 0.05;
+            pose.RightUpperArm = { rx: -1.1, ry: -0.12, rz: -0.2 };
+            pose.RightLowerArm = { rx: -0.5, ry: 0, rz: 0 };
+            pose.LeftUpperArm = { rx: -0.5, ry: 0.35, rz: 0.45 };
+            pose.LeftLowerArm = { rx: -1.5, ry: 0, rz: 0 };
+          } else if (punchT < 0.2) {
+            // Frame 2 – Anticipation / Wind-up (0.10–0.20s)
+            pose.Hips.ry = 0.3;
+            pose.Chest.rx = 0.1;
+            pose.Chest.ry = 0.3;
+            pose.RightShoulder = { rx: 0, ry: 0.45, rz: 0 };
+            pose.RightUpperArm = { rx: -1.35, ry: -0.3, rz: -0.25 };
+            pose.RightLowerArm = { rx: -0.6, ry: 0, rz: 0 };
+            pose.LeftUpperArm = { rx: -0.5, ry: 0.35, rz: 0.45 };
+            pose.LeftLowerArm = { rx: -1.5, ry: 0, rz: 0 };
+          } else if (punchT < 0.35) {
+            // Frame 3 – Power Generation (0.20–0.35s)
+            pose.Hips.ry = 0.38;
+            pose.Chest.rx = 0.16;
+            pose.Chest.ry = 0.42;
+            pose.RightShoulder = { rx: 0, ry: 0.55, rz: 0 };
+            pose.RightUpperArm = { rx: -1.5, ry: -0.42, rz: -0.3 };
+            pose.RightLowerArm = { rx: -0.9, ry: 0, rz: 0 };
+            pose.LeftUpperArm = { rx: -0.5, ry: 0.35, rz: 0.45 };
+            pose.LeftLowerArm = { rx: -1.5, ry: 0, rz: 0 };
+          } else if (punchT < 0.45) {
+            // Frame 4 – Punch Extension (0.35–0.45s)
+            pose.Hips.ry = 0.46;
+            pose.Chest.rx = 0.2;
+            pose.Chest.ry = 0.48;
+            pose.RightShoulder = { rx: 0, ry: 0.6, rz: 0 };
+            pose.RightUpperArm = { rx: -1.6, ry: -0.45, rz: -0.35 };
+            pose.RightLowerArm = { rx: -0.15, ry: 0, rz: 0 };
+            pose.LeftUpperArm = { rx: -0.5, ry: 0.35, rz: 0.45 };
+            pose.LeftLowerArm = { rx: -1.5, ry: 0, rz: 0 };
+          } else if (punchT < 0.6) {
+            // Frame 5/6 – Impact (0.45s) then Retraction (0.45–0.60s)
+            pose.Hips.ry = 0.5;
+            pose.Chest.rx = 0.22;
+            pose.Chest.ry = 0.5;
+            pose.RightShoulder = { rx: 0, ry: 0.65, rz: 0 };
+            pose.RightUpperArm = { rx: -1.65, ry: -0.48, rz: -0.38 };
+            pose.RightLowerArm = { rx: -0.1, ry: 0, rz: 0 };
+            pose.LeftUpperArm = { rx: -0.5, ry: 0.35, rz: 0.45 };
+            pose.LeftLowerArm = { rx: -1.5, ry: 0, rz: 0 };
+
+            if (punchT > 0.45) {
+              // Retraction – reverse the punch after impact
+              pose.Hips.ry = 0.35;
+              pose.Chest.rx = 0.12;
+              pose.Chest.ry = 0.35;
+              pose.RightShoulder = { rx: 0, ry: 0.35, rz: 0 };
+              pose.RightUpperArm = { rx: -1.4, ry: -0.3, rz: -0.25 };
+              pose.RightLowerArm = { rx: -0.7, ry: 0, rz: 0 };
+            }
+          } else {
+            // Frame 7 – Return to Combat Guard (0.60–0.80s)
+            pose.Hips.py = baseHipsY;
+            pose.Hips.ry = 0.12;
+            pose.Chest.rx = 0.04;
+            pose.Chest.ry = 0.05;
+            pose.RightUpperArm = { rx: -1.1, ry: -0.12, rz: -0.2 };
+            pose.RightLowerArm = { rx: -0.5, ry: 0, rz: 0 };
+            pose.LeftUpperArm = { rx: -0.5, ry: 0.35, rz: 0.45 };
+            pose.LeftLowerArm = { rx: -1.5, ry: 0, rz: 0 };
+          }
+          break;
+        }
+
         pose.Hips.ry = 0.42;
         pose.Chest.ry = 0.52;
         pose.Chest.rx = isHeavy ? 0.25 : 0.15;
@@ -956,6 +1056,16 @@ export class AnimationController3D {
           pose.RightUpperArm = { rx: -0.2, ry: 0.35, rz: -1.4 - wave };
           pose.LeftLowerArm = { rx: -0.15, ry: 0, rz: 0 };
           pose.RightLowerArm = { rx: -0.15, ry: 0, rz: 0 };
+        } else if (characterId === 'duggu') {
+          // DUGGU – FinalDanceDuggu victory / finisher celebration pose
+          pose.Hips.py = baseHipsY + 0.05;
+          pose.Hips.ry = Math.sin(t * 6.5) * 0.22;
+          pose.Chest.ry = -Math.sin(t * 6.5) * 0.18;
+          pose.Chest.rx = -0.12;
+          pose.RightUpperArm = { rx: -0.9, ry: -0.25, rz: -0.5 };
+          pose.RightLowerArm = { rx: -0.9, ry: 0, rz: 0 };
+          pose.LeftUpperArm = { rx: -0.9, ry: 0.25, rz: 0.5 };
+          pose.LeftLowerArm = { rx: -0.9, ry: 0, rz: 0 };
         } else {
           pose.Chest.rx = -0.15;
           pose.RightUpperArm = { rx: -2.65, ry: 0, rz: -0.35 + wave };
