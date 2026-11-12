@@ -27,7 +27,6 @@ const PREVIEW_STATES: Array<{
 }> = [
   { state: 'idle', label: 'Idle', accent: 'gold' },
   { state: 'walk', label: 'Walk', accent: 'gold' },
-  { state: 'run', label: 'Sprint', accent: 'gold' },
   { state: 'punch', label: 'Punch', accent: 'gold' },
   { state: 'kick', label: 'Kick', accent: 'gold' },
   { state: 'grab', label: 'Grab', accent: 'gold' },

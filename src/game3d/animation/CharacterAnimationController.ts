@@ -138,24 +138,10 @@ export class CharacterAnimationController {
         state === 'walk_backward' ||
         state === 'run';
 
-      let effectiveTimeSec = stateTimeSec;
-      if (isLocomotionState && Math.abs(zVelocity) > 0.05) {
-        const refSpeed = state === 'run' ? 7.6 : 4.0;
-        const speedRatio = Math.max(0.65, Math.min(1.65, Math.abs(zVelocity) / refSpeed));
-        const prevLocomotionTime =
-          typeof meta.locomotionCycleTimeSec === 'number' && !isNewStateEntry
-            ? (meta.locomotionCycleTimeSec as number)
-            : stateTimeSec;
-        effectiveTimeSec = prevLocomotionTime + dt * speedRatio;
-        meta.locomotionCycleTimeSec = effectiveTimeSec;
-      } else {
-        meta.locomotionCycleTimeSec = stateTimeSec;
-      }
-
       const pose = this.computeTargetPose(
         characterId,
         state,
-        effectiveTimeSec,
+        stateTimeSec,
         heightScale,
         zVelocity,
         eventPayload

@@ -96,15 +96,15 @@ const CHARACTER_MOVE_SPECS: Record<FighterId, Record<string, MoveFrameTimingSpec
     },
     walk: {
       clipName: 'Walk',
-      totalFrames: 69,
+      totalFrames: 41,
       startupFrames: 0,
       activeFrames: 0,
       recoveryFrames: 0,
       isLooping: true,
     },
     run: {
-      clipName: 'Anim_AS_Sprint_FastRun',
-      totalFrames: 36,
+      clipName: 'Walk',
+      totalFrames: 41,
       startupFrames: 0,
       activeFrames: 0,
       recoveryFrames: 0,

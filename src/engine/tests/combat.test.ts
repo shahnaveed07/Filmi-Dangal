@@ -3449,161 +3449,79 @@ test('28. Phase 2–12 Regression Suite: Browse-Only vs Match Character Select, 
   assert.equal(cancelDefender.state, 'idle', 'Interrupted grab cleanly restores opponent to grounded idle state');
   assert.equal(cancelDefender.position.y, 0, 'Interrupted grab restores opponent to floor Y = 0');
 
-  // 11. Action Sultan 0.60s Sprint Animation (8-Frame Fast Run Storyboard Cycle, Walk vs. Sprint Separation & Smooth Locomotion Transitions)
-  const sprintSpec = FighterAnimationEvents.getMoveSpec('action_sultan', 'run');
-  const walkSpec = FighterAnimationEvents.getMoveSpec('action_sultan', 'walk');
-  assert.equal(sprintSpec.clipName, 'Anim_AS_Sprint_FastRun');
-  assert.equal(sprintSpec.totalFrames, 36, 'Action Sultan sprint cycle is 36 frames (0.60s at 60 FPS)');
-  assert.equal(walkSpec.totalFrames, 69, 'Action Sultan walk cycle is 69 frames (1.15s at 60 FPS)');
+  // 11. Unified Common Walk/Run Animation for All Characters (Calibrated Parent-Child Limb Kinematics & Bug-Free Joint Ranges)
+  const allFighterIds = ['action_sultan', 'romance_raja', 'duggu', 'bhidu'] as const;
+  const commonCycleSec = 0.68;
 
-  const cadenceRatio = walkSpec.totalFrames / sprintSpec.totalFrames;
-  assert.ok(
-    cadenceRatio >= 1.8 && cadenceRatio <= 2.2,
-    `Sprint cadence is 1.8-2.2x faster than walk cadence (ratio=${cadenceRatio.toFixed(2)})`
-  );
+  for (const fid of allFighterIds) {
+    const walkStart = animCtrl.computeTargetPose(fid, 'walk', 0.0, 1.0, 0);
+    const walkEnd = animCtrl.computeTargetPose(fid, 'walk', commonCycleSec, 1.0, 0);
+    const runStart = animCtrl.computeTargetPose(fid, 'run', 0.0, 1.0, 0);
 
-  // Sample all 8 storyboard frames of the 0.60s sprint cycle
-  const sprintF1_000 = animCtrl.computeTargetPose('action_sultan', 'run', 0.0, 1.0, 0);
-  const sprintF2_075 = animCtrl.computeTargetPose('action_sultan', 'run', 0.075, 1.0, 0);
-  const sprintF3_150 = animCtrl.computeTargetPose('action_sultan', 'run', 0.15, 1.0, 0);
-  const sprintF4_225 = animCtrl.computeTargetPose('action_sultan', 'run', 0.225, 1.0, 0);
-  const sprintF5_300 = animCtrl.computeTargetPose('action_sultan', 'run', 0.3, 1.0, 0);
-  const sprintF6_375 = animCtrl.computeTargetPose('action_sultan', 'run', 0.375, 1.0, 0);
-  const sprintF7_450 = animCtrl.computeTargetPose('action_sultan', 'run', 0.45, 1.0, 0);
-  const sprintF8_525 = animCtrl.computeTargetPose('action_sultan', 'run', 0.525, 1.0, 0);
-  const sprintLoop_600 = animCtrl.computeTargetPose('action_sultan', 'run', 0.6, 1.0, 0);
+    // Walk and Run use the exact same unified common locomotion pose for every character
+    assert.deepEqual(walkStart, runStart, `Walk and Run poses are unified for ${fid}`);
+    assert.deepEqual(
+      walkStart,
+      animCtrl.computeTargetPose('action_sultan', 'walk', 0.0, 1.0, 0),
+      `All characters share the same common locomotion cycle (${fid})`
+    );
 
-  // Seamless 0.60s loop boundary (t = 0.00s matches t = 0.60s without reset hitch)
-  assert.ok(Math.abs((sprintF1_000.Hips.py ?? 0) - (sprintLoop_600.Hips.py ?? 0)) < 1e-6, 'Sprint Hips.py loops seamlessly at 0.60s');
-  assert.ok(Math.abs(sprintF1_000.LeftUpperLeg.rx - sprintLoop_600.LeftUpperLeg.rx) < 1e-6, 'Sprint LeftUpperLeg.rx loops seamlessly at 0.60s');
-  assert.ok(Math.abs(sprintF1_000.RightUpperLeg.rx - sprintLoop_600.RightUpperLeg.rx) < 1e-6, 'Sprint RightUpperLeg.rx loops seamlessly at 0.60s');
-  assert.ok(Math.abs(sprintF1_000.LeftUpperArm.rx - sprintLoop_600.LeftUpperArm.rx) < 1e-6, 'Sprint LeftUpperArm.rx loops seamlessly at 0.60s');
-  assert.ok(Math.abs(sprintF1_000.RightUpperArm.rx - sprintLoop_600.RightUpperArm.rx) < 1e-6, 'Sprint RightUpperArm.rx loops seamlessly at 0.60s');
+    // Seamless 0.68s loop boundary
+    assert.ok(Math.abs((walkStart.Hips.py ?? 0) - (walkEnd.Hips.py ?? 0)) < 1e-6, 'Common locomotion Hips.py loops seamlessly at 0.68s');
+    assert.ok(Math.abs(walkStart.LeftUpperLeg.rx - walkEnd.LeftUpperLeg.rx) < 1e-6, 'Common locomotion LeftUpperLeg.rx loops seamlessly at 0.68s');
+    assert.ok(Math.abs(walkStart.RightUpperLeg.rx - walkEnd.RightUpperLeg.rx) < 1e-6, 'Common locomotion RightUpperLeg.rx loops seamlessly at 0.68s');
+  }
 
-  // Verify Sprint Pose across all 8 frames: forward-leaning upper body, head facing movement direction, ~90° bent elbows, loosely clenched hands
-  for (const fPose of [
-    sprintF1_000,
-    sprintF2_075,
-    sprintF3_150,
-    sprintF4_225,
-    sprintF5_300,
-    sprintF6_375,
-    sprintF7_450,
-    sprintF8_525,
-  ]) {
-    assert.ok(fPose.Spine.rx >= 0.14 && fPose.Chest.rx >= 0.18, 'Sprint maintains forward-leaning upper body');
-    assert.ok(fPose.Head.rx <= -0.15, 'Head counter-pitches to stay level and face the movement direction');
+  // Verify calibrated parent-child limb kinematics across 8 sample points of the 0.68s cycle:
+  // - Zero upper-arm twist (ry === 0) and moderate forearm bend (-0.88 <= rx <= -0.65) so hands never rise above chest/shoulders
+  // - Trailing push-off knee stays extended (<= 0.25 rad) so shin never kicks upward behind the back
+  for (let step = 0; step < 8; step++) {
+    const sampleT = (step / 8) * commonCycleSec;
+    const p = animCtrl.computeTargetPose('action_sultan', 'walk', sampleT, 1.0, 0);
+
+    assert.equal(p.LeftUpperArm.ry, 0, 'LeftUpperArm has zero axial twist (ry = 0)');
+    assert.equal(p.RightUpperArm.ry, 0, 'RightUpperArm has zero axial twist (ry = 0)');
     assert.ok(
-      fPose.LeftLowerArm.rx <= -1.45 && fPose.LeftLowerArm.rx >= -1.68,
-      'Left elbow remains bent approximately 90 degrees (~1.57 rad)'
+      p.LeftLowerArm.rx >= -0.88 && p.LeftLowerArm.rx <= -0.65,
+      `LeftLowerArm flexion stays in natural waist-to-chest range (${p.LeftLowerArm.rx})`
     );
     assert.ok(
-      fPose.RightLowerArm.rx <= -1.45 && fPose.RightLowerArm.rx >= -1.68,
-      'Right elbow remains bent approximately 90 degrees (~1.57 rad)'
+      p.RightLowerArm.rx >= -0.88 && p.RightLowerArm.rx <= -0.65,
+      `RightLowerArm flexion stays in natural waist-to-chest range (${p.RightLowerArm.rx})`
     );
-    assert.equal(fPose.LeftHand.fistCurl, 0.8, 'Left hand remains naturally closed/loosely clenched');
-    assert.equal(fPose.RightHand.fistCurl, 0.8, 'Right hand remains naturally closed/loosely clenched');
+
+    // Total world forearm pitch (UpperArm.rx + LowerArm.rx) never exceeds -1.35 rad (prevents hands rising to head level)
+    assert.ok(
+      p.LeftUpperArm.rx + p.LeftLowerArm.rx >= -1.35,
+      'Left hand never over-rotates above chest level'
+    );
+    assert.ok(
+      p.RightUpperArm.rx + p.RightLowerArm.rx >= -1.35,
+      'Right hand never over-rotates above chest level'
+    );
+
+    // When a thigh is extended backward (UpperLeg.rx > 0.30), its knee stays extended (LowerLeg.rx <= 0.25)
+    if (p.LeftUpperLeg.rx > 0.3) {
+      assert.ok(
+        p.LeftLowerLeg.rx <= 0.25,
+        `Trailing left leg stays extended on push-off instead of folding up (${p.LeftLowerLeg.rx})`
+      );
+    }
+    if (p.RightUpperLeg.rx > 0.3) {
+      assert.ok(
+        p.RightLowerLeg.rx <= 0.25,
+        `Trailing right leg stays extended on push-off instead of folding up (${p.RightLowerLeg.rx})`
+      );
+    }
   }
 
-  // Frame 1 (0.00s Left Foot Contact): Left leg planted forward, right leg moving forward, right arm forward / left arm back
-  assert.ok(sprintF1_000.LeftUpperLeg.rx < -0.35, 'Frame 1: Left foot contacts ground ahead of hips');
-  assert.ok(sprintF1_000.RightUpperArm.rx < -0.45 && sprintF1_000.LeftUpperArm.rx > 0.4, 'Frame 1: Right arm forward, left arm backward');
-
-  // Frame 2 (0.075s Push-off): Left foot pushes firmly against ground, right knee drives high upward, arms accelerate into opposite swing
-  assert.ok(sprintF2_075.LeftFoot.rx > 0.35, 'Frame 2: Left foot plantarflexes firmly to push off the ground');
-  assert.ok(sprintF2_075.RightUpperLeg.rx < -0.85 && sprintF2_075.RightLowerLeg.rx > 1.2, 'Frame 2: Right knee drives aggressively upward');
-  assert.ok(sprintF2_075.LeftUpperArm.rx < -0.4 && sprintF2_075.RightUpperArm.rx > 0.3, 'Frame 2: Left arm drives forward while right arm swings back');
-
-  // Frame 3 (0.15s Flight Phase 1): Both feet leave ground, right knee reaches peak forward lift, left leg extends backward
-  assert.ok((sprintF3_150.Hips.py ?? 0) > (sprintF1_000.Hips.py ?? 0) + 0.04, 'Frame 3: Airborne flight phase elevates Hips.py');
-  assert.ok(sprintF3_150.RightUpperLeg.rx <= -1.1, 'Frame 3: Right knee reaches high forward lift');
-  assert.ok(sprintF3_150.LeftUpperLeg.rx >= 0.7, 'Frame 3: Left leg extends strongly backward');
-
-  // Frame 4 (0.225s Right Foot Landing): Right foot contacts ground, left leg begins moving forward, weight transfers onto right leg
-  assert.ok((sprintF4_225.Hips.py ?? 0) < (sprintF3_150.Hips.py ?? 0) - 0.04, 'Frame 4: Weight transfers downward onto landing right leg');
-  assert.ok(sprintF4_225.RightUpperLeg.rx < -0.5, 'Frame 4: Right leg contacts ground in front');
-  assert.ok(sprintF4_225.LeftUpperLeg.rx < sprintF3_150.LeftUpperLeg.rx, 'Frame 4: Left leg begins moving forward');
-
-  // Frame 5 (0.30s Right Leg Drive): Right foot pushes off, left knee drives upward/forward, right arm swings strongly forward / left arm back
-  assert.ok(sprintF5_300.RightFoot.rx > 0.35, 'Frame 5: Right foot pushes firmly off the ground');
-  assert.ok(sprintF5_300.LeftUpperLeg.rx < -0.85 && sprintF5_300.LeftLowerLeg.rx > 1.2, 'Frame 5: Left knee drives upward and forward');
-  assert.ok(sprintF5_300.RightUpperArm.rx < -0.4 && sprintF5_300.LeftUpperArm.rx > 0.3, 'Frame 5: Right arm swings strongly forward while left arm swings backward');
-
-  // Frame 6 (0.375s Flight Phase 2): Both feet leave ground, left leg reaches peak forward lift, right leg extends backward
-  assert.ok((sprintF6_375.Hips.py ?? 0) > (sprintF4_225.Hips.py ?? 0) + 0.04, 'Frame 6: Second airborne flight phase elevates Hips.py');
-  assert.ok(sprintF6_375.LeftUpperLeg.rx <= -1.1, 'Frame 6: Left leg reaches high forward lift');
-  assert.ok(sprintF6_375.RightUpperLeg.rx >= 0.7, 'Frame 6: Right leg extends strongly backward');
-
-  // Frame 7 (0.45s Left Foot Landing) & Frame 8 (0.525s Cycle Transition): Left foot lands and transitions smoothly back into Frame 1
-  assert.ok((sprintF7_450.Hips.py ?? 0) < (sprintF6_375.Hips.py ?? 0) - 0.04, 'Frame 7: Left foot lands and absorbs weight');
-  assert.ok(
-    sprintF8_525.RightUpperLeg.rx < sprintF7_450.RightUpperLeg.rx &&
-      sprintF8_525.RightUpperLeg.rx > sprintF1_000.RightUpperLeg.rx,
-    'Frame 8: Right leg swings smoothly forward between Frame 7 and Frame 1 without reset'
+  // Verify CharacterPreview3D.tsx has a single unified Walk button and no separate Sprint button
+  const preview3dTsx = fs.readFileSync(
+    path.resolve(process.cwd(), 'src/game3d/scenes/CharacterPreview3D.tsx'),
+    'utf8'
   );
-
-  // Verify Walk vs. Sprint Separation (posture, knee lift, arm swing, and ground speed)
-  const walkPeakPose = animCtrl.computeTargetPose('action_sultan', 'walk', 0.28, 1.0, 0);
-  const walkForwardLean = walkPeakPose.Spine.rx + walkPeakPose.Chest.rx;
-  const sprintForwardLean = sprintF3_150.Spine.rx + sprintF3_150.Chest.rx;
-  assert.ok(
-    sprintForwardLean > walkForwardLean + 0.24,
-    `Sprint has significantly stronger forward torso lean than walk (sprint=${sprintForwardLean.toFixed(2)}, walk=${walkForwardLean.toFixed(2)})`
-  );
-  assert.ok(
-    Math.abs(sprintF3_150.RightUpperLeg.rx) > Math.abs(walkPeakPose.RightUpperLeg.rx) * 2.2,
-    'Sprint lifts knees more than 2x higher than normal walk'
-  );
-  assert.ok(
-    Math.abs(sprintF6_375.RightUpperArm.rx) > Math.abs(walkPeakPose.RightUpperArm.rx) * 2.2,
-    'Sprint drives arms with more than 2x the swing amplitude of walk'
-  );
-
-  // Verify Fighter3D Walk vs. Sprint horizontal movement speed & all 5 locomotion transitions:
-  // Idle -> Walk -> Sprint -> Walk -> Idle and Sprint -> Idle
-  const locoSultan = new Fighter3D(0, CHARACTERS.action_sultan, -2.0, 0, 0);
-  const locoDummy = new Fighter3D(1, CHARACTERS.romance_raja, 3.5, 0, 0);
-  assert.equal(locoSultan.state, 'idle');
-
-  // 1) Idle -> Walk (holding back / left while facing right = 1)
-  for (let i = 0; i < 8; i++) {
-    locoSultan.processInput({ ...EMPTY_INPUT_FRAME, left: true }, locoDummy);
-    locoSultan.stepPhysics();
-  }
-  assert.equal(locoSultan.state, 'walk', 'Transition 1: Idle -> Walk');
-  const measuredWalkSpeed = Math.abs(locoSultan.velocity.x);
-  assert.ok(measuredWalkSpeed > 3.5 && measuredWalkSpeed < 4.5, `Walk speed is ~4.0 m/s (got ${measuredWalkSpeed.toFixed(2)})`);
-
-  // 2) Walk -> Sprint (holding forward / right while facing right = 1)
-  for (let i = 0; i < 10; i++) {
-    locoSultan.processInput({ ...EMPTY_INPUT_FRAME, right: true }, locoDummy);
-    locoSultan.stepPhysics();
-  }
-  assert.equal(locoSultan.state, 'run', 'Transition 2: Walk -> Sprint');
-  const measuredSprintSpeed = Math.abs(locoSultan.velocity.x);
-  const speedRatio = measuredSprintSpeed / measuredWalkSpeed;
-  assert.ok(
-    speedRatio >= 1.8 && speedRatio <= 2.2,
-    `Sprint ground speed is 1.8-2.2x faster than walk speed (sprint=${measuredSprintSpeed.toFixed(2)}, walk=${measuredWalkSpeed.toFixed(2)}, ratio=${speedRatio.toFixed(2)})`
-  );
-
-  // 3) Sprint -> Walk
-  locoSultan.processInput({ ...EMPTY_INPUT_FRAME, left: true }, locoDummy);
-  locoSultan.stepPhysics();
-  assert.equal(locoSultan.state, 'walk', 'Transition 3: Sprint -> Walk');
-
-  // 4) Walk -> Idle
-  locoSultan.processInput({ ...EMPTY_INPUT_FRAME }, locoDummy);
-  locoSultan.stepPhysics();
-  assert.equal(locoSultan.state, 'idle', 'Transition 4: Walk -> Idle');
-
-  // 5) Sprint -> Idle
-  locoSultan.processInput({ ...EMPTY_INPUT_FRAME, right: true }, locoDummy);
-  locoSultan.stepPhysics();
-  assert.equal(locoSultan.state, 'run');
-  locoSultan.processInput({ ...EMPTY_INPUT_FRAME }, locoDummy);
-  locoSultan.stepPhysics();
-  assert.equal(locoSultan.state, 'idle', 'Transition 5: Sprint -> Idle');
+  assert.ok(preview3dTsx.includes("label: 'Walk'"), 'CharacterPreview3D includes unified Walk button');
+  assert.ok(!preview3dTsx.includes("label: 'Sprint'"), 'CharacterPreview3D removes separate Sprint button');
 
   bridge.returnToMenu();
 });

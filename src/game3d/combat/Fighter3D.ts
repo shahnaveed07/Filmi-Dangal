@@ -535,41 +535,21 @@ export class Fighter3D {
     this.isCrouching = false;
 
     // 8. Strictly 2D Horizontal X-Axis Movement (No Z-axis movement or sidestepping)
-    const baseSpeed = this.def.stats.walkSpeed * 1.05 * this.controlSensitivityMultiplier;
-    const isActionSultan = this.id === 'action_sultan';
-    const walkMoveSpeed = baseSpeed * (isActionSultan ? 0.82 : 0.85);
-    const sprintMoveSpeed = baseSpeed * (isActionSultan ? 1.56 : 1.25);
+    const moveSpeed = this.def.stats.walkSpeed * 1.15 * this.controlSensitivityMultiplier;
     let movingX = false;
 
     if (input.left) {
-      const targetSpeed = holdingBack ? walkMoveSpeed : sprintMoveSpeed;
-      const targetVx = -targetSpeed;
-      this._velocity.x =
-        Math.abs(this._velocity.x) < 0.1
-          ? targetVx * 0.82
-          : this._velocity.x + (targetVx - this._velocity.x) * 0.48;
+      this._velocity.x = -moveSpeed * (holdingBack ? 0.92 : 1.08);
       movingX = true;
     } else if (input.right) {
-      const targetSpeed = holdingForward ? sprintMoveSpeed : walkMoveSpeed;
-      const targetVx = targetSpeed;
-      this._velocity.x =
-        Math.abs(this._velocity.x) < 0.1
-          ? targetVx * 0.82
-          : this._velocity.x + (targetVx - this._velocity.x) * 0.48;
+      this._velocity.x = moveSpeed * (holdingForward ? 1.08 : 0.92);
       movingX = true;
     }
 
     if (movingX) {
-      const nextState: FighterStateName = holdingForward ? 'run' : 'walk';
-      if (this.state !== nextState) {
-        this.state = nextState;
-        this.stateFrame = 0;
-      }
+      this.state = holdingForward ? 'run' : 'walk';
     } else {
-      if (this.state !== 'idle') {
-        this.state = 'idle';
-        this.stateFrame = 0;
-      }
+      this.state = 'idle';
     }
   }
 
