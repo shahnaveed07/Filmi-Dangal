@@ -1972,10 +1972,13 @@ export class CharacterAssetLoader {
               rootUrl = '';
               sceneFilename = candidatePath;
             } else {
-              const globalCache = ((globalThis as Record<string, unknown>).__FIGHT_FUN_GLB_CACHE ??=
-                new Map<string, Uint8Array>()) as Map<string, Uint8Array>;
-              let cachedBytes = globalCache.get(candidatePath);
-              if (!cachedBytes) {
+              const globalCache = ((globalThis as Record<string, unknown>)
+                .__FIGHT_FUN_GLB_DATA_URI_CACHE ??= new Map<string, string>()) as Map<
+                string,
+                string
+              >;
+              let cachedDataUri = globalCache.get(candidatePath);
+              if (!cachedDataUri) {
                 const localRel = candidatePath.replace(/^\//, '');
                 const localCandidates = [
                   path.resolve(process.cwd(), 'public', localRel),
@@ -1984,15 +1987,16 @@ export class CharacterAssetLoader {
                 for (const loc of localCandidates) {
                   if (fs.existsSync(loc)) {
                     const buf = fs.readFileSync(loc);
-                    cachedBytes = new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength);
-                    globalCache.set(candidatePath, cachedBytes);
+                    cachedDataUri =
+                      'data:model/gltf-binary;base64,' + buf.toString('base64');
+                    globalCache.set(candidatePath, cachedDataUri);
                     break;
                   }
                 }
               }
-              if (cachedBytes) {
+              if (cachedDataUri) {
                 rootUrl = '';
-                sceneFilename = cachedBytes;
+                sceneFilename = cachedDataUri;
                 pluginExtension = '.glb';
               }
             }

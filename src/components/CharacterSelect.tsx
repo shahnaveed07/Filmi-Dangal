@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { CHARACTER_LIST, CHARACTERS } from '../data/characters';
 import { Difficulty, FighterId, TrainingDummyBehavior } from '../types/fighter';
-import { GameBridge } from '../engine/GameBridge';
+import { CharacterSelectMode, GameBridge } from '../engine/GameBridge';
 import { AudioManager } from '../engine/AudioManager';
 import { CharacterPreview3D } from '../game3d/scenes/CharacterPreview3D';
 import { applyFighterSelection } from '../game3d/characters/CharacterRoster3D';
@@ -11,15 +11,17 @@ import {
   ScreenHeader,
   SecondaryButton,
 } from './ui/FightFunUI';
-import { Swords, Eye } from 'lucide-react';
+import { Swords, Eye, ArrowLeft } from 'lucide-react';
 
 interface CharacterSelectProps {
+  mode?: CharacterSelectMode;
   onBack: () => void;
   onProceed: () => void;
   onOpenOverview: (id: FighterId) => void;
 }
 
 export const CharacterSelect: React.FC<CharacterSelectProps> = ({
+  mode,
   onBack,
   onProceed,
   onOpenOverview,
@@ -27,11 +29,21 @@ export const CharacterSelect: React.FC<CharacterSelectProps> = ({
   const bridge = GameBridge.getInstance();
   const audio = AudioManager.getInstance();
 
+  const resolvedMode: CharacterSelectMode =
+    mode ?? (bridge.characterSelectBrowseOnly ? 'browse' : 'match');
+  const isBrowseOnly = resolvedMode === 'browse';
+
+  const [browsedId, setBrowsedId] = useState<FighterId>(
+    bridge.inspectedCharacterId || bridge.p1CharacterId
+  );
+
   const [p1Id, setP1Id] = useState<FighterId>(bridge.p1CharacterId);
   const [p2Id, setP2Id] = useState<FighterId>(() => {
     if (bridge.p2CharacterId === bridge.p1CharacterId) {
       const alt = CHARACTER_LIST.find((c) => c.id !== bridge.p1CharacterId)!;
-      bridge.p2CharacterId = alt.id;
+      if (!isBrowseOnly) {
+        bridge.p2CharacterId = alt.id;
+      }
       return alt.id;
     }
     return bridge.p2CharacterId;
@@ -44,12 +56,22 @@ export const CharacterSelect: React.FC<CharacterSelectProps> = ({
     bridge.selectingPlayerSlot || 'p1'
   );
 
-  const selectedChar = CHARACTERS[selectingFor === 'p1' ? p1Id : p2Id];
+  const activeFighterId: FighterId = isBrowseOnly
+    ? browsedId
+    : selectingFor === 'p1'
+    ? p1Id
+    : p2Id;
+  const selectedChar = CHARACTERS[activeFighterId] || CHARACTERS.action_sultan;
   const isTraining = bridge.gameMode === 'training';
   const p2Label = isTraining ? 'DUMMY' : 'CPU';
 
   const handleSelectFighter = (id: FighterId) => {
     audio.playSound('click');
+    if (isBrowseOnly) {
+      setBrowsedId(id);
+      bridge.inspectedCharacterId = id;
+      return;
+    }
     const next = applyFighterSelection({ p1Id, p2Id, selectingFor }, id);
     setP1Id(next.p1Id);
     setP2Id(next.p2Id);
@@ -59,6 +81,7 @@ export const CharacterSelect: React.FC<CharacterSelectProps> = ({
   };
 
   const handleSlotChange = (slot: 'p1' | 'p2') => {
+    if (isBrowseOnly) return;
     audio.playSound('click');
     setSelectingFor(slot);
     bridge.selectingPlayerSlot = slot;
@@ -66,12 +89,14 @@ export const CharacterSelect: React.FC<CharacterSelectProps> = ({
   };
 
   const handleDifficultyChange = (diff: Difficulty) => {
+    if (isBrowseOnly) return;
     audio.playSound('click');
     setDifficulty(diff);
     bridge.difficulty = diff;
   };
 
   const handleDummyBehaviorChange = (behavior: TrainingDummyBehavior) => {
+    if (isBrowseOnly) return;
     audio.playSound('click');
     setDummyBehavior(behavior);
     bridge.setTrainingDummyBehavior(behavior);
@@ -80,19 +105,21 @@ export const CharacterSelect: React.FC<CharacterSelectProps> = ({
   return (
     <div
       data-testid="character-select-screen"
+      data-select-mode={resolvedMode}
       data-p1-id={p1Id}
       data-p2-id={p2Id}
-      data-selecting-for={selectingFor}
+      data-selecting-for={isBrowseOnly ? 'browse' : selectingFor}
       className="relative w-full h-full min-h-screen bg-[#0D0C16] flex flex-col justify-between p-4 sm:p-6 md:p-8 select-none overflow-y-auto"
     >
       <ScreenHeader
         title="FIGHTERS"
+        backLabel={isBrowseOnly ? 'MAIN MENU' : 'BACK'}
         onBack={() => {
           audio.playSound('click');
           onBack();
         }}
         rightSlot={
-          isTraining ? (
+          isBrowseOnly ? null : isTraining ? (
             <div className="flex items-center gap-1 bg-[#141222] p-1 rounded-lg border border-[#38BDF8]/40">
               {(
                 [
@@ -140,36 +167,37 @@ export const CharacterSelect: React.FC<CharacterSelectProps> = ({
 
       {/* MAIN SELECTION SPLIT: ROSTER LEFT, LARGE 3D PREVIEW RIGHT */}
       <div className="w-full max-w-6xl mx-auto my-auto grid grid-cols-1 lg:grid-cols-12 gap-5 items-center py-3">
-        {/* LEFT COLUMN: P1/P2 SLOT SELECTORS + 4 FIGHTER CARDS */}
+        {/* LEFT COLUMN: P1/P2 SLOT SELECTORS (MATCH MODE ONLY) + 4 FIGHTER CARDS */}
         <div className="lg:col-span-5 flex flex-col gap-3.5">
-          {/* P1 / P2 SLOT TOGGLE */}
-          <div className="grid grid-cols-2 gap-2.5">
-            <button
-              type="button"
-              data-testid="select-slot-p1"
-              onClick={() => handleSlotChange('p1')}
-              className={`py-2.5 px-3 rounded-xl font-['Rajdhani'] font-black text-xs sm:text-sm tracking-wider uppercase border-2 transition-all cursor-pointer truncate ${
-                selectingFor === 'p1'
-                  ? 'bg-[#BE123C] border-[#FEF08A] text-white shadow-[0_0_14px_rgba(190,18,60,0.55)]'
-                  : 'bg-[#141222] border-[#D6A447]/35 text-[#D6A447] opacity-80 hover:opacity-100'
-              }`}
-            >
-              P1: {CHARACTERS[p1Id].name}
-            </button>
+          {!isBrowseOnly && (
+            <div className="grid grid-cols-2 gap-2.5">
+              <button
+                type="button"
+                data-testid="select-slot-p1"
+                onClick={() => handleSlotChange('p1')}
+                className={`py-2.5 px-3 rounded-xl font-['Rajdhani'] font-black text-xs sm:text-sm tracking-wider uppercase border-2 transition-all cursor-pointer truncate ${
+                  selectingFor === 'p1'
+                    ? 'bg-[#BE123C] border-[#FEF08A] text-white shadow-[0_0_14px_rgba(190,18,60,0.55)]'
+                    : 'bg-[#141222] border-[#D6A447]/35 text-[#D6A447] opacity-80 hover:opacity-100'
+                }`}
+              >
+                P1: {CHARACTERS[p1Id].name}
+              </button>
 
-            <button
-              type="button"
-              data-testid="select-slot-p2"
-              onClick={() => handleSlotChange('p2')}
-              className={`py-2.5 px-3 rounded-xl font-['Rajdhani'] font-black text-xs sm:text-sm tracking-wider uppercase border-2 transition-all cursor-pointer truncate ${
-                selectingFor === 'p2'
-                  ? 'bg-[#0284C7] border-[#FEF08A] text-white shadow-[0_0_14px_rgba(2,132,199,0.55)]'
-                  : 'bg-[#141222] border-[#D6A447]/35 text-[#D6A447] opacity-80 hover:opacity-100'
-              }`}
-            >
-              {p2Label}: {CHARACTERS[p2Id].name}
-            </button>
-          </div>
+              <button
+                type="button"
+                data-testid="select-slot-p2"
+                onClick={() => handleSlotChange('p2')}
+                className={`py-2.5 px-3 rounded-xl font-['Rajdhani'] font-black text-xs sm:text-sm tracking-wider uppercase border-2 transition-all cursor-pointer truncate ${
+                  selectingFor === 'p2'
+                    ? 'bg-[#0284C7] border-[#FEF08A] text-white shadow-[0_0_14px_rgba(2,132,199,0.55)]'
+                    : 'bg-[#141222] border-[#D6A447]/35 text-[#D6A447] opacity-80 hover:opacity-100'
+                }`}
+              >
+                {p2Label}: {CHARACTERS[p2Id].name}
+              </button>
+            </div>
+          )}
 
           {/* ROSTER GRID */}
           <CharacterRoster
@@ -177,6 +205,8 @@ export const CharacterSelect: React.FC<CharacterSelectProps> = ({
             p1Id={p1Id}
             p2Id={p2Id}
             focusedId={selectedChar.id}
+            showP1Indicator={!isBrowseOnly}
+            showP2Indicator={!isBrowseOnly}
             p2Label={p2Label}
             onSelectCharacter={handleSelectFighter}
           />
@@ -216,17 +246,45 @@ export const CharacterSelect: React.FC<CharacterSelectProps> = ({
             className="w-full h-64 sm:h-72 md:h-80"
           />
 
-          <PrimaryButton
-            data-testid="confirm-character-select"
-            fullWidth
-            icon={<Swords size={20} />}
-            onClick={() => {
-              audio.playSound('click');
-              onProceed();
-            }}
-          >
-            CONFIRM FIGHTERS
-          </PrimaryButton>
+          {isBrowseOnly ? (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <SecondaryButton
+                data-testid="browse-done-btn"
+                fullWidth
+                icon={<ArrowLeft size={18} />}
+                onClick={() => {
+                  audio.playSound('click');
+                  onBack();
+                }}
+              >
+                MAIN MENU
+              </SecondaryButton>
+              <PrimaryButton
+                data-testid="browse-overview-cta"
+                fullWidth
+                icon={<Eye size={18} />}
+                onClick={() => {
+                  audio.playSound('click');
+                  bridge.inspectedCharacterId = selectedChar.id;
+                  onOpenOverview(selectedChar.id);
+                }}
+              >
+                FIGHTER OVERVIEW
+              </PrimaryButton>
+            </div>
+          ) : (
+            <PrimaryButton
+              data-testid="confirm-character-select"
+              fullWidth
+              icon={<Swords size={20} />}
+              onClick={() => {
+                audio.playSound('click');
+                onProceed();
+              }}
+            >
+              CONFIRM FIGHTERS
+            </PrimaryButton>
+          )}
         </div>
       </div>
 

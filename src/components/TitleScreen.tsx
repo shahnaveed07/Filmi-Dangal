@@ -7,16 +7,55 @@ import { CharacterPreview3D } from '../game3d/scenes/CharacterPreview3D';
 import { PrimaryButton, SecondaryButton } from './ui/FightFunUI';
 import { Volume2, VolumeX, Swords, Users, Settings } from 'lucide-react';
 
+export interface TitleShortcutGuardContext {
+  currentScreen: string;
+  keyCode: string;
+  isModalOpen: boolean;
+  hasDialogInDom: boolean;
+  defaultPrevented: boolean;
+  repeat: boolean;
+  activeElementTagName: string | null;
+  activeElementRole?: string | null;
+  isContentEditable?: boolean;
+}
+
+/**
+ * Pure context guard determining whether a global Enter/Space press on the Title Screen
+ * should trigger the default Play action.
+ * Never triggers when a modal/dialog is open or when a button/input/interactive element has focus
+ * (allowing native browser keyboard activation to activate whichever control is focused).
+ */
+export function shouldTriggerTitleShortcut(ctx: TitleShortcutGuardContext): boolean {
+  if (ctx.currentScreen !== 'title') return false;
+  if (ctx.keyCode !== 'Enter' && ctx.keyCode !== 'Space') return false;
+  if (ctx.isModalOpen || ctx.hasDialogInDom) return false;
+  if (ctx.defaultPrevented || ctx.repeat) return false;
+  if (ctx.isContentEditable) return false;
+
+  const tag = (ctx.activeElementTagName || '').toUpperCase();
+  const interactiveTags = new Set(['BUTTON', 'INPUT', 'SELECT', 'TEXTAREA', 'A']);
+  if (interactiveTags.has(tag)) {
+    return false;
+  }
+  if (ctx.activeElementRole === 'button' || ctx.activeElementRole === 'dialog') {
+    return false;
+  }
+
+  return true;
+}
+
 interface TitleScreenProps {
   onPlay: () => void;
   onOpenFighters: () => void;
   onOpenSettings: () => void;
+  isModalOpen?: boolean;
 }
 
 export const TitleScreen: React.FC<TitleScreenProps> = ({
   onPlay,
   onOpenFighters,
   onOpenSettings,
+  isModalOpen = false,
 }) => {
   const audio = AudioManager.getInstance();
   const bridge = GameBridge.getInstance();
@@ -32,8 +71,25 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (bridge.screen !== 'title') return;
-      if (e.code === 'Enter' || e.code === 'Space') {
+      const activeEl = typeof document !== 'undefined' ? document.activeElement : null;
+      const hasDialogInDom =
+        typeof document !== 'undefined' &&
+        Boolean(document.querySelector('[role="dialog"]'));
+
+      const allowed = shouldTriggerTitleShortcut({
+        currentScreen: bridge.screen,
+        keyCode: e.code,
+        isModalOpen,
+        hasDialogInDom,
+        defaultPrevented: e.defaultPrevented,
+        repeat: e.repeat,
+        activeElementTagName: activeEl ? activeEl.tagName : null,
+        activeElementRole: activeEl ? activeEl.getAttribute('role') : null,
+        isContentEditable:
+          activeEl instanceof HTMLElement ? activeEl.isContentEditable : false,
+      });
+
+      if (allowed) {
         e.preventDefault();
         audio.playSound('click');
         onPlay();
@@ -41,7 +97,7 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [bridge.screen, onPlay, audio]);
+  }, [bridge.screen, isModalOpen, onPlay, audio]);
 
   return (
     <div

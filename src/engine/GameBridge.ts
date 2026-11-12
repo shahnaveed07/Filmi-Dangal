@@ -44,9 +44,12 @@ export interface GameHUDState {
   trainingDummyBehavior?: TrainingDummyBehavior;
 }
 
+export type CharacterSelectMode = 'match' | 'browse';
+
 export type MatchLifecycleCommand =
   | 'start_match'
   | 'reset_match'
+  | 'restart_match'
   | 'restart_round'
   | 'rematch'
   | 'reset_training';
@@ -103,6 +106,34 @@ export class GameBridge {
   private constructor() {
     const savedDiff = SettingsManager.getInstance().getSettings().cpuDifficulty;
     this.difficulty = savedDiff;
+  }
+
+  public getCharacterSelectMode(): CharacterSelectMode {
+    return this.characterSelectBrowseOnly ? 'browse' : 'match';
+  }
+
+  /**
+   * Opens the Fighters screen in browse-only mode (Main Menu -> Fighters).
+   * Browsing fighters inspects 3D models and stats without mutating P1/P2 match selection
+   * or starting a match.
+   */
+  public openFightersBrowse(initialInspectId?: FighterId): void {
+    this.characterSelectBrowseOnly = true;
+    this.inspectedCharacterId = initialInspectId || this.p1CharacterId;
+    this.setScreen('character_select');
+  }
+
+  /**
+   * Opens the Fighters screen in match-selection mode (Play -> Game Mode -> Character Select).
+   */
+  public openMatchCharacterSelect(mode?: GameMode): void {
+    if (mode) {
+      this.gameMode = mode;
+    }
+    this.characterSelectBrowseOnly = false;
+    this.selectingPlayerSlot = 'p1';
+    this.inspectedCharacterId = this.p1CharacterId;
+    this.setScreen('character_select');
   }
 
   public setScreen(screen: ScreenName): void {
@@ -203,6 +234,38 @@ export class GameBridge {
 
   public rematch(): void {
     this.requestRematch();
+  }
+
+  /**
+   * Restarts the entire current match from Round 1 (resetting round wins, stats,
+   * health, meters, positions, and timers) while preserving selected fighters,
+   * arena, game mode, difficulty, and current Arcade stage progression.
+   */
+  public requestRestartMatch(): void {
+    this.isPaused = false;
+    this.matchWinner = null;
+    this.lastMatchStats = {
+      p1DamageDealt: 0,
+      p2DamageDealt: 0,
+      p1MaxCombo: 0,
+      p2MaxCombo: 0,
+      roundResults: [],
+      totalFightTimeSeconds: 0,
+    };
+    if (this.gameMode === 'arcade') {
+      const clampedIdx = Math.max(
+        0,
+        Math.min(this.arcadeStageIndex, this.arcadeLadder.length - 1)
+      );
+      this.arcadeStageIndex = clampedIdx;
+      this.p2CharacterId = this.arcadeLadder[clampedIdx] || this.p2CharacterId;
+    }
+    this.setScreen('fighting');
+    this.emitCommand('restart_match');
+  }
+
+  public restartMatch(): void {
+    this.requestRestartMatch();
   }
 
   public requestRestartRound(): void {

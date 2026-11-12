@@ -1,9 +1,8 @@
 # Fight Fun — Developer & Architecture Guide (`PROJECT_GUIDE.md`)
 
-**Official Game Title:** FIGHT FUN (`Fight Fun`)  
-**Tagline:** Lights. Camera. Knockout!
+**Official Game Title:** FIGHT FUN (`Fight Fun`)
 
-This document is the authoritative developer reference for **Fight Fun**, a 3D cinematic Bollywood arcade fighting game built with React 19, TypeScript, Tailwind CSS, and Babylon.js 9 on a classic 2D fighting plane (`X` horizontal, `Y` vertical, `Z = 0` stage plane).
+This document is the authoritative developer reference for **Fight Fun**, a 2.5D 3D-rendered fighting game built with React 19, TypeScript, Tailwind CSS, and Babylon.js 9 on a classic 2D fighting plane (`X` horizontal, `Y` vertical, `Z = 0` stage plane).
 
 Use this guide to understand the runtime execution flow, locate the exact file responsible for any feature, replace 3D character models or animations, add new fighters or arenas, tune combat balance, and avoid regressions across interdependent systems.
 
@@ -15,11 +14,11 @@ Use this guide to understand the runtime execution flow, locate the exact file r
 **Fight Fun** separates UI presentation, shared game state, deterministic 60Hz 2D combat simulation, and 3D Babylon.js rendering into four cleanly decoupled layers:
 
 1. **React UI & Screen Router Layer (`src/App.tsx`, `src/components/*`)**:
-   - Renders the title screen (`FIGHT FUN`), character selection screen, arena selection screen, in-match arcade HUD overlay, mobile virtual controls, pause menu, settings modal, controls modal, disclaimer modal, and post-match results screen.
+   - Renders the title screen (`FIGHT FUN`), game mode selection screen, character selection screen (supporting both `match` and `browse` modes), character overview screen, arena selection screen, in-match arcade HUD overlay, capability-aware mobile virtual controls, pause menu, settings modal, controls modal, disclaimer modal, and post-match results screen.
    - Communicates with the game engine exclusively through the singleton `GameBridge` (`src/engine/GameBridge.ts`). Never mutates 3D scene meshes directly.
 2. **State & Event Bridge (`src/engine/GameBridge.ts`)**:
-   - Holds the authoritative match configuration: `screen`, `gameMode` (`arcade` | `vs_cpu` | `training`), `p1CharacterId`, `p2CharacterId`, `arenaId`, `arcadeStageIndex`, `trainingDummyBehavior`, and `lastMatchWinner`.
-   - Publishes 60Hz HUD snapshots (`GameHUDState`) and match lifecycle commands (`startMatch`, `rematch`, `advanceArcadeTower`, `restartRound`, `returnToMenu`) via typed subscriptions.
+   - Holds the authoritative match configuration: `screen`, `gameMode` (`arcade` | `vs_cpu` | `training`), `characterSelectBrowseOnly` (`getCharacterSelectMode(): 'match' | 'browse'`), `p1CharacterId`, `p2CharacterId`, `inspectedCharacterId`, `arenaId`, `arcadeStageIndex`, `trainingDummyBehavior`, and `matchWinner`.
+   - Publishes 60Hz HUD snapshots (`GameHUDState`) and match lifecycle commands (`start_match`, `restart_match`, `restart_round`, `rematch`, `reset_training`) via typed subscriptions.
 3. **60Hz Deterministic Combat & Match Core (`src/game3d/combat/*`, `src/game3d/hitboxes/*`, `src/game3d/cpu/*`, `src/game3d/managers/*`)**:
    - Runs inside `BabylonFightEngine` on a fixed `1/60s` (`FIXED_DT`) accumulator loop.
    - All fighter movement, jump arcs, pushbox separation, attack frame windows (`startup`, `active`, `recovery`), hitstun/blockstun, combo scaling, SuperShot projectiles, and SuperMove impacts operate on the 2D `X/Y` plane (`Z = 0`).
@@ -32,30 +31,24 @@ Use this guide to understand the runtime execution flow, locate the exact file r
 ```text
 [1. TitleScreen.tsx] ("FIGHT FUN" — Visual-First Main Menu with Live 3D Hero Showcase)
    ├─> "PLAY": bridge.setScreen('game_mode')
-   ├─> "FIGHTERS": bridge.characterSelectBrowseOnly = true; bridge.setScreen('character_select')
-   └─> "SETTINGS": opens SettingsModal
+   ├─> "FIGHTERS": bridge.openFightersBrowse() -> sets characterSelectBrowseOnly = true, screen = 'character_select'
+   └─> "SETTINGS": opens SettingsModal (blocks TitleScreen global Enter/Space shortcut while open)
 
 [2. GameModeSelect.tsx]
    User clicks visual mode card ('arcade' | 'vs_cpu' | 'training')
-   └─> bridge.gameMode = mode; bridge.setScreen('character_select')
+   └─> bridge.openMatchCharacterSelect(mode) -> sets gameMode = mode, characterSelectBrowseOnly = false, screen = 'character_select'
 
-[3. CharacterSelect.tsx & CharacterOverview.tsx]
-   User clicks character card for P1 or P2 (or opens CharacterOverview for full-body 3D turntable & Attack/Defence/Speed bars)
-   └─> applyFighterSelection(current, clickedId) (src/game3d/characters/CharacterRoster3D.ts)
-       Updates p1Id / p2Id deterministically & writes bridge.p1CharacterId / bridge.p2CharacterId
-   └─> CharacterPreview3D.tsx passes activeCharacterId to CharacterPreviewScene.loadCharacterAsset(characterId)
-       ├─> Monotonic loadToken increments; immediately disposes previous preview rig
-       └─> AssetLoader3D.loadCharacterRig3D(scene, def) -> CharacterAssetLoader.loadCharacterFromManifest(...)
-           ├─> Validates GLB against CharacterAssetConfig (src/config/characterAssets.ts)
-           ├─> If isTemporaryPlaceholder === true: disposes 24-vertex box proxy GLB and builds character-specific
-           │   articulated 22-bone + 5-facial-bone procedural rig (renderState = 'TEMPORARY_PLACEHOLDER')
-           └─> If isTemporaryPlaceholder === false: calibrates imported GLB scale/groundOffset, maps humanoid
-               bones via boneAliases, registers dynamic AnimationGroups (excluding static 'mixamo_com' pose),
-               and sets renderState = 'PRODUCTION_SKINNED'
+[3A. CharacterSelect.tsx & CharacterOverview.tsx — BROWSE-ONLY MODE (mode="browse")]
+   Reached from Main Menu -> Fighters:
+   ├─> Displays character roster, 3D preview turntable, OVERVIEW button, and MAIN MENU back button
+   ├─> Hides P1/P2 match-slot toggles, CPU difficulty, Training dummy controls, P1/P2 badges, and CONFIRM FIGHTERS CTA
+   └─> Selecting or inspecting fighters updates browsedId / bridge.inspectedCharacterId ONLY (never mutates P1/P2 match slots or starts a match)
 
-[4. ArenaSelect.tsx & ArenaPreview3D.tsx]
-   User previews real-time 3D stage ('award_night' | 'film_city') via ArenaPreview3D and clicks "FIGHT!"
-   └─> bridge.arenaId = selectedArena; bridge.startMatch() (sets screen = 'fighting')
+[3B. CharacterSelect.tsx & CharacterOverview.tsx — MATCH-SELECTION MODE (mode="match")]
+   Reached from Main Menu -> Play -> Game Mode -> Character Select:
+   ├─> applyFighterSelection(current, clickedId) (src/game3d/characters/CharacterRoster3D.ts)
+   │   Updates p1Id / p2Id deterministically & writes bridge.p1CharacterId / bridge.p2CharacterId
+   └─> Clicking "CONFIRM FIGHTERS" navigates to ArenaSelect ('arena_select')
 
 [5. GameCanvas.tsx -> BabylonFightEngine.ts]
    Mounts canvas and instantiates BabylonFightEngine(canvas)
@@ -363,21 +356,37 @@ Defined in `src/data/arenas.ts` and constructed in 3D by `src/game3d/arenas/Aren
 
 ---
 
-## 10. UI Management
+## 10. UI Management, Match Lifecycle Commands & Device Compatibility
 
+### 10.1 UI Component Reference
 | Component File | Responsibility |
 | :--- | :--- |
 | `src/App.tsx` | Top-level screen state router (`title` -> `game_mode` -> `character_select` -> `character_overview` -> `arena_select` -> `fighting` -> `results`), global settings modal, and mobile portrait prompt. |
 | `src/components/ui/FightFunUI.tsx` | Reusable UI design system (`PrimaryButton`, `SecondaryButton`, `ScreenHeader`, `SelectionIndicator`, `CharacterPortrait`, `CharacterCard`, `CharacterRoster`, `CharacterStats`, `ArenaCard`, `Modal`, `LoadingIndicator`). |
-| `src/components/TitleScreen.tsx` | Minimal visual-first Main Menu with **FIGHT FUN** logo, live 3D character showcase, and `PLAY`, `FIGHTERS`, `SETTINGS` navigation. |
+| `src/components/TitleScreen.tsx` | Minimal visual-first Main Menu with **FIGHT FUN** logo, live 3D character showcase, `PLAY`, `FIGHTERS`, `SETTINGS` navigation, and context-aware `shouldTriggerTitleShortcut()` keyboard guard. |
 | `src/components/GameModeSelect.tsx` | Visual mode selection cards for `ARCADE`, `VERSUS CPU`, and `TRAINING`. |
-| `src/components/CharacterSelect.tsx` | P1/P2 slot selector, 4-fighter `CharacterRoster` grid, large `CharacterPreview3D` viewport, `OVERVIEW` button, and `CONFIRM FIGHTERS` CTA. |
-| `src/components/CharacterOverview.tsx` | Dedicated full-body 3D character inspection screen with interactive turntable rotation, fighting style, and `Attack`, `Defence`, `Speed` stat bars. |
+| `src/components/CharacterSelect.tsx` | Supports `mode="match"` (P1/P2 slot selector, CPU difficulty, `CONFIRM FIGHTERS` CTA) and `mode="browse"` (roster inspection, 3D turntable, `FIGHTER OVERVIEW`, `MAIN MENU`). |
+| `src/components/CharacterOverview.tsx` | Full-body 3D character inspection screen with turntable rotation, fighting style, and `Attack`, `Defence`, `Speed` stat bars (hides `SELECT FIGHTER` when `mode="browse"`). |
 | `src/components/ArenaSelect.tsx` | Real-time 3D stage preview (`ArenaPreview3D`) and visual `ArenaCard` selectors for `award_night` and `film_city`. |
 | `src/components/FightHUD.tsx` | Unobtrusive in-match HUD with P1/P2 health bars, character names, round timer, and compact special/super availability indicators. |
-| `src/components/PauseModal.tsx` | Simplified pause modal (`RESUME`, `RESTART MATCH`, `SETTINGS`, `MAIN MENU`, plus training dummy selector in Training mode). |
+| `src/components/MobileControls.tsx` | Capability-aware multi-touch virtual D-pad and action buttons (`detectTouchCapability` + `shouldShowMobileControls`), visible on phones and wide landscape touch tablets (`>= 1024px`). Automatically clears held inputs on pause, blur, or visibility change. |
+| `src/components/PauseModal.tsx` | Pause modal (`RESUME`, two-step confirmed `RESTART MATCH`, `SETTINGS`, `MAIN MENU`, plus training dummy selector in Training mode). |
 | `src/components/ResultsModal.tsx` | Winner announcement, 3D winning character showcase, `REMATCH` / `NEXT STAGE`, `FIGHTERS`, and `MAIN MENU` actions. |
-| `src/components/SettingsModal.tsx` | Categorized `Audio`, `Gameplay`, `Display`, and `Controls` configuration modal. |
+| `src/components/SettingsModal.tsx` | Categorized `Audio`, `Gameplay`, `Display`, and `Controls` configuration modal (including `TOUCH CONTROLS VISIBILITY: AUTO / ALWAYS ON / HIDDEN` and `Escape` close support). |
+
+### 10.2 Match Reset Semantics (`restartMatch` vs `restartRound` vs `rematch`)
+- **`bridge.restartMatch()` (`restart_match` command, triggered by `PauseModal` -> `RESTART MATCH` -> `CONFIRM RESTART`)**:
+  - Resets the entire current match back to **Round 1** (`currentRound = 1`, `p1RoundWins = 0`, `p2RoundWins = 0`, `matchWinner = null`, `roundWinner = null`, `stats` cleared, full health, zero meters, spawn positions, cleared projectiles/specials/hitstop/blackout).
+  - Preserves selected fighters (`p1CharacterId`, `p2CharacterId`), `arenaId`, `gameMode`, `difficulty`, and—when in Arcade Mode—preserves the current `arcadeStageIndex` and `arcadeLadder` (restarting the current stage's match from Round 1 rather than resetting the entire Arcade run to Stage 1).
+- **`bridge.restartRound()` (`restart_round` command)**:
+  - Resets only the **current round** (`MatchManager3D.restartCurrentRound`), keeping `currentRound` and existing `p1RoundWins`/`p2RoundWins` intact.
+- **`bridge.rematch()` (`rematch` command, triggered from `ResultsModal`)**:
+  - Starts a fresh best-of-3 match from Round 1 with the same fighters and arena after a match has concluded.
+
+### 10.3 WebGL Fallback & Context-Loss Lifecycle
+- Browser preview components (`ArenaPreview3D.tsx` and `CharacterPreview3D.tsx`) never silently substitute `NullEngine` when WebGL initialization fails (which would render a blank canvas). Instead, they catch WebGL creation errors or `webglcontextlost`, dispose partial resources, and render a styled visual fallback card with a **RETRY PREVIEW** button.
+- `NullEngine` is used exclusively in headless automated tests (`canvas === null`).
+- All 3D canvases (`BabylonFightEngine`, `CharacterPreviewScene`, `ArenaPreview3D`) use dimension-deduplicated `ResizeObserver` + `orientationchange` + `visibilitychange` listeners so backgrounded tabs pause simulation/rendering and release held inputs cleanly without time-jumping on resume.
 
 ---
 

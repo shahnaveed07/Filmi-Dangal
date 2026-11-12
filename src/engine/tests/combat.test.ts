@@ -13,8 +13,16 @@ import { CPUController } from '../CPUController';
 import { MatchManager } from '../MatchManager';
 import { InputManager, EMPTY_INPUT_FRAME } from '../InputManager';
 import { GameBridge } from '../GameBridge';
-import { SettingsManager, DEFAULT_GAME_SETTINGS, sanitizeGameSettings } from '../SettingsManager';
+import {
+  SettingsManager,
+  DEFAULT_GAME_SETTINGS,
+  sanitizeGameSettings,
+  detectTouchCapability,
+  shouldShowMobileControls,
+} from '../SettingsManager';
 import { AudioManager } from '../AudioManager';
+import { shouldTriggerTitleShortcut } from '../../components/TitleScreen';
+import { buildArenaPreviewFallbackState } from '../../game3d/scenes/ArenaPreview3D';
 
 import {
   CHARACTER_ASSET_MANIFEST,
@@ -2771,22 +2779,30 @@ test('26. Phase 3, 4, 6 & 7 — Preview vs. Gameplay Animation Parity, Reverse P
   scene.dispose();
   engine.dispose();
 
-  // 4. Verify Fight Fun Rebranding & Dependency Synchronization (Phase 6, 7 & 8)
+  // 4. Verify Fight Fun Clean Branding & Dependency Synchronization (Phase 10)
   const indexHtml = fs.readFileSync(path.resolve(process.cwd(), 'index.html'), 'utf8');
   assert.ok(
-    indexHtml.includes('<title>Fight Fun — Lights. Camera. Knockout!</title>'),
-    'index.html must have <title>Fight Fun — Lights. Camera. Knockout!</title>'
+    indexHtml.includes('<title>Fight Fun</title>'),
+    'index.html must have clean <title>Fight Fun</title> without old tagline'
+  );
+  assert.ok(
+    !indexHtml.includes('Lights. Camera. Knockout!'),
+    'index.html must not contain old tagline Lights. Camera. Knockout!'
   );
   assert.ok(!indexHtml.includes('Filmi Dangal'), 'index.html must not contain old Filmi Dangal title');
 
   const metadataJson = JSON.parse(fs.readFileSync(path.resolve(process.cwd(), 'metadata.json'), 'utf8'));
-  assert.equal(metadataJson.name, 'Fight Fun — Lights. Camera. Knockout!');
+  assert.equal(metadataJson.name, 'Fight Fun');
+  assert.ok(
+    !String(metadataJson.description).includes('Lights. Camera. Knockout!'),
+    'metadata.json description must be factual and free of the old tagline'
+  );
 
   const titleScreenTsx = fs.readFileSync(path.resolve(process.cwd(), 'src/components/TitleScreen.tsx'), 'utf8');
   assert.ok(titleScreenTsx.includes('FIGHT FUN'), 'TitleScreen.tsx must display FIGHT FUN');
   assert.ok(
     !titleScreenTsx.includes('LIGHTS. CAMERA. KNOCKOUT!'),
-    'TitleScreen.tsx must remove the tagline completely per Phase 2.1'
+    'TitleScreen.tsx must remove the tagline completely'
   );
   assert.ok(!titleScreenTsx.includes('FILMI DANGAL'), 'TitleScreen.tsx must not display FILMI DANGAL');
 
@@ -2903,6 +2919,203 @@ test('27. UI Redesign & 3D Arena Enhancement Verification: Screen Flow (title ->
   scene.dispose();
   engine.dispose();
 });
+
+test('28. Phase 2–12 Regression Suite: Browse-Only vs Match Character Select, Restart Match vs Restart Round, Arcade Stage Preservation, Touch Capability Detection, Title Shortcut Guards & WebGL Fallback', () => {
+  const bridge = GameBridge.getInstance();
+
+  // 1. Character Browse-Only Mode vs Match Selection Mode (Phase 2)
+  bridge.p1CharacterId = 'action_sultan';
+  bridge.p2CharacterId = 'romance_raja';
+
+  bridge.openFightersBrowse('duggu');
+  assert.equal(bridge.screen, 'character_select');
+  assert.equal(bridge.characterSelectBrowseOnly, true);
+  assert.equal(bridge.getCharacterSelectMode(), 'browse');
+  assert.equal(bridge.inspectedCharacterId, 'duggu');
+  // Browsing fighters must NEVER mutate P1/P2 match selection
+  assert.equal(bridge.p1CharacterId, 'action_sultan');
+  assert.equal(bridge.p2CharacterId, 'romance_raja');
+
+  // Opening match character select switches to 'match' mode
+  bridge.openMatchCharacterSelect('vs_cpu');
+  assert.equal(bridge.screen, 'character_select');
+  assert.equal(bridge.characterSelectBrowseOnly, false);
+  assert.equal(bridge.getCharacterSelectMode(), 'match');
+  assert.equal(bridge.gameMode, 'vs_cpu');
+
+  // 2. Restart Match vs Restart Round & Arcade Stage Preservation (Phase 5)
+  const emittedCommands: string[] = [];
+  const unsubCmd = bridge.subscribeCommand((cmd) => emittedCommands.push(cmd));
+
+  bridge.gameMode = 'arcade';
+  bridge.p1CharacterId = 'action_sultan';
+  bridge.p2CharacterId = 'romance_raja';
+  bridge.startNewMatch();
+  assert.equal(bridge.arcadeStageIndex, 0);
+  assert.equal(bridge.p2CharacterId, 'romance_raja');
+
+  // Advance to Stage 2 (index 1)
+  const advanced = bridge.advanceArcadeStage();
+  assert.equal(advanced, true);
+  assert.equal(bridge.arcadeStageIndex, 1);
+  const stage2Opponent = bridge.p2CharacterId;
+  assert.notEqual(stage2Opponent, 'action_sultan');
+
+  // Simulate mid-match stats & round wins in MatchManager3D
+  const match3D = new MatchManager3D();
+  const p1 = new Fighter3D(0, CHARACTERS.action_sultan, -2.5, 0, 0);
+  const p2 = new Fighter3D(1, CHARACTERS[stage2Opponent], 2.5, 0, 0);
+  const combat3D = new CombatSystem3D();
+  const cpu3D = new CPUController3D('normal');
+
+  match3D.resetMatch(p1, p2, combat3D, cpu3D);
+  match3D.currentRound = 2;
+  match3D.p1RoundWins = 1;
+  match3D.p2RoundWins = 0;
+  match3D.stats.p1DamageDealt = 420;
+  match3D.stats.roundResults.push('p1');
+  p1.health = 180;
+  p1.specialMeter = 75;
+  p2.health = 90;
+
+  // Verify restartCurrentRound ONLY resets the current round (preserving Round 2 and p1RoundWins = 1)
+  match3D.restartCurrentRound(p1, p2, combat3D, cpu3D);
+  assert.equal(match3D.currentRound, 2, 'restartCurrentRound keeps currentRound = 2');
+  assert.equal(match3D.p1RoundWins, 1, 'restartCurrentRound keeps p1RoundWins = 1');
+  assert.equal(p1.health, p1.maxHealth, 'restartCurrentRound restores fighter health');
+
+  // Verify restartMatch() emits 'restart_match', resets MatchManager3D to Round 1 & 0 wins,
+  // AND preserves Arcade stage 2 (arcadeStageIndex === 1 and stage2Opponent)!
+  p1.health = 120;
+  bridge.setPaused(true);
+  bridge.restartMatch();
+  assert.equal(bridge.isPaused, false);
+  assert.equal(emittedCommands[emittedCommands.length - 1], 'restart_match');
+  assert.equal(bridge.arcadeStageIndex, 1, 'restartMatch preserves Arcade Stage 2 index');
+  assert.equal(bridge.p2CharacterId, stage2Opponent, 'restartMatch preserves Arcade Stage 2 opponent');
+  assert.equal(bridge.lastMatchStats.p1DamageDealt, 0);
+  assert.equal(bridge.lastMatchStats.roundResults.length, 0);
+
+  match3D.resetMatch(p1, p2, combat3D, cpu3D);
+  assert.equal(match3D.currentRound, 1, 'resetMatch resets currentRound to 1');
+  assert.equal(match3D.p1RoundWins, 0, 'resetMatch resets p1RoundWins to 0');
+  assert.equal(match3D.p2RoundWins, 0, 'resetMatch resets p2RoundWins to 0');
+  assert.equal(match3D.matchWinner, null);
+  assert.equal(match3D.stats.p1DamageDealt, 0);
+  assert.equal(match3D.stats.roundResults.length, 0);
+  assert.equal(p1.health, p1.maxHealth);
+  assert.equal(p1.specialMeter, 25);
+  assert.equal(combat3D.projectileManager.getActiveProjectiles().length, 0);
+
+  unsubCmd();
+
+  // 3. Touch Control Capability Detection & Visibility Overrides (Phase 3)
+  // Phone portrait/landscape
+  assert.equal(
+    detectTouchCapability({ maxTouchPoints: 5, coarsePointer: true, innerWidth: 390 }),
+    true
+  );
+  // Wide landscape tablet (iPad Pro 1366x1024 - previously hidden by lg:hidden!)
+  const isWideTabletTouch = detectTouchCapability({
+    maxTouchPoints: 5,
+    coarsePointer: true,
+    innerWidth: 1366,
+  });
+  assert.equal(isWideTabletTouch, true);
+  assert.equal(
+    shouldShowMobileControls('auto', isWideTabletTouch),
+    true,
+    'Wide landscape touch tablet (>= 1024px) must show touch controls in auto mode'
+  );
+  // Standard desktop mouse-only (1920x1080)
+  const isDesktopTouch = detectTouchCapability({
+    maxTouchPoints: 0,
+    coarsePointer: false,
+    anyCoarsePointer: false,
+    hasTouchStart: false,
+    innerWidth: 1920,
+  });
+  assert.equal(isDesktopTouch, false);
+  assert.equal(
+    shouldShowMobileControls('auto', isDesktopTouch),
+    false,
+    'Desktop mouse-only setup must hide mobile controls in auto mode'
+  );
+  // Explicit user overrides ('always' | 'off')
+  assert.equal(shouldShowMobileControls('always', false), true);
+  assert.equal(shouldShowMobileControls('off', true), false);
+
+  // Sanitize settings with mobileControlVisibility
+  const sanitized = sanitizeGameSettings({ mobileControlVisibility: 'always' });
+  assert.equal(sanitized.mobileControlVisibility, 'always');
+  const fallbackSanitized = sanitizeGameSettings({ mobileControlVisibility: 'invalid' });
+  assert.equal(fallbackSanitized.mobileControlVisibility, 'auto');
+
+  // 4. Multi-Touch Pointer Release on Pause / Blur (Phase 3)
+  const inputMgr = InputManager.getInstance();
+  inputMgr.clearAll();
+  inputMgr.onVirtualPointerDown(101, 'right');
+  inputMgr.onVirtualPointerDown(102, 'punch');
+  assert.equal(inputMgr.isVirtualControlActive('right'), true);
+  assert.equal(inputMgr.isVirtualControlActive('punch'), true);
+  inputMgr.clearTouchInputs();
+  assert.equal(inputMgr.isVirtualControlActive('right'), false);
+  assert.equal(inputMgr.isVirtualControlActive('punch'), false);
+
+  // 5. Title Screen Context-Aware Keyboard Shortcut Guards (Phase 4)
+  assert.equal(
+    shouldTriggerTitleShortcut({
+      currentScreen: 'title',
+      keyCode: 'Enter',
+      isModalOpen: false,
+      hasDialogInDom: false,
+      defaultPrevented: false,
+      repeat: false,
+      activeElementTagName: 'BODY',
+    }),
+    true,
+    'Unfocused BODY on Title Screen with no modal open allows Enter shortcut'
+  );
+  assert.equal(
+    shouldTriggerTitleShortcut({
+      currentScreen: 'title',
+      keyCode: 'Enter',
+      isModalOpen: true,
+      hasDialogInDom: true,
+      defaultPrevented: false,
+      repeat: false,
+      activeElementTagName: 'BODY',
+    }),
+    false,
+    'Open SettingsModal blocks Title Screen Enter shortcut'
+  );
+  assert.equal(
+    shouldTriggerTitleShortcut({
+      currentScreen: 'title',
+      keyCode: 'Space',
+      isModalOpen: false,
+      hasDialogInDom: false,
+      defaultPrevented: false,
+      repeat: false,
+      activeElementTagName: 'BUTTON',
+    }),
+    false,
+    'Focused BUTTON on Title Screen must not be hijacked by global shortcut listener'
+  );
+
+  // 6. WebGL Preview Fallback State Builder (Phase 6)
+  const fallbackAward = buildArenaPreviewFallbackState(
+    'award_night',
+    new Error('WebGL context creation failed')
+  );
+  assert.equal(fallbackAward.arenaId, 'award_night');
+  assert.equal(fallbackAward.hasWebGLError, true);
+  assert.ok(fallbackAward.arenaName.length > 0);
+  assert.ok(fallbackAward.errorMessage?.includes('WebGL context creation failed'));
+
+  bridge.returnToMenu();
+});
+
 
 
 

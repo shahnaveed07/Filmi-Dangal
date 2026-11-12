@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { CHARACTER_LIST, CHARACTERS } from '../data/characters';
 import { FighterId } from '../types/fighter';
-import { GameBridge } from '../engine/GameBridge';
+import { CharacterSelectMode, GameBridge } from '../engine/GameBridge';
 import { AudioManager } from '../engine/AudioManager';
 import { CharacterPreview3D } from '../game3d/scenes/CharacterPreview3D';
 import {
@@ -13,16 +13,22 @@ import {
 import { ChevronLeft, ChevronRight, Check } from 'lucide-react';
 
 interface CharacterOverviewProps {
+  mode?: CharacterSelectMode;
   onBackToRoster: () => void;
   onSelectCharacter: (id: FighterId) => void;
 }
 
 export const CharacterOverview: React.FC<CharacterOverviewProps> = ({
+  mode,
   onBackToRoster,
   onSelectCharacter,
 }) => {
   const bridge = GameBridge.getInstance();
   const audio = AudioManager.getInstance();
+
+  const resolvedMode: CharacterSelectMode =
+    mode ?? (bridge.characterSelectBrowseOnly ? 'browse' : 'match');
+  const isBrowseOnly = resolvedMode === 'browse';
 
   const [currentId, setCurrentId] = useState<FighterId>(
     bridge.inspectedCharacterId || bridge.p1CharacterId
@@ -43,12 +49,13 @@ export const CharacterOverview: React.FC<CharacterOverviewProps> = ({
   return (
     <div
       data-testid="character-overview-screen"
+      data-select-mode={resolvedMode}
       data-overview-character-id={currentId}
       className="relative w-full h-full min-h-screen bg-[#0D0C16] flex flex-col justify-between p-4 sm:p-6 md:p-8 select-none overflow-y-auto"
     >
       <ScreenHeader
         title="FIGHTER OVERVIEW"
-        backLabel="ROSTER"
+        backLabel="FIGHTERS"
         onBack={() => {
           audio.playSound('click');
           onBackToRoster();
@@ -132,26 +139,29 @@ export const CharacterOverview: React.FC<CharacterOverviewProps> = ({
 
           <div className="flex flex-col sm:flex-row gap-3 pt-1">
             <SecondaryButton
+              data-testid="overview-back-to-roster-btn"
               fullWidth
               onClick={() => {
                 audio.playSound('click');
                 onBackToRoster();
               }}
             >
-              BACK TO ROSTER
+              BACK TO FIGHTERS
             </SecondaryButton>
 
-            <PrimaryButton
-              data-testid="overview-select-character-btn"
-              fullWidth
-              icon={<Check size={18} />}
-              onClick={() => {
-                audio.playSound('click');
-                onSelectCharacter(currentId);
-              }}
-            >
-              SELECT FIGHTER
-            </PrimaryButton>
+            {!isBrowseOnly && (
+              <PrimaryButton
+                data-testid="overview-select-character-btn"
+                fullWidth
+                icon={<Check size={18} />}
+                onClick={() => {
+                  audio.playSound('click');
+                  onSelectCharacter(currentId);
+                }}
+              >
+                SELECT FIGHTER
+              </PrimaryButton>
+            )}
           </div>
         </div>
       </div>

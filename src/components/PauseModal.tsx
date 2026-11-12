@@ -25,6 +25,8 @@ export const PauseModal: React.FC<PauseModalProps> = ({
     bridge.trainingDummyBehavior
   );
 
+  const [confirmingRestart, setConfirmingRestart] = useState(false);
+
   const handleDummyBehavior = (behavior: TrainingDummyBehavior) => {
     audio.playSound('click');
     setDummyBehavior(behavior);
@@ -68,6 +70,7 @@ export const PauseModal: React.FC<PauseModalProps> = ({
 
       <div className="flex flex-col gap-3">
         <PrimaryButton
+          data-testid="pause-resume-btn"
           fullWidth
           icon={<Play size={18} />}
           onClick={() => {
@@ -78,18 +81,55 @@ export const PauseModal: React.FC<PauseModalProps> = ({
           RESUME
         </PrimaryButton>
 
-        <SecondaryButton
-          fullWidth
-          icon={<RotateCcw size={16} />}
-          onClick={() => {
-            audio.playSound('click');
-            onRestart();
-          }}
-        >
-          RESTART MATCH
-        </SecondaryButton>
+        {!confirmingRestart ? (
+          <SecondaryButton
+            data-testid="pause-restart-match-btn"
+            fullWidth
+            icon={<RotateCcw size={16} />}
+            onClick={() => {
+              audio.playSound('click');
+              if (isTraining) {
+                onRestart();
+              } else {
+                setConfirmingRestart(true);
+              }
+            }}
+          >
+            RESTART MATCH
+          </SecondaryButton>
+        ) : (
+          <div
+            data-testid="pause-restart-confirm-group"
+            className="grid grid-cols-2 gap-2 p-2 rounded-lg bg-black/50 border border-[#BE123C]"
+          >
+            <PrimaryButton
+              data-testid="pause-confirm-restart-btn"
+              fullWidth
+              onClick={() => {
+                audio.playSound('click');
+                setConfirmingRestart(false);
+                onRestart();
+              }}
+              className="py-2.5 px-3 text-xs"
+            >
+              CONFIRM RESTART
+            </PrimaryButton>
+            <SecondaryButton
+              data-testid="pause-cancel-restart-btn"
+              fullWidth
+              onClick={() => {
+                audio.playSound('click');
+                setConfirmingRestart(false);
+              }}
+              className="py-2.5 px-3 text-xs"
+            >
+              CANCEL
+            </SecondaryButton>
+          </div>
+        )}
 
         <SecondaryButton
+          data-testid="pause-settings-btn"
           fullWidth
           icon={<Settings size={16} />}
           onClick={() => {
@@ -101,6 +141,7 @@ export const PauseModal: React.FC<PauseModalProps> = ({
         </SecondaryButton>
 
         <SecondaryButton
+          data-testid="pause-main-menu-btn"
           fullWidth
           icon={<Home size={16} />}
           onClick={() => {
