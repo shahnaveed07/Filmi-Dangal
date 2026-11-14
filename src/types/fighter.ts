@@ -170,12 +170,14 @@ export interface CharacterModelProportions {
     | 'slicked_villain_mane'
     | 'bhidu_swagger_mane';
   facialHair:
+    | 'none'
     | 'clean_shaven'
     | 'royal_mustache'
     | 'designer_stubble'
     | 'heavy_boss_goatee'
     | 'bhidu_mustache';
   accessoryType:
+    | 'kada'
     | 'aviator_and_kada'
     | 'silk_scarf_and_collar'
     | 'neon_visor_and_gauntlets'

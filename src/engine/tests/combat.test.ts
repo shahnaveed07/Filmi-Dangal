@@ -22,6 +22,11 @@ import {
 } from '../SettingsManager';
 import { AudioManager } from '../AudioManager';
 import { shouldTriggerTitleShortcut } from '../../components/TitleScreen';
+import {
+  computeStartupProgressPercentage,
+  runStartupAssetVerification,
+} from '../../components/LoadingScreen';
+import { filterCharactersByQuery } from '../../components/CharacterSelect';
 import { buildArenaPreviewFallbackState } from '../../game3d/scenes/ArenaPreview3D';
 
 import {
@@ -3582,6 +3587,132 @@ test('29. Bhai Jaan Rename Compatibility, GLB PBR Completeness & Triangle Budget
   assert.equal(gltf.materials?.length, 7, 'Bhai Jaan GLB must define 7 PBR materials');
   assert.equal(gltf.images?.length, 28, 'Bhai Jaan GLB must embed 28 lossless PBR texture maps');
   assert.equal(gltf.skins?.[0]?.joints?.length, 65, 'Bhai Jaan GLB must have a 65-bone Mixamo skeleton');
+});
+
+test('30. Fight Fun UI Redesign (Phases 1–5): Real Startup Verification, Home Screen Attributes, Scalable 3-Column Character Roster & Authentic Settings Panel', async () => {
+  // 1. Phase 1: Real Startup Progress & Verification (No fake timer or hardcoded 78%)
+  assert.equal(computeStartupProgressPercentage(0, 100), 0);
+  assert.equal(computeStartupProgressPercentage(20, 100), 20);
+  assert.equal(computeStartupProgressPercentage(70, 100), 70);
+  assert.equal(computeStartupProgressPercentage(100, 100), 100);
+  assert.equal(computeStartupProgressPercentage(150, 100), 100);
+
+  const glbBytes = fs.readFileSync(
+    path.resolve(process.cwd(), 'public/assets/characters/action-sultan/model.glb')
+  );
+  const observedPercentages: number[] = [];
+  const startupResult = await runStartupAssetVerification({
+    fetchImpl: (async (url: RequestInfo | URL) => {
+      const strUrl = String(url);
+      if (strUrl.endsWith('.glb')) {
+        return {
+          ok: true,
+          status: 200,
+          arrayBuffer: async () =>
+            glbBytes.buffer.slice(
+              glbBytes.byteOffset,
+              glbBytes.byteOffset + glbBytes.byteLength
+            ),
+        } as Response;
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({}),
+      } as Response;
+    }) as typeof fetch,
+    onProgress: (state) => {
+      observedPercentages.push(state.percentage);
+    },
+  });
+
+  assert.equal(startupResult.success, true);
+  assert.equal(startupResult.finalPercentage, 100);
+  assert.equal(startupResult.glbValidated, true);
+  assert.equal(startupResult.verifiedCharacters.length, 4);
+  assert.equal(observedPercentages[0], 0);
+  assert.equal(observedPercentages[observedPercentages.length - 1], 100);
+
+  const loadingScreenTsx = fs.readFileSync(
+    path.resolve(process.cwd(), 'src/components/LoadingScreen.tsx'),
+    'utf8'
+  );
+  assert.ok(
+    loadingScreenTsx.includes('Loading Assets...'),
+    'LoadingScreen must display Loading Assets...'
+  );
+  assert.equal(
+    loadingScreenTsx.includes('78%'),
+    false,
+    'LoadingScreen must not hardcode 78%'
+  );
+
+  // 2. Phase 2: Home Screen (TitleScreen.tsx) structure & constraints
+  const titleScreenTsx = fs.readFileSync(
+    path.resolve(process.cwd(), 'src/components/TitleScreen.tsx'),
+    'utf8'
+  );
+  assert.ok(titleScreenTsx.includes('PLAY'), 'Home Screen must include PLAY button');
+  assert.ok(
+    titleScreenTsx.includes('CHARACTERS'),
+    'Home Screen must include CHARACTERS button'
+  );
+  assert.ok(
+    titleScreenTsx.includes('SETTINGS'),
+    'Home Screen must include SETTINGS button'
+  );
+  assert.equal(
+    titleScreenTsx.includes('Drag to Rotate'),
+    false,
+    'Home Screen must not display Drag to Rotate text'
+  );
+
+  // 3. Phase 3: Scalable 3-Column Character Roster & Search/Role Filtering (No fake locked characters)
+  assert.equal(filterCharactersByQuery(CHARACTER_LIST, '', 'ALL').length, 4);
+  assert.equal(filterCharactersByQuery(CHARACTER_LIST, 'bhai', 'ALL')[0]?.id, 'action_sultan');
+  assert.equal(filterCharactersByQuery(CHARACTER_LIST, 'raja', 'ALL')[0]?.id, 'romance_raja');
+  assert.equal(filterCharactersByQuery(CHARACTER_LIST, 'duggu', 'ALL')[0]?.id, 'duggu');
+  assert.equal(filterCharactersByQuery(CHARACTER_LIST, 'bhidu', 'ALL')[0]?.id, 'bhidu');
+  assert.equal(filterCharactersByQuery(CHARACTER_LIST, '', 'SPEED')[0]?.id, 'duggu');
+
+  const charSelectTsx = fs.readFileSync(
+    path.resolve(process.cwd(), 'src/components/CharacterSelect.tsx'),
+    'utf8'
+  );
+  for (const fakeName of ['Raka', 'Major', 'Tiger', 'Faris', 'Zoravar']) {
+    assert.equal(
+      charSelectTsx.includes(fakeName),
+      false,
+      `CharacterSelect must not include fake locked character "${fakeName}"`
+    );
+  }
+  assert.equal(
+    charSelectTsx.includes('Drag to Rotate'),
+    false,
+    'CharacterSelect must not display Drag to Rotate text'
+  );
+
+  // 4. Phase 4: Authentic Settings Panel (4 real tabs, no fake resolution or About tab)
+  const settingsTsx = fs.readFileSync(
+    path.resolve(process.cwd(), 'src/components/SettingsModal.tsx'),
+    'utf8'
+  );
+  for (const realTab of ['Audio', 'Gameplay', 'Display', 'Controls']) {
+    assert.ok(
+      settingsTsx.includes(realTab),
+      `SettingsModal must include real "${realTab}" category`
+    );
+  }
+  assert.equal(
+    settingsTsx.includes('720p') || settingsTsx.includes('900p') || settingsTsx.includes('1080p'),
+    false,
+    'SettingsModal must not invent fake 720p/900p/1080p resolution options'
+  );
+  assert.equal(
+    settingsTsx.includes('Action Sultan'),
+    false,
+    'SettingsModal must use Bhai Jaan and not stale Action Sultan'
+  );
 });
 
 

@@ -10,6 +10,7 @@ import { CharacterSelect } from './components/CharacterSelect';
 import { FightHUD } from './components/FightHUD';
 import { GameCanvas } from './components/GameCanvas';
 import { GameModeSelect } from './components/GameModeSelect';
+import { LoadingScreen } from './components/LoadingScreen';
 import { MobileControls } from './components/MobileControls';
 import { PauseModal } from './components/PauseModal';
 import { ResultsModal } from './components/ResultsModal';
@@ -27,6 +28,16 @@ export default function App() {
   const audio = AudioManager.getInstance();
 
   const [currentScreen, setCurrentScreen] = useState<GameScreen>(bridge.screen);
+  const [isStartupComplete, setIsStartupComplete] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return true;
+    const params = new URLSearchParams(window.location.search);
+    return params.get('autostart') === '1' || params.get('skipLoading') === '1';
+  });
+  const [holdLoadingScreen] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    const params = new URLSearchParams(window.location.search);
+    return params.get('holdLoading') === '1';
+  });
   const [isPaused, setIsPaused] = useState<boolean>(bridge.isPaused);
   const [showSettings, setShowSettings] = useState(false);
   const [isPortrait, setIsPortrait] = useState(false);
@@ -206,12 +217,20 @@ export default function App() {
 
   return (
     <div
-      data-screen={currentScreen}
+      data-screen={isStartupComplete ? currentScreen : 'loading'}
       data-mode={bridge.gameMode}
       className="relative w-screen h-screen h-dvh bg-[#0D0C16] text-[#F1E7D0] overflow-hidden select-none font-sans"
     >
+      {/* 0. STARTUP LOADING SCREEN */}
+      {!isStartupComplete && (
+        <LoadingScreen
+          holdOnComplete={holdLoadingScreen}
+          onComplete={() => setIsStartupComplete(true)}
+        />
+      )}
+
       {/* 1. MAIN MENU */}
-      {currentScreen === 'title' && (
+      {isStartupComplete && currentScreen === 'title' && (
         <TitleScreen
           onPlay={handleOpenGameModes}
           onOpenFighters={handleOpenFightersFromMenu}

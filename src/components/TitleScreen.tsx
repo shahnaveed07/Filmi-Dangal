@@ -1,11 +1,15 @@
 import React, { useEffect, useState } from 'react';
-import { GameBridge } from '../engine/GameBridge';
-import { FighterId } from '../types/fighter';
+import { CHARACTERS } from '../data/characters';
 import { AudioManager } from '../engine/AudioManager';
-import { CHARACTER_LIST } from '../data/characters';
+import { GameBridge } from '../engine/GameBridge';
 import { CharacterPreview3D } from '../game3d/scenes/CharacterPreview3D';
-import { PrimaryButton, SecondaryButton } from './ui/FightFunUI';
-import { Volume2, VolumeX, Swords, Users, Settings } from 'lucide-react';
+import { FighterId } from '../types/fighter';
+import {
+  CharacterStats,
+  FightFunLogo,
+  WindowUtilityControls,
+} from './ui/FightFunUI';
+import { Gamepad2, Settings, Users } from 'lucide-react';
 
 export interface TitleShortcutGuardContext {
   currentScreen: string;
@@ -59,15 +63,8 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
 }) => {
   const audio = AudioManager.getInstance();
   const bridge = GameBridge.getInstance();
-  const [isMuted, setIsMuted] = useState(audio.isMuted);
-  const [showcaseId, setShowcaseId] = useState<FighterId>(bridge.p1CharacterId);
-
-  useEffect(() => {
-    const unsubMute = audio.subscribeMute((m) => setIsMuted(m));
-    return () => {
-      unsubMute();
-    };
-  }, [audio]);
+  const [showcaseId] = useState<FighterId>(bridge.p1CharacterId || 'action_sultan');
+  const showcaseCharacter = CHARACTERS[showcaseId] || CHARACTERS.action_sultan;
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -102,113 +99,138 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
   return (
     <div
       data-testid="main-menu-screen"
-      className="relative w-full h-full min-h-screen bg-[#0D0C16] flex flex-col justify-between px-4 py-4 sm:p-6 md:p-8 overflow-y-auto overflow-x-hidden select-none"
+      aria-label="FIGHT FUN Home Screen"
+      className="relative w-full h-full min-h-screen bg-[#070406] flex flex-col justify-between px-5 py-4 sm:px-8 sm:py-6 md:px-12 md:py-7 overflow-y-auto overflow-x-hidden select-none"
     >
-      {/* BACKGROUND CINEMATIC LIGHTING */}
+      {/* AMBIENT GOLDEN STAGE SPOTLIGHT & FLOOR GLOW */}
       <div className="absolute inset-0 pointer-events-none overflow-hidden">
-        <div className="absolute -top-16 left-1/4 w-96 h-96 bg-[#BE123C]/25 rounded-full blur-[130px]" />
-        <div className="absolute bottom-0 right-1/4 w-96 h-96 bg-[#D6A447]/20 rounded-full blur-[140px]" />
+        <div
+          className="absolute inset-0"
+          style={{
+            background:
+              'radial-gradient(ellipse 46% 52% at 50% 54%, rgba(245, 158, 11, 0.14) 0%, rgba(180, 83, 9, 0.06) 45%, rgba(7, 4, 6, 0.98) 80%)',
+          }}
+        />
+        <div
+          className="absolute inset-x-0 bottom-0 h-32 opacity-70"
+          style={{
+            background:
+              'radial-gradient(ellipse 38% 60% at 50% 95%, rgba(245, 158, 11, 0.25) 0%, rgba(7, 4, 6, 0) 75%)',
+          }}
+        />
       </div>
 
-      {/* TOP BAR: AUDIO TOGGLE ONLY */}
-      <div className="relative z-10 w-full max-w-6xl mx-auto flex items-center justify-end shrink-0">
-        <button
-          type="button"
-          onClick={() => audio.toggleMute()}
-          className="p-2.5 bg-[#171526] hover:bg-[#231F38] text-[#D6A447] border border-[#D6A447]/50 rounded-lg hover:border-[#FEF08A] transition-colors cursor-pointer"
-          title="Toggle Audio [M]"
-          aria-label="Toggle Audio"
-        >
-          {isMuted ? <VolumeX size={18} /> : <Volume2 size={18} />}
-        </button>
+      {/* TOP BAR: FIGHT FUN EMBLEM LEFT, REAL BROWSER CONTROLS RIGHT */}
+      <div className="relative z-20 w-full max-w-[1440px] mx-auto flex items-start justify-between shrink-0">
+        <div className="pt-1">
+          <span className="sr-only">FIGHT FUN</span>
+          <FightFunLogo size="lg" />
+        </div>
+
+        <WindowUtilityControls />
       </div>
 
-      {/* MAIN VISUAL-FIRST HERO SPLIT: LOGO + NAVIGATION LEFT, 3D FIGHTER SHOWCASE RIGHT */}
-      <div className="relative z-10 w-full max-w-6xl mx-auto my-auto grid grid-cols-1 lg:grid-cols-12 gap-6 lg:gap-10 items-center py-2">
-        {/* LEFT COLUMN: FIGHT FUN LOGO & CLEAN MENU NAVIGATION */}
-        <div className="lg:col-span-5 flex flex-col items-center lg:items-start text-center lg:text-left">
-          <div className="relative mb-6 sm:mb-8">
-            <h1 className="font-['Bungee'] text-5xl sm:text-6xl md:text-7xl font-black text-transparent bg-clip-text bg-gradient-to-b from-[#FFFBEB] via-[#F59E0B] to-[#BE123C] drop-shadow-[0_8px_20px_rgba(0,0,0,0.95)] tracking-wider leading-none">
-              FIGHT FUN
-            </h1>
-            <div className="mt-3 h-1 w-28 mx-auto lg:mx-0 bg-gradient-to-r from-[#BE123C] via-[#F59E0B] to-transparent rounded-full" />
-          </div>
-
+      {/* 3-ZONE HOME SCREEN STAGE: LEFT NAVIGATION | CENTRE 3D HERO | RIGHT CHARACTER ATTRIBUTES */}
+      <div className="relative z-10 w-full max-w-[1440px] mx-auto my-auto grid grid-cols-1 lg:grid-cols-12 gap-6 lg:gap-8 items-center py-2">
+        {/* LEFT COLUMN: 3 ANGULAR GAMING NAVIGATION BUTTONS */}
+        <div className="lg:col-span-3 flex flex-col items-center lg:items-start order-2 lg:order-1">
           <nav
             aria-label="Main Menu"
-            className="w-full max-w-xs flex flex-col gap-3"
+            className="w-full max-w-[310px] flex flex-col gap-4"
           >
-            <PrimaryButton
+            {/* PLAY BUTTON (Highlighted Gold/Amber Angular Card) */}
+            <button
+              type="button"
               data-start="true"
               data-testid="menu-play-btn"
-              fullWidth
-              icon={<Swords size={20} />}
               onClick={() => {
                 audio.playSound('click');
                 onPlay();
               }}
+              className="group relative w-full h-16 sm:h-[68px] px-6 rounded-xl border-2 border-[#FEF08A] bg-gradient-to-r from-[#92400E]/95 via-[#B45309]/85 to-[#D97706]/90 hover:brightness-110 shadow-[0_0_28px_rgba(245,158,11,0.55),inset_0_1px_12px_rgba(254,240,138,0.35)] transform -skew-x-6 transition-all flex items-center gap-4 cursor-pointer active:scale-98"
             >
-              PLAY
-            </PrimaryButton>
+              <span className="transform skew-x-6 flex items-center gap-4 w-full">
+                <span className="w-11 h-11 rounded-lg bg-amber-400/20 border border-amber-300/50 flex items-center justify-center text-[#FACC15] shrink-0 shadow-inner">
+                  <Gamepad2 size={26} />
+                </span>
+                <span className="font-display font-black italic uppercase text-xl sm:text-2xl text-white tracking-wider drop-shadow-[0_2px_6px_rgba(0,0,0,0.9)]">
+                  PLAY
+                </span>
+              </span>
+            </button>
 
-            <SecondaryButton
+            {/* CHARACTERS BUTTON */}
+            <button
+              type="button"
               data-testid="menu-fighters-btn"
-              fullWidth
-              icon={<Users size={18} />}
               onClick={() => {
                 audio.playSound('click');
                 onOpenFighters();
               }}
+              className="group relative w-full h-15 sm:h-[62px] px-6 rounded-xl border border-amber-500/55 hover:border-[#FEF08A] bg-[#0D090B]/90 hover:bg-[#191114] shadow-[0_0_18px_rgba(0,0,0,0.85)] transform -skew-x-6 transition-all flex items-center gap-4 cursor-pointer active:scale-98"
             >
-              FIGHTERS
-            </SecondaryButton>
+              <span className="transform skew-x-6 flex items-center gap-4 w-full">
+                <span className="w-10 h-10 rounded-lg bg-amber-500/10 border border-amber-400/35 flex items-center justify-center text-[#FACC15] shrink-0">
+                  <Users size={22} />
+                </span>
+                <span className="font-display font-extrabold italic uppercase text-lg sm:text-xl text-white group-hover:text-[#FEF08A] tracking-wider">
+                  CHARACTERS
+                </span>
+              </span>
+            </button>
 
-            <SecondaryButton
+            {/* SETTINGS BUTTON */}
+            <button
+              type="button"
               data-testid="menu-settings-btn"
-              fullWidth
-              icon={<Settings size={18} />}
               onClick={() => {
                 audio.playSound('click');
                 onOpenSettings();
               }}
+              className="group relative w-full h-15 sm:h-[62px] px-6 rounded-xl border border-amber-500/55 hover:border-[#FEF08A] bg-[#0D090B]/90 hover:bg-[#191114] shadow-[0_0_18px_rgba(0,0,0,0.85)] transform -skew-x-6 transition-all flex items-center gap-4 cursor-pointer active:scale-98"
             >
-              SETTINGS
-            </SecondaryButton>
+              <span className="transform skew-x-6 flex items-center gap-4 w-full">
+                <span className="w-10 h-10 rounded-lg bg-amber-500/10 border border-amber-400/35 flex items-center justify-center text-[#FACC15] shrink-0">
+                  <Settings size={22} />
+                </span>
+                <span className="font-display font-extrabold italic uppercase text-lg sm:text-xl text-white group-hover:text-[#FEF08A] tracking-wider">
+                  SETTINGS
+                </span>
+              </span>
+            </button>
           </nav>
         </div>
 
-        {/* RIGHT COLUMN: LARGE CINEMATIC 3D CHARACTER PRESENTATION */}
-        <div className="lg:col-span-7 flex flex-col gap-2.5">
+        {/* CENTRE COLUMN: FULL-BODY 3D CHARACTER SHOWCASE ON GLOWING RING PEDESTAL */}
+        <div className="lg:col-span-5 flex flex-col items-center justify-center order-1 lg:order-2">
           <CharacterPreview3D
             characterId={showcaseId}
             variant="hero"
+            frameless={true}
             showAnimationBar={false}
-            className="w-full h-64 sm:h-80 md:h-[380px]"
+            className="w-full h-72 sm:h-96 md:h-[470px] lg:h-[520px]"
           />
+        </div>
 
-          {/* COMPACT FIGHTER SWITCHER PILLS BELOW 3D SHOWCASE */}
-          <div className="flex items-center justify-center gap-2">
-            {CHARACTER_LIST.map((char) => {
-              const active = char.id === showcaseId;
-              return (
-                <button
-                  key={char.id}
-                  type="button"
-                  onClick={() => {
-                    audio.playSound('click');
-                    setShowcaseId(char.id);
-                  }}
-                  className={`px-3 py-1 rounded-lg text-xs font-['Rajdhani'] font-bold uppercase tracking-wider border transition-all cursor-pointer ${
-                    active
-                      ? 'bg-[#D6A447] text-black border-[#FEF08A]'
-                      : 'bg-[#171526] text-[#F1E7D0]/80 border-[#D6A447]/30 hover:border-[#D6A447]'
-                  }`}
-                >
-                  {char.name}
-                </button>
-              );
-            })}
-          </div>
+        {/* RIGHT COLUMN: SELECTED CHARACTER NAME, ARCHETYPE & SEGMENTED STATS */}
+        <div
+          data-testid="hero-character-attributes"
+          className="lg:col-span-4 flex flex-col items-center lg:items-start text-center lg:text-left order-3 max-w-sm mx-auto lg:mx-0 w-full"
+        >
+          <h2
+            data-testid="hero-character-name"
+            className="font-display font-black italic uppercase text-3xl sm:text-4xl md:text-[42px] text-transparent bg-clip-text bg-gradient-to-b from-[#FEF08A] via-[#FACC15] to-[#F59E0B] tracking-wide leading-tight drop-shadow-[0_4px_12px_rgba(0,0,0,0.95)]"
+          >
+            {showcaseCharacter.name}
+          </h2>
+          <p
+            data-testid="hero-character-archetype"
+            className="font-display font-bold italic text-sm sm:text-base text-zinc-200 tracking-wide mt-0.5 mb-4"
+          >
+            {showcaseCharacter.archetype}
+          </p>
+
+          <CharacterStats character={showcaseCharacter} borderVariant="gold" />
         </div>
       </div>
 

@@ -178,32 +178,32 @@ export class CharacterPreviewScene {
     }
 
     this.scene = new Scene(this.engine);
-    this.scene.clearColor = new Color4(0.05, 0.04, 0.1, 1);
+    this.scene.clearColor = new Color4(0.028, 0.018, 0.024, 1);
     this.vfxManager = new VFXManager3D(this.scene);
 
     // Centered full-body framing that frames head (Y~1.92) to pedestal feet (Y~0)
-    const camZ = variant === 'overview' ? -3.35 : variant === 'hero' ? -3.25 : -3.5;
+    const camZ = variant === 'overview' ? -3.3 : variant === 'hero' ? -3.18 : -3.4;
     const camY = variant === 'overview' ? 0.98 : 0.96;
     this.camera = new UniversalCamera(
       'previewCam',
       new Vector3(0, camY, camZ),
       this.scene
     );
-    this.camera.fov = variant === 'overview' ? 0.68 : 0.72;
+    this.camera.fov = variant === 'overview' ? 0.68 : 0.7;
     this.camera.setTarget(new Vector3(0, 0.96, 0));
 
     // 3-Point Studio Lighting for clear silhouette separation
     const hemi = new HemisphericLight('prevHemi', new Vector3(0, 1, 0), this.scene);
-    hemi.intensity = 0.98;
+    hemi.intensity = 1.02;
     hemi.diffuse = new Color3(1, 0.96, 0.88);
-    hemi.groundColor = new Color3(0.24, 0.2, 0.34);
+    hemi.groundColor = new Color3(0.22, 0.14, 0.14);
 
     const key = new DirectionalLight(
       'prevKey',
       new Vector3(-0.38, -0.82, 0.45).normalize(),
       this.scene
     );
-    key.intensity = 1.75;
+    key.intensity = 1.85;
     key.diffuse = new Color3(1.0, 0.95, 0.86);
 
     const rim = new DirectionalLight(
@@ -211,32 +211,35 @@ export class CharacterPreviewScene {
       new Vector3(0.3, -0.35, -0.88).normalize(),
       this.scene
     );
-    rim.intensity = 0.9;
-    rim.diffuse = new Color3(0.95, 0.78, 0.38);
+    rim.intensity = 1.05;
+    rim.diffuse = new Color3(0.98, 0.72, 0.28);
 
     const charDef = CHARACTERS[initialCharacterId] || CHARACTERS.action_sultan;
+    const isHeroVariant = variant === 'hero';
+    const ringPrimaryHex = isHeroVariant ? '#F59E0B' : '#EF4444';
+    const ringSecondaryHex = isHeroVariant ? '#FACC15' : '#F59E0B';
 
     // 3D Stage Pedestal (Ground Origin Y = 0)
     const pedMat = new PBRMaterial('pedMat', this.scene);
-    pedMat.albedoColor = Color3.FromHexString('#171426');
-    pedMat.metallic = 0.6;
-    pedMat.roughness = 0.22;
+    pedMat.albedoColor = Color3.FromHexString('#120D10');
+    pedMat.metallic = 0.68;
+    pedMat.roughness = 0.2;
 
     this.ringMat = new PBRMaterial('ringMat', this.scene);
-    this.ringMat.albedoColor = Color3.FromHexString(charDef.visuals.primaryColor);
-    this.ringMat.emissiveColor = Color3.FromHexString(charDef.visuals.primaryColor).scale(0.65);
+    this.ringMat.albedoColor = Color3.FromHexString(ringPrimaryHex);
+    this.ringMat.emissiveColor = Color3.FromHexString(ringPrimaryHex).scale(0.9);
     this.ringMat.metallic = 0.75;
-    this.ringMat.roughness = 0.18;
+    this.ringMat.roughness = 0.16;
 
     this.outerRingMat = new PBRMaterial('outerRingMat', this.scene);
-    this.outerRingMat.albedoColor = Color3.FromHexString(charDef.visuals.secondaryColor);
-    this.outerRingMat.emissiveColor = Color3.FromHexString(charDef.visuals.secondaryColor).scale(0.45);
+    this.outerRingMat.albedoColor = Color3.FromHexString(ringSecondaryHex);
+    this.outerRingMat.emissiveColor = Color3.FromHexString(ringSecondaryHex).scale(0.65);
     this.outerRingMat.metallic = 0.8;
-    this.outerRingMat.roughness = 0.22;
+    this.outerRingMat.roughness = 0.2;
 
     const pedestal = MeshBuilder.CreateCylinder(
       'previewPedestal',
-      { height: 0.16, diameterTop: 1.62, diameterBottom: 1.88, tessellation: 28 },
+      { height: 0.16, diameterTop: 1.68, diameterBottom: 1.94, tessellation: 36 },
       this.scene
     );
     pedestal.position.y = -0.08;
@@ -244,7 +247,7 @@ export class CharacterPreviewScene {
 
     const glowRing = MeshBuilder.CreateTorus(
       'previewRing',
-      { diameter: 1.66, thickness: 0.048, tessellation: 32 },
+      { diameter: 1.7, thickness: 0.052, tessellation: 40 },
       this.scene
     );
     glowRing.position.y = 0.01;
@@ -252,7 +255,7 @@ export class CharacterPreviewScene {
 
     const outerRing = MeshBuilder.CreateTorus(
       'previewOuterRing',
-      { diameter: 1.96, thickness: 0.025, tessellation: 32 },
+      { diameter: 1.98, thickness: 0.028, tessellation: 40 },
       this.scene
     );
     outerRing.position.y = -0.02;
@@ -501,11 +504,14 @@ export class CharacterPreviewScene {
     }
 
     const charDef = CHARACTERS[characterId] || CHARACTERS.action_sultan;
+    const isHeroVariant = this.camera.position.z === -3.18;
+    const ringPrimaryHex = isHeroVariant ? '#F59E0B' : '#EF4444';
+    const ringSecondaryHex = isHeroVariant ? '#FACC15' : '#F59E0B';
 
-    this.ringMat.albedoColor = Color3.FromHexString(charDef.visuals.primaryColor);
-    this.ringMat.emissiveColor = Color3.FromHexString(charDef.visuals.primaryColor).scale(0.65);
-    this.outerRingMat.albedoColor = Color3.FromHexString(charDef.visuals.secondaryColor);
-    this.outerRingMat.emissiveColor = Color3.FromHexString(charDef.visuals.secondaryColor).scale(0.45);
+    this.ringMat.albedoColor = Color3.FromHexString(ringPrimaryHex);
+    this.ringMat.emissiveColor = Color3.FromHexString(ringPrimaryHex).scale(0.95);
+    this.outerRingMat.albedoColor = Color3.FromHexString(ringSecondaryHex);
+    this.outerRingMat.emissiveColor = Color3.FromHexString(ringSecondaryHex).scale(0.7);
     this.projMat.albedoColor = Color3.FromHexString(charDef.visuals.secondaryColor);
     this.projMat.emissiveColor = Color3.FromHexString(charDef.visuals.primaryColor).scale(0.95);
     this.shockMat.emissiveColor = Color3.FromHexString(charDef.visuals.primaryColor).scale(0.95);

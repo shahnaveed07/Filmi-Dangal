@@ -16,6 +16,7 @@ interface CharacterPreview3DProps {
   characterId: FighterId;
   variant?: PreviewViewportVariant;
   showAnimationBar?: boolean;
+  frameless?: boolean;
   className?: string;
   forceWebGLFailure?: boolean;
 }
@@ -43,6 +44,7 @@ export const CharacterPreview3D: React.FC<CharacterPreview3DProps> = ({
   characterId,
   variant = 'select',
   showAnimationBar = true,
+  frameless = false,
   className = '',
   forceWebGLFailure = false,
 }) => {
@@ -212,6 +214,11 @@ export const CharacterPreview3D: React.FC<CharacterPreview3DProps> = ({
       ? 'w-full h-64 sm:h-80 md:h-[380px]'
       : 'w-full h-60 sm:h-72 md:h-80');
 
+  const containerFrameClass =
+    frameless || variant === 'hero'
+      ? 'rounded-2xl bg-[#070406]'
+      : 'rounded-xl border border-[#D6A447]/35 bg-[#070406] shadow-2xl';
+
   return (
     <div
       data-testid="character-preview-3d-container"
@@ -219,7 +226,7 @@ export const CharacterPreview3D: React.FC<CharacterPreview3DProps> = ({
       data-loaded-rig-id={matchingTelemetry?.characterId ?? ''}
       data-render-state={webglError ? 'LOAD_FAILED' : renderState}
       data-preview-mode={webglError ? 'fallback' : 'webgl'}
-      className={`relative rounded-xl overflow-hidden border border-[#D6A447]/40 bg-[#0B0A14] shadow-2xl ${heightClass}`}
+      className={`relative overflow-hidden ${containerFrameClass} ${heightClass}`}
     >
       {!webglError ? (
         <>
