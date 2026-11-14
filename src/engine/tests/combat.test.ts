@@ -26,7 +26,11 @@ import {
   computeStartupProgressPercentage,
   runStartupAssetVerification,
 } from '../../components/LoadingScreen';
-import { filterCharactersByQuery } from '../../components/CharacterSelect';
+import {
+  applyBrowseBackAction,
+  applyBrowseShowcaseSelection,
+  filterCharactersByQuery,
+} from '../../components/CharacterSelect';
 import { buildArenaPreviewFallbackState } from '../../game3d/scenes/ArenaPreview3D';
 
 import {
@@ -3715,12 +3719,154 @@ test('30. Fight Fun UI Redesign (Phases 1–5): Real Startup Verification, Home 
   );
 });
 
+test('31. Character Preview Workflow Correction: Unified Characters Screen, Embedded Preview, Browse Showcase Selection vs Match Selection & Removal of Standalone CharacterOverview', () => {
+  const bridge = GameBridge.getInstance();
+  bridge.p1CharacterId = 'action_sultan';
+  bridge.p2CharacterId = 'romance_raja';
+  bridge.returnToMenu();
 
+  // 1. Home showcase initially displays default character ('action_sultan' / Bhai Jaan)
+  let showcaseState = {
+    homeShowcaseCharacterId: 'action_sultan' as const,
+    p1CharacterId: bridge.p1CharacterId,
+    p2CharacterId: bridge.p2CharacterId,
+    screen: 'title' as const,
+  };
+  assert.equal(showcaseState.homeShowcaseCharacterId, 'action_sultan');
+  assert.equal(CHARACTERS[showcaseState.homeShowcaseCharacterId].name, 'Bhai Jaan');
 
+  // 2. Browse mode: Home -> CHARACTERS opens unified character_select in browse-only mode
+  bridge.openFightersBrowse(showcaseState.homeShowcaseCharacterId);
+  assert.equal(bridge.screen, 'character_select');
+  assert.equal(bridge.getCharacterSelectMode(), 'browse');
+  assert.equal(bridge.characterSelectBrowseOnly, true);
 
+  // Clicking Duggu in browse mode updates browsed character without mutating P1/P2 match selection
+  bridge.inspectedCharacterId = 'duggu';
+  assert.equal(bridge.p1CharacterId, 'action_sultan');
+  assert.equal(bridge.p2CharacterId, 'romance_raja');
 
+  // Browse SELECT saves homeShowcaseCharacterId = 'duggu' and returns to Home ('title')
+  const afterBrowseSelect = applyBrowseShowcaseSelection(
+    {
+      ...showcaseState,
+      screen: 'character_select',
+    },
+    'duggu'
+  );
+  bridge.returnToMenu();
+  assert.equal(afterBrowseSelect.homeShowcaseCharacterId, 'duggu');
+  assert.equal(afterBrowseSelect.screen, 'title');
+  assert.equal(bridge.screen, 'title');
+  assert.equal(
+    afterBrowseSelect.p1CharacterId,
+    'action_sultan',
+    'Browse SELECT must not mutate P1 match selection'
+  );
+  assert.equal(
+    afterBrowseSelect.p2CharacterId,
+    'romance_raja',
+    'Browse SELECT must not mutate P2 match selection'
+  );
+  assert.equal(CHARACTERS[afterBrowseSelect.homeShowcaseCharacterId].name, 'Duggu');
 
+  // 3. Browse BACK returns Home without changing homeShowcaseCharacterId or P1/P2 match selection
+  bridge.openFightersBrowse(afterBrowseSelect.homeShowcaseCharacterId);
+  bridge.inspectedCharacterId = 'bhidu';
+  const afterBrowseBack = applyBrowseBackAction({
+    ...afterBrowseSelect,
+    screen: 'character_select',
+  });
+  bridge.returnToMenu();
+  assert.equal(
+    afterBrowseBack.homeShowcaseCharacterId,
+    'duggu',
+    'Browse BACK must preserve previously selected Home showcase character'
+  );
+  assert.equal(afterBrowseBack.screen, 'title');
+  assert.equal(afterBrowseBack.p1CharacterId, 'action_sultan');
+  assert.equal(afterBrowseBack.p2CharacterId, 'romance_raja');
 
+  // 4. Match mode: Home -> PLAY -> Game Mode -> CHARACTERS updates P1/P2 and proceeds to arena_select
+  bridge.openMatchCharacterSelect('vs_cpu');
+  assert.equal(bridge.screen, 'character_select');
+  assert.equal(bridge.getCharacterSelectMode(), 'match');
+  assert.equal(bridge.characterSelectBrowseOnly, false);
 
+  // Selecting romance_raja for P1 resolves duplicate against P2 (romance_raja -> action_sultan)
+  const nextMatchSelection = applyFighterSelection(
+    {
+      p1Id: bridge.p1CharacterId,
+      p2Id: bridge.p2CharacterId,
+      selectingFor: 'p1',
+    },
+    'romance_raja'
+  );
+  bridge.p1CharacterId = nextMatchSelection.p1Id;
+  bridge.p2CharacterId = nextMatchSelection.p2Id;
+  assert.equal(bridge.p1CharacterId, 'romance_raja');
+  assert.equal(bridge.p2CharacterId, 'action_sultan');
+  assert.equal(
+    afterBrowseBack.homeShowcaseCharacterId,
+    'duggu',
+    'Match selection must not overwrite Home showcase preference'
+  );
 
+  // Match SELECT proceeds to Arena Select
+  bridge.setScreen('arena_select');
+  assert.equal(bridge.screen, 'arena_select');
 
+  // Restore defaults
+  bridge.p1CharacterId = 'action_sultan';
+  bridge.p2CharacterId = 'romance_raja';
+  bridge.returnToMenu();
+
+  // 5. Verify obsolete CharacterOverview navigation paths are removed from App.tsx and CharacterSelect.tsx
+  const appSource = fs.readFileSync(
+    path.resolve(process.cwd(), 'src/App.tsx'),
+    'utf8'
+  );
+  const charSelectSource = fs.readFileSync(
+    path.resolve(process.cwd(), 'src/components/CharacterSelect.tsx'),
+    'utf8'
+  );
+  const titleScreenSource = fs.readFileSync(
+    path.resolve(process.cwd(), 'src/components/TitleScreen.tsx'),
+    'utf8'
+  );
+
+  assert.equal(
+    fs.existsSync(path.resolve(process.cwd(), 'src/components/CharacterOverview.tsx')),
+    false,
+    'Duplicate standalone CharacterOverview.tsx component must be removed'
+  );
+  assert.equal(
+    appSource.includes('<CharacterOverview'),
+    false,
+    'App.tsx must not render standalone CharacterOverview route'
+  );
+  assert.ok(
+    appSource.includes('homeShowcaseCharacterId'),
+    'App.tsx must own dedicated homeShowcaseCharacterId state'
+  );
+  assert.ok(
+    titleScreenSource.includes('showcaseCharacterId'),
+    'TitleScreen.tsx must accept showcaseCharacterId prop'
+  );
+  for (const obsoleteToken of [
+    'onOpenOverview',
+    'view-character-overview',
+    'browse-overview-cta',
+    'Full-Screen Fighter Overview',
+  ]) {
+    assert.equal(
+      charSelectSource.includes(obsoleteToken),
+      false,
+      `CharacterSelect.tsx must not contain obsolete token "${obsoleteToken}"`
+    );
+  }
+  assert.ok(
+    charSelectSource.includes('browse-select-btn'),
+    'CharacterSelect.tsx must render browse-select-btn for browse-mode SELECT'
+  );
+});

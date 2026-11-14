@@ -22,7 +22,6 @@ import {
   ChevronDown,
   ChevronLeft,
   ChevronRight,
-  Eye,
   FileText,
   Flame,
   Info,
@@ -65,18 +64,58 @@ export function filterCharactersByQuery(
   });
 }
 
+export interface HomeShowcaseSelectionState {
+  homeShowcaseCharacterId: FighterId;
+  p1CharacterId: FighterId;
+  p2CharacterId: FighterId;
+  screen: 'title' | 'character_select';
+}
+
+/**
+ * Pure helper for browse-mode SELECT: updates `homeShowcaseCharacterId` and returns to `'title'`
+ * without mutating `p1CharacterId` or `p2CharacterId`.
+ */
+export function applyBrowseShowcaseSelection(
+  state: HomeShowcaseSelectionState,
+  browsedCharacterId: FighterId
+): HomeShowcaseSelectionState {
+  return {
+    homeShowcaseCharacterId: browsedCharacterId,
+    p1CharacterId: state.p1CharacterId,
+    p2CharacterId: state.p2CharacterId,
+    screen: 'title',
+  };
+}
+
+/**
+ * Pure helper for browse-mode BACK: returns to `'title'` without mutating
+ * `homeShowcaseCharacterId`, `p1CharacterId`, or `p2CharacterId`.
+ */
+export function applyBrowseBackAction(
+  state: HomeShowcaseSelectionState
+): HomeShowcaseSelectionState {
+  return {
+    homeShowcaseCharacterId: state.homeShowcaseCharacterId,
+    p1CharacterId: state.p1CharacterId,
+    p2CharacterId: state.p2CharacterId,
+    screen: 'title',
+  };
+}
+
 interface CharacterSelectProps {
   mode?: CharacterSelectMode;
+  initialBrowseCharacterId?: FighterId;
   onBack: () => void;
   onProceed: () => void;
-  onOpenOverview: (id: FighterId) => void;
+  onSelectShowcaseCharacter?: (id: FighterId) => void;
 }
 
 export const CharacterSelect: React.FC<CharacterSelectProps> = ({
   mode,
+  initialBrowseCharacterId,
   onBack,
   onProceed,
-  onOpenOverview,
+  onSelectShowcaseCharacter,
 }) => {
   const bridge = GameBridge.getInstance();
   const audio = AudioManager.getInstance();
@@ -86,7 +125,7 @@ export const CharacterSelect: React.FC<CharacterSelectProps> = ({
   const isBrowseOnly = resolvedMode === 'browse';
 
   const [browsedId, setBrowsedId] = useState<FighterId>(
-    bridge.inspectedCharacterId || bridge.p1CharacterId
+    initialBrowseCharacterId || bridge.inspectedCharacterId || 'action_sultan'
   );
 
   const [p1Id, setP1Id] = useState<FighterId>(bridge.p1CharacterId);
@@ -481,21 +520,6 @@ export const CharacterSelect: React.FC<CharacterSelectProps> = ({
                 <span>BIO</span>
               </span>
             </button>
-
-            <button
-              type="button"
-              data-testid="view-character-overview"
-              onClick={() => {
-                audio.playSound('click');
-                bridge.inspectedCharacterId = selectedChar.id;
-                onOpenOverview(selectedChar.id);
-              }}
-              className="p-2 rounded-md bg-[#120C0E]/95 hover:bg-[#1E1418] text-[#FACC15] border border-amber-500/45 hover:border-[#FEF08A] transition-colors cursor-pointer shrink-0"
-              title="Full-Screen Fighter Overview"
-              aria-label="Full-Screen Fighter Overview"
-            >
-              <Eye size={16} />
-            </button>
           </div>
 
           {/* TAB CONTENT */}
@@ -568,18 +592,31 @@ export const CharacterSelect: React.FC<CharacterSelectProps> = ({
             >
               <div>
                 <div className="text-[11px] font-display font-black uppercase tracking-wider text-[#FACC15]">
+                  BIOGRAPHY
+                </div>
+                <p className="text-xs text-zinc-200 mt-0.5 leading-relaxed">
+                  {selectedChar.bio}
+                </p>
+              </div>
+              <div className="border-t border-white/10 pt-2">
+                <div className="text-[11px] font-display font-black uppercase tracking-wider text-[#FACC15]">
                   SIGNATURE ATTIRE
                 </div>
                 <p className="text-xs text-zinc-200 mt-0.5 leading-relaxed">
                   {selectedChar.visuals.costumeDescription}
                 </p>
               </div>
-              <div className="border-t border-white/10 pt-2">
+              <div className="border-t border-white/10 pt-2 flex flex-col gap-1">
                 <div className="text-[11px] font-display font-black uppercase tracking-wider text-[#FACC15]">
-                  INTRO QUOTE
+                  SIGNATURE DIALOGUES
                 </div>
-                <p className="text-xs text-amber-200 italic mt-0.5">
+                <p className="text-xs text-amber-200 italic">
+                  <span className="text-zinc-400 not-italic font-semibold mr-1">Intro:</span>
                   &ldquo;{selectedChar.dialogues.intro}&rdquo;
+                </p>
+                <p className="text-xs text-amber-200 italic">
+                  <span className="text-zinc-400 not-italic font-semibold mr-1">Victory:</span>
+                  &ldquo;{selectedChar.dialogues.win}&rdquo;
                 </p>
               </div>
             </div>
@@ -603,11 +640,15 @@ export const CharacterSelect: React.FC<CharacterSelectProps> = ({
 
                 <button
                   type="button"
-                  data-testid="browse-overview-cta"
+                  data-testid="browse-select-btn"
                   onClick={() => {
                     audio.playSound('click');
                     bridge.inspectedCharacterId = selectedChar.id;
-                    onOpenOverview(selectedChar.id);
+                    if (onSelectShowcaseCharacter) {
+                      onSelectShowcaseCharacter(selectedChar.id);
+                    } else {
+                      onBack();
+                    }
                   }}
                   className="flex-1 py-3.5 px-6 rounded-lg bg-gradient-to-b from-[#FEF08A] via-[#FACC15] to-[#D97706] hover:brightness-110 border-2 border-[#FEF08A] text-black font-display font-black italic uppercase text-lg sm:text-xl tracking-wider transform -skew-x-6 cursor-pointer transition-all flex items-center justify-center gap-2.5"
                 >

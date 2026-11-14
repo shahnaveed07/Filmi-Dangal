@@ -268,7 +268,7 @@ export const LoadingScreen: React.FC<LoadingScreenProps> = ({
         className="absolute left-[9%] right-[6%] top-[67.5%] bottom-[13%] rounded-3xl pointer-events-none"
         style={{
           background:
-            'radial-gradient(ellipse 74% 78% at 50% 55%, rgba(8, 4, 5, 0.99) 0%, rgba(8, 4, 5, 0.98) 76%, rgba(8, 4, 5, 0) 100%)',
+            'radial-gradient(ellipse 74% 76% at 50% 55%, rgba(8, 4, 5, 0.99) 0%, rgba(8, 4, 5, 0.98) 76%, rgba(8, 4, 5, 0) 100%)',
           filter: 'blur(6px)',
         }}
         aria-hidden="true"

@@ -5,7 +5,6 @@
 
 import React, { useCallback, useEffect, useState } from 'react';
 import { ArenaSelect } from './components/ArenaSelect';
-import { CharacterOverview } from './components/CharacterOverview';
 import { CharacterSelect } from './components/CharacterSelect';
 import { FightHUD } from './components/FightHUD';
 import { GameCanvas } from './components/GameCanvas';
@@ -19,7 +18,6 @@ import { TitleScreen } from './components/TitleScreen';
 import { CHARACTERS } from './data/characters';
 import { AudioManager } from './engine/AudioManager';
 import { GameBridge, GameHUDState, GameScreen } from './engine/GameBridge';
-import { applyFighterSelection } from './game3d/characters/CharacterRoster3D';
 import { FighterId, GameMode } from './types/fighter';
 import { RotateCcw } from 'lucide-react';
 
@@ -27,7 +25,11 @@ export default function App() {
   const bridge = GameBridge.getInstance();
   const audio = AudioManager.getInstance();
 
-  const [currentScreen, setCurrentScreen] = useState<GameScreen>(bridge.screen);
+  const [currentScreen, setCurrentScreen] = useState<GameScreen>(
+    bridge.screen === 'character_overview' ? 'character_select' : bridge.screen
+  );
+  const [homeShowcaseCharacterId, setHomeShowcaseCharacterId] =
+    useState<FighterId>('action_sultan');
   const [isStartupComplete, setIsStartupComplete] = useState<boolean>(() => {
     if (typeof window === 'undefined') return true;
     const params = new URLSearchParams(window.location.search);
@@ -113,7 +115,9 @@ export default function App() {
 
   // Subscribe to authoritative GameBridge state changes
   useEffect(() => {
-    const unsubScreen = bridge.subscribeScreen((s) => setCurrentScreen(s));
+    const unsubScreen = bridge.subscribeScreen((s) =>
+      setCurrentScreen(s === 'character_overview' ? 'character_select' : s)
+    );
     const unsubPause = bridge.subscribePause((p) => setIsPaused(p));
     const unsubHUD = bridge.subscribeHUD((h) => setHudState(h));
     const unsubMute = audio.subscribeMute((m) =>
@@ -133,8 +137,8 @@ export default function App() {
   }, [bridge]);
 
   const handleOpenFightersFromMenu = useCallback(() => {
-    bridge.openFightersBrowse();
-  }, [bridge]);
+    bridge.openFightersBrowse(homeShowcaseCharacterId);
+  }, [bridge, homeShowcaseCharacterId]);
 
   const handleSelectGameMode = useCallback(
     (mode: GameMode) => {
@@ -143,33 +147,11 @@ export default function App() {
     [bridge]
   );
 
-  const handleOpenCharacterOverview = useCallback(
+  const handleSelectShowcaseFromBrowse = useCallback(
     (id: FighterId) => {
+      setHomeShowcaseCharacterId(id);
       bridge.inspectedCharacterId = id;
-      bridge.setScreen('character_overview');
-    },
-    [bridge]
-  );
-
-  const handleSelectFromOverview = useCallback(
-    (id: FighterId) => {
-      if (bridge.characterSelectBrowseOnly) {
-        bridge.inspectedCharacterId = id;
-        bridge.setScreen('character_select');
-        return;
-      }
-      const next = applyFighterSelection(
-        {
-          p1Id: bridge.p1CharacterId,
-          p2Id: bridge.p2CharacterId,
-          selectingFor: bridge.selectingPlayerSlot || 'p1',
-        },
-        id
-      );
-      bridge.p1CharacterId = next.p1Id;
-      bridge.p2CharacterId = next.p2Id;
-      bridge.inspectedCharacterId = id;
-      bridge.setScreen('character_select');
+      bridge.returnToMenu();
     },
     [bridge]
   );
@@ -235,6 +217,7 @@ export default function App() {
           onPlay={handleOpenGameModes}
           onOpenFighters={handleOpenFightersFromMenu}
           onOpenSettings={() => setShowSettings(true)}
+          showcaseCharacterId={homeShowcaseCharacterId}
           isModalOpen={showSettings}
         />
       )}
@@ -247,26 +230,18 @@ export default function App() {
         />
       )}
 
-      {/* 3. CHARACTER SELECT */}
+      {/* 3. CHARACTER SELECT (UNIFIED SCREEN FOR BROWSE & MATCH MODES) */}
       {currentScreen === 'character_select' && (
         <CharacterSelect
           mode={characterSelectMode}
+          initialBrowseCharacterId={homeShowcaseCharacterId}
           onBack={() =>
             bridge.characterSelectBrowseOnly
               ? handleReturnToTitle()
               : bridge.setScreen('game_mode')
           }
           onProceed={handleProceedToArena}
-          onOpenOverview={handleOpenCharacterOverview}
-        />
-      )}
-
-      {/* 4. CHARACTER OVERVIEW */}
-      {currentScreen === 'character_overview' && (
-        <CharacterOverview
-          mode={characterSelectMode}
-          onBackToRoster={() => bridge.setScreen('character_select')}
-          onSelectCharacter={handleSelectFromOverview}
+          onSelectShowcaseCharacter={handleSelectShowcaseFromBrowse}
         />
       )}
 

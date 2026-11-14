@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect } from 'react';
 import { CHARACTERS } from '../data/characters';
 import { AudioManager } from '../engine/AudioManager';
 import { GameBridge } from '../engine/GameBridge';
@@ -52,6 +52,7 @@ interface TitleScreenProps {
   onPlay: () => void;
   onOpenFighters: () => void;
   onOpenSettings: () => void;
+  showcaseCharacterId?: FighterId;
   isModalOpen?: boolean;
 }
 
@@ -59,12 +60,13 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
   onPlay,
   onOpenFighters,
   onOpenSettings,
+  showcaseCharacterId = 'action_sultan',
   isModalOpen = false,
 }) => {
   const audio = AudioManager.getInstance();
   const bridge = GameBridge.getInstance();
-  const [showcaseId] = useState<FighterId>(bridge.p1CharacterId || 'action_sultan');
-  const showcaseCharacter = CHARACTERS[showcaseId] || CHARACTERS.action_sultan;
+  const showcaseCharacter =
+    CHARACTERS[showcaseCharacterId] || CHARACTERS.action_sultan;
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -204,7 +206,7 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
         {/* CENTRE COLUMN: FULL-BODY 3D CHARACTER SHOWCASE ON GLOWING RING PEDESTAL */}
         <div className="lg:col-span-5 flex flex-col items-center justify-center order-1 lg:order-2">
           <CharacterPreview3D
-            characterId={showcaseId}
+            characterId={showcaseCharacter.id}
             variant="hero"
             frameless={true}
             showAnimationBar={false}
