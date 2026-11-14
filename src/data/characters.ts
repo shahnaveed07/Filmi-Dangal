@@ -4,13 +4,13 @@ export const CHARACTERS: Record<FighterId, CharacterDef> = {
   action_sultan: {
     id: 'action_sultan',
     slug: 'action-sultan',
-    name: 'Action Sultan',
+    name: 'Bhai Jaan',
     title: 'The Heavyweight Box-Office Brawler',
     subtitle: 'The Heavyweight Box-Office Brawler',
     style: 'Powerhouse / Marksman Brawler',
     archetype: 'Powerhouse / Marksman Brawler',
     inspiration: 'Salman Khan-inspired (Configurable Parody Persona)',
-    bio: 'When Action Sultan steps onto the set, physics takes an intermission. Built like an armored truck and armed with his signature turquoise bracelet and gold-plated parody sidearm, he turns every frame into a festival blockbuster.',
+    bio: 'When Bhai Jaan steps onto the set, physics takes an intermission. Built like a heavyweight contender and wearing his signature distressed leather jacket and turquoise silver kada bracelet, he turns every frame into a festival blockbuster.',
     stats: {
       maxHealth: 1080,
       walkSpeed: 4.65,
@@ -23,15 +23,15 @@ export const CHARACTERS: Record<FighterId, CharacterDef> = {
       defenseMultiplier: 1.1,
     },
     visuals: {
-      primaryColor: '#1D4ED8',
-      secondaryColor: '#F59E0B',
+      primaryColor: '#4A2E1E',
+      secondaryColor: '#1E293B',
       accentColor: '#14B8A6',
       skinTone: '#D99B72',
       hairColor: '#1E1B18',
       costumeDescription:
-        'Royal blue sleeveless denim vest, gold belt buckle, dark aviators, and iconic turquoise silver bracelet.',
+        'Open brown distressed leather jacket over a fitted black crew-neck T-shirt, dark blue denim jeans, dark leather belt with metallic buckle, black tactical boots, and iconic turquoise silver kada bracelet.',
       attireDescription:
-        'Royal blue sleeveless denim vest, gold belt buckle, dark aviators, and iconic turquoise silver bracelet.',
+        'Open brown distressed leather jacket over a fitted black crew-neck T-shirt, dark blue denim jeans, dark leather belt with metallic buckle, black tactical boots, and iconic turquoise silver kada bracelet.',
       glbModelPath: '/assets/characters/action-sultan/model.glb',
       proportions: {
         heightScale: 1.04,
@@ -40,8 +40,8 @@ export const CHARACTERS: Record<FighterId, CharacterDef> = {
         limbThickness: 0.145,
         jawWidth: 0.22,
         hairStyle: 'cropped_machismo',
-        facialHair: 'royal_mustache',
-        accessoryType: 'aviator_and_kada',
+        facialHair: 'none',
+        accessoryType: 'kada',
       },
     },
     dialogues: {

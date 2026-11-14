@@ -219,7 +219,7 @@ export const CHARACTER_AUDIO_MANIFEST: CharacterAudioManifest = {
       filePath: CHARACTER_ASSET_MANIFEST.action_sultan.audio.superMoveChargeSfx,
       mp3FallbackPath: '/assets/audio/characters/action-sultan/supermove-charge.mp3',
       isTemporaryPlaceholder: true,
-      soundDesignDescription: 'Temporary Placeholder: Action Sultan power aura charge.',
+      soundDesignDescription: 'Temporary Placeholder: Bhai Jaan power aura charge.',
       fallbackSynth: {
         signatureId: 'as_supermove_charge',
         waveform: 'sawtooth',
@@ -268,7 +268,7 @@ export const CHARACTER_AUDIO_MANIFEST: CharacterAudioManifest = {
       filePath: CHARACTER_ASSET_MANIFEST.action_sultan.audio.hitReactSfx,
       mp3FallbackPath: '/assets/audio/characters/action-sultan/hit-react.mp3',
       isTemporaryPlaceholder: true,
-      soundDesignDescription: 'Temporary Placeholder: Action Sultan hit grunt.',
+      soundDesignDescription: 'Temporary Placeholder: Bhai Jaan hit grunt.',
       fallbackSynth: {
         signatureId: 'as_hit_react',
         waveform: 'triangle',
@@ -283,7 +283,7 @@ export const CHARACTER_AUDIO_MANIFEST: CharacterAudioManifest = {
       filePath: CHARACTER_ASSET_MANIFEST.action_sultan.audio.victorySfx,
       mp3FallbackPath: '/assets/audio/characters/action-sultan/victory.mp3',
       isTemporaryPlaceholder: true,
-      soundDesignDescription: 'Temporary Placeholder: Action Sultan victory fanfare.',
+      soundDesignDescription: 'Temporary Placeholder: Bhai Jaan victory fanfare.',
       fallbackSynth: {
         signatureId: 'as_victory',
         waveform: 'square',
@@ -299,7 +299,7 @@ export const CHARACTER_AUDIO_MANIFEST: CharacterAudioManifest = {
       filePath: CHARACTER_ASSET_MANIFEST.action_sultan.audio.defeatSfx,
       mp3FallbackPath: '/assets/audio/characters/action-sultan/defeat.mp3',
       isTemporaryPlaceholder: true,
-      soundDesignDescription: 'Temporary Placeholder: Action Sultan KO fall.',
+      soundDesignDescription: 'Temporary Placeholder: Bhai Jaan KO fall.',
       fallbackSynth: {
         signatureId: 'as_defeat',
         waveform: 'sawtooth',

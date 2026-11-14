@@ -59,7 +59,7 @@ Use this guide to understand the runtime execution flow, locate the exact file r
            ├─> Increments rigLoadToken, immediately disposes stale p1Rig/p2Rig if characterId changed
            ├─> Loads P1 & P2 rigs in parallel via safeLoadRig(def, slotTag)
            │   (On error: builds that character's own procedural fallback rig via buildFallbackCharacterRig3D,
-           │    NEVER substituting Action Sultan for another character)
+           │    NEVER substituting Bhai Jaan for another character)
            └─> Verifies rigLoadToken & p1Rig.characterId === p1.id / p2Rig.characterId === p2.id before attaching
    └─> 60Hz Fixed Timestep Loop:
        ├─> MatchManager3D steps round intro / active fight / round over / match over
@@ -126,8 +126,8 @@ bun install --frozen-lockfile
 │       └── characters/
 │           ├── README.md               # 3D character GLB drop-in guide
 │           ├── action-sultan/
-│           │   ├── manifest.json       # Accurate asset metadata for Action Sultan (isPlaceholder: false)
-│           │   └── model.glb           # Production skinned Mixamo GLB model (14,918 vertices, 65 joints)
+│           │   ├── manifest.json       # Accurate asset metadata for Bhai Jaan (isPlaceholder: false)
+│           │   └── model.glb           # Production skinned Mixamo GLB model (19,594 vertices, 36,354 tris, 65 joints, 7 PBR materials)
 │           ├── romance-raja/
 │           │   ├── manifest.json       # Asset metadata for Romance Raja (isPlaceholder: true)
 │           │   └── model.glb           # Temporary 24-vertex box placeholder proxy GLB
@@ -226,7 +226,7 @@ The game features four distinct fighters defined in `src/types/fighter.ts`, `src
 
 | Fighter ID (`FighterId`) | Display Name | Archetype | Folder (`public/assets/characters/`) | Current 3D Asset Status | Render State |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| `'action_sultan'` | **Action Sultan** | Power Brawler | `action-sultan/` | **Production Skinned GLB** (`model.glb`, 14,918 vertices, 65 Mixamo joints, 2 skinned meshes). Contains 1 static bind pose group (`mixamo_com`), so dynamic combat states use procedural bone animation (`canUseProceduralBoneFallback: true`). | `'PRODUCTION_SKINNED'` |
+| `'action_sultan'` | **Bhai Jaan** | Power Brawler | `action-sultan/` | **Production Skinned GLB** (`model.glb`, 19,594 vertices, 36,354 triangles, 65 Mixamo joints, 7 PBR submeshes with 28 lossless PNG maps). Contains 1 static bind pose group (`mixamo_com`), so dynamic combat states use procedural bone animation (`canUseProceduralBoneFallback: true`). | `'PRODUCTION_SKINNED'` |
 | `'romance_raja'` | **Romance Raja** | Counter & Mind-Games | `romance-raja/` | **Temporary Placeholder** (`isTemporaryPlaceholder: true`). Disk `model.glb` is a 24-vertex 3-LOD box proxy; runtime loader builds Romance Raja's bespoke 22-bone + 5-facial-bone procedural rig (crimson blazer, open-arms pose). | `'TEMPORARY_PLACEHOLDER'` |
 | `'duggu'` | **Duggu** | Rushdown Acrobat | `duggu/` | **Temporary Placeholder** (`isTemporaryPlaceholder: true`). Disk `model.glb` is a 24-vertex 3-LOD box proxy; runtime loader builds Duggu's bespoke 22-bone + 5-facial-bone procedural rig (emerald jacket, visor, lean dancer build). | `'TEMPORARY_PLACEHOLDER'` |
 | `'bhidu'` | **Bhidu** | Heavy Grappler | `bhidu/` | **Temporary Placeholder** (`isTemporaryPlaceholder: true`). Disk `model.glb` is a 24-vertex 3-LOD box proxy; runtime loader builds Bhidu's bespoke 22-bone + 5-facial-bone procedural rig (charcoal biker vest, gold bandana & chain). | `'TEMPORARY_PLACEHOLDER'` |
@@ -339,7 +339,7 @@ Defined in `src/data/arenas.ts` and constructed in 3D by `src/game3d/arenas/Aren
 - **Move Frame Data (`src/data/characters.ts`)**: Each fighter defines `startup`, `active`, `recovery`, `damage`, `hitstun`, `blockstun`, `knockbackX`, `knockbackY`, `isLow`, `isOverhead`, `causesKnockdown`, and `meterCost` for `punch`, `kick`, `crouch_kick`, `uppercut`, `grab`, `super_shot`, and `super_move`.
 - **Hitbox & Hurtbox System (`src/game3d/hitboxes/HitboxSystem3D.ts`)**: Projects active attack hitboxes from 3D bone sockets (`RightHand`, `RightFoot`, `Chest`) onto the 2D `X/Y` combat plane with deterministic fallback coordinates.
 - **Meter & Specials (`src/game3d/combat/CombatSystem3D.ts`)**:
-  - **SuperShot (`U` / `25%` meter)**: Fires a character-specific 3D projectile (`Action Sultan` Blackbuck Gunshot, `Romance Raja` Mohabbat Rose Wave, `Duggu` Cyber Hrithik Pulse, `Bhidu` Dada Shockwave).
+  - **SuperShot (`U` / `25%` meter)**: Fires a character-specific 3D projectile (`Bhai Jaan` Blackbuck Gunshot, `Romance Raja` Mohabbat Rose Wave, `Duggu` Cyber Hrithik Pulse, `Bhidu` Dada Shockwave).
   - **SuperMove (`L` / `100%` meter)**: Triggers cinematic camera zoom, arena blackout dimming (`setBlackoutIntensity`), and multi-phase climax impact.
 
 ---
@@ -436,7 +436,7 @@ npx --yes tsx --test src/engine/tests/combat.test.ts
 
 ## 14. Safe Development Rules
 
-1. **Never Substitute Action Sultan for Another Character**: If a character asset fails to load, always use `AssetLoader3D.buildFallbackCharacterRig3D(scene, characterDef)` so the fallback rig retains the requested fighter's `characterId`, palette, and moveset.
+1. **Never Substitute Bhai Jaan for Another Character**: If a character asset fails to load, always use `AssetLoader3D.buildFallbackCharacterRig3D(scene, characterDef)` so the fallback rig retains the requested fighter's `characterId`, palette, and moveset.
 2. **Always Guard Async 3D Loads with Monotonic Tokens**: Both `CharacterPreviewScene` (`requestId`) and `BabylonFightEngine` (`rigLoadToken`) cancel and dispose stale loads when a newer selection arrives.
 3. **Keep `AnimationController3D.computeTargetPose` as the Single Pose Authority**: Never duplicate pose math between preview and gameplay controllers.
 4. **Dispose Babylon.js Meshes, Skeletons, Materials, and Lights Explicitly**: When replacing a character rig or switching arenas, always call `rig.dispose()` / `arenaHandle.dispose()` before creating replacement nodes.

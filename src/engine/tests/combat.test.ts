@@ -119,7 +119,7 @@ test('1. Character Loading & Binary GLB 2.0 Asset Validation for all 4 fighters'
     assert.ok(validation.meshCount > 0);
 
     if (char.id === 'action_sultan') {
-      // Action Sultan: Genuine 3D model replacement (PRODUCTION_SKINNED or VISUAL_ONLY)
+      // Bhai Jaan (action_sultan): Genuine 3D model replacement (PRODUCTION_SKINNED or VISUAL_ONLY)
       assert.ok(validation.renderState === 'PRODUCTION_SKINNED' || validation.renderState === 'VISUAL_ONLY');
       assert.equal(validation.isPlaceholder, false);
     } else {
@@ -634,7 +634,7 @@ test('10. CharacterAssetValidator, Honest Classification, FighterAnimationEvents
          report.productionStatus === 'STAGE_2_INTEGRATED' ||
            report.productionStatus === 'VISUAL_ONLY' ||
            report.productionStatus === 'PRODUCTION_READY',
-         `Action Sultan active replacement status: ${report.productionStatus}`
+         `Bhai Jaan active replacement status: ${report.productionStatus}`
        );
        assert.ok(report.estimatedBounds.height > 0.8);
        assert.equal(report.plausibleBoundsVerified, true);
@@ -2001,25 +2001,25 @@ test('19. Section 7 & 10 CharacterPreviewScene Lifecycle, Rapid Switching Load-T
   assert.equal(preview.getCurrentRig(), null, 'Preview dispose releases currentRig');
 });
 
-test('20. Section 10 Action Sultan GLB Replacement Activation & 12 Architectural Verifications (NullEngine)', async () => {
+test('20. Section 10 Bhai Jaan (action_sultan) GLB Replacement Activation & 12 Architectural Verifications (NullEngine)', async () => {
   const engine = new NullEngine();
   const scene = new Scene(engine);
   new UniversalCamera('testCam', new Vector3(0, 1.5, -4), scene);
 
-  // 1. Action Sultan loads from configured path /assets/characters/action-sultan/model.glb
+  // 1. Bhai Jaan loads from configured path /assets/characters/action-sultan/model.glb
   const sultanConfig = getCharacterAssetConfig('action_sultan');
   assert.equal(sultanConfig.modelPath, '/assets/characters/action-sultan/model.glb');
-  assert.equal(sultanConfig.isTemporaryPlaceholder, false, 'Action Sultan is configured as an active replacement model');
+  assert.equal(sultanConfig.isTemporaryPlaceholder, false, 'Bhai Jaan is configured as an active replacement model');
 
   // Load the actual GLB file from disk
   const relPath = sultanConfig.modelPath.replace(/^\//, '');
   const fullPath = path.resolve(process.cwd(), 'public', relPath);
-  assert.equal(fs.existsSync(fullPath), true, 'Action Sultan GLB must exist on disk');
+  assert.equal(fs.existsSync(fullPath), true, 'Bhai Jaan GLB must exist on disk');
   const buffer = new Uint8Array(fs.readFileSync(fullPath));
 
   // 2. Validate replacement model: active replacement model, not a procedural box placeholder
   const report = CharacterAssetValidator.validateGLBBuffer(buffer, 'action_sultan');
-  assert.equal(report.glbFileValid, true, 'Action Sultan GLB is structurally valid');
+  assert.equal(report.glbFileValid, true, 'Bhai Jaan GLB is structurally valid');
   assert.equal(report.isPlaceholder, false, 'Not classified as a placeholder');
   assert.ok(
     report.productionStatus === 'STAGE_2_INTEGRATED' ||
@@ -2142,7 +2142,7 @@ test('20. Section 10 Action Sultan GLB Replacement Activation & 12 Architectural
   engine.dispose();
 });
 
-test('21. Phase 9 Action Sultan Blender Model Grounding Calibration, Independent Capability Flags & Quaternion Skeletal Animation', async () => {
+test('21. Phase 9 Bhai Jaan (action_sultan) Model Grounding Calibration, Independent Capability Flags & Quaternion Skeletal Animation', async () => {
   const engine = new NullEngine();
   const scene = new Scene(engine);
   new UniversalCamera('testCam21', new Vector3(0, 1.5, -4), scene);
@@ -2155,7 +2155,7 @@ test('21. Phase 9 Action Sultan Blender Model Grounding Calibration, Independent
 
   // 1. Grounding & Calibration Tests
   const diag = sultanRig.diagnostics;
-  assert.ok(diag, 'Action Sultan diagnostics must exist');
+  assert.ok(diag, 'Bhai Jaan diagnostics must exist');
   assert.ok(diag.measuredLocalBounds, 'Measured unscaled local bounds must be recorded');
   assert.ok(
     Math.abs(diag.measuredLocalBounds.minY - 0.001) < 0.015,
@@ -2196,7 +2196,7 @@ test('21. Phase 9 Action Sultan Blender Model Grounding Calibration, Independent
 
   // World-space foot contact check before and during animations
   const initialBounds = computeRigWorldBounds(sultanRig.rootNode, sultanRig.meshes);
-  assert.equal(initialBounds.plausibleBounds, true, 'Action Sultan world bounds must be valid on the floor');
+  assert.equal(initialBounds.plausibleBounds, true, 'Bhai Jaan world bounds must be valid on the floor');
   assert.ok(
     Math.abs(initialBounds.minY - sultanRig.rootNode.position.y) <= 0.02,
     `Initial foot minY (${initialBounds.minY}) must contact floor (rootY=${sultanRig.rootNode.position.y})`
@@ -2248,11 +2248,11 @@ test('21. Phase 9 Action Sultan Blender Model Grounding Calibration, Independent
   const idleBounds = computeRigWorldBounds(sultanRig.rootNode, sultanRig.meshes);
   assert.ok(
     Math.abs(idleBounds.minY) <= 0.04,
-    `Action Sultan must remain grounded during idle (minY=${idleBounds.minY})`
+    `Bhai Jaan must remain grounded during idle (minY=${idleBounds.minY})`
   );
   assert.ok(
     idleBounds.width < 1.1,
-    `Action Sultan arms must be lowered from horizontal 1.94m T-pose into fighting stance (width=${idleBounds.width})`
+    `Bhai Jaan arms must be lowered from horizontal 1.94m T-pose into fighting stance (width=${idleBounds.width})`
   );
 
   // Step walk pose and verify legs articulate and feet remain grounded
@@ -2269,7 +2269,7 @@ test('21. Phase 9 Action Sultan Blender Model Grounding Calibration, Independent
   const walkBounds = computeRigWorldBounds(sultanRig.rootNode, sultanRig.meshes);
   assert.ok(
     Math.abs(walkBounds.minY) <= 0.06,
-    `Action Sultan must not float during walk (minY=${walkBounds.minY})`
+    `Bhai Jaan must not float during walk (minY=${walkBounds.minY})`
   );
 
   // Step punch pose and verify RightUpperArm quaternion changes significantly
@@ -3124,7 +3124,7 @@ test('28. Phase 2–12 Regression Suite: Browse-Only vs Match Character Select, 
   assert.ok(fallbackAward.arenaName.length > 0);
   assert.ok(fallbackAward.errorMessage?.includes('WebGL context creation failed'));
 
-  // 7. Action Sultan Iconic 3.0s Hands-in-Pockets Idle Loop (Storyboard Frames 1–6)
+  // 7. Bhai Jaan Iconic 3.0s Hands-in-Pockets Idle Loop (Storyboard Frames 1–6)
   const animCtrl = new AnimationController3D();
   const pose0 = animCtrl.computeTargetPose('action_sultan', 'idle', 0.0, 1.0, 0);
   const pose05 = animCtrl.computeTargetPose('action_sultan', 'idle', 0.5, 1.0, 0);
@@ -3158,7 +3158,7 @@ test('28. Phase 2–12 Regression Suite: Browse-Only vs Match Character Select, 
     assert.equal(samplePose.RightUpperLeg.rx, 0, 'Right leg stays grounded without stepping');
   }
 
-  // 8. Action Sultan 0.40s Fast Right Straight Punch (Storyboard 7-Frame Sequence at 2.0x Speed & Combat Integration)
+  // 8. Bhai Jaan 0.40s Fast Right Straight Punch (Storyboard 7-Frame Sequence at 2.0x Speed & Combat Integration)
   const punchGuard0 = animCtrl.computeTargetPose('action_sultan', 'punch', 0.0, 1.0, 0);
   const punchWindup05 = animCtrl.computeTargetPose('action_sultan', 'punch', 0.05, 1.0, 0);
   const punchPower10 = animCtrl.computeTargetPose('action_sultan', 'punch', 0.1, 1.0, 0);
@@ -3197,7 +3197,7 @@ test('28. Phase 2–12 Regression Suite: Browse-Only vs Match Character Select, 
 
   // Combat synchronization: 24 frames (0.40s at 60 FPS), active hit window centered around 0.225s (Frames 11-14), single hit per punch, clean recovery to idle
   const sultanPunchSpec = FighterAnimationEvents.getMoveSpec('action_sultan', 'punch');
-  assert.equal(sultanPunchSpec.totalFrames, 24, 'Action Sultan punch clip totalFrames is 24 (0.40s)');
+  assert.equal(sultanPunchSpec.totalFrames, 24, 'Bhai Jaan punch clip totalFrames is 24 (0.40s)');
   assert.equal(sultanPunchSpec.startupFrames, 11);
   assert.equal(sultanPunchSpec.activeFrames, 4);
   assert.equal(sultanPunchSpec.recoveryFrames, 9);
@@ -3219,10 +3219,10 @@ test('28. Phase 2–12 Regression Suite: Browse-Only vs Match Character Select, 
   }
   assert.equal(punchHitCount, 1, 'Single punch produces exactly one damage event');
   assert.ok(hitFrame >= 11 && hitFrame <= 14, `Punch impact occurs inside the 0.18s-0.24s active window (frame=${hitFrame})`);
-  assert.equal(sultanAttacker.state, 'idle', 'Action Sultan returns cleanly to idle after 24-frame (0.40s) punch');
-  assert.equal(sultanAttacker.startAttack('punch', 'fighting'), true, 'Action Sultan can immediately perform another attack after punch completion');
+  assert.equal(sultanAttacker.state, 'idle', 'Bhai Jaan returns cleanly to idle after 24-frame (0.40s) punch');
+  assert.equal(sultanAttacker.startAttack('punch', 'fighting'), true, 'Bhai Jaan can immediately perform another attack after punch completion');
 
-  // 9. Action Sultan 0.60s Fast Right Front Kick (Storyboard 7-Frame Sequence at 2.0x Speed & Combat Integration)
+  // 9. Bhai Jaan 0.60s Fast Right Front Kick (Storyboard 7-Frame Sequence at 2.0x Speed & Combat Integration)
   const kickGuard0 = animCtrl.computeTargetPose('action_sultan', 'kick', 0.0, 1.0, 0);
   const kickTransfer075 = animCtrl.computeTargetPose('action_sultan', 'kick', 0.075, 1.0, 0);
   const kickChamber15 = animCtrl.computeTargetPose('action_sultan', 'kick', 0.15, 1.0, 0);
@@ -3276,7 +3276,7 @@ test('28. Phase 2–12 Regression Suite: Browse-Only vs Match Character Select, 
 
   // Combat synchronization: 36 frames (0.60s at 60 FPS), active hit window around 0.325s impact (Frames 16-21), single hit per kick, clean recovery to idle
   const sultanKickSpec = FighterAnimationEvents.getMoveSpec('action_sultan', 'kick');
-  assert.equal(sultanKickSpec.totalFrames, 36, 'Action Sultan kick clip totalFrames is 36 (0.60s)');
+  assert.equal(sultanKickSpec.totalFrames, 36, 'Bhai Jaan kick clip totalFrames is 36 (0.60s)');
   assert.equal(sultanKickSpec.startupFrames, 16);
   assert.equal(sultanKickSpec.activeFrames, 6);
   assert.equal(sultanKickSpec.recoveryFrames, 14);
@@ -3299,10 +3299,10 @@ test('28. Phase 2–12 Regression Suite: Browse-Only vs Match Character Select, 
   }
   assert.equal(kickHitCount, 1, 'Single front kick produces exactly one damage event');
   assert.ok(kickHitFrame >= 16 && kickHitFrame <= 21, `Kick impact occurs inside the 0.27s-0.35s active window (frame=${kickHitFrame})`);
-  assert.equal(kickAttacker.state, 'idle', 'Action Sultan returns cleanly to idle after 36-frame (0.60s) front kick');
-  assert.equal(kickAttacker.startAttack('kick', 'fighting'), true, 'Action Sultan can immediately perform another attack after kick completion');
+  assert.equal(kickAttacker.state, 'idle', 'Bhai Jaan returns cleanly to idle after 36-frame (0.60s) front kick');
+  assert.equal(kickAttacker.startAttack('kick', 'fighting'), true, 'Bhai Jaan can immediately perform another attack after kick completion');
 
-  // 10. Action Sultan 2.80s Dhobi Pachad (8-Frame Storyboard Grab & Throw, Synchronized Opponent Trajectory, Arm IK Contact & Combat Integration)
+  // 10. Bhai Jaan 2.80s Dhobi Pachad (8-Frame Storyboard Grab & Throw, Synchronized Opponent Trajectory, Arm IK Contact & Combat Integration)
   const grabApproach0 = animCtrl.computeTargetPose('action_sultan', 'grab', 0.0, 1.0, 0);
   const grabLock30 = animCtrl.computeTargetPose('action_sultan', 'grab', 0.3, 1.0, 0);
   const grabPull60 = animCtrl.computeTargetPose('action_sultan', 'grab', 0.6, 1.0, 0);
@@ -3409,7 +3409,7 @@ test('28. Phase 2–12 Regression Suite: Browse-Only vs Match Character Select, 
   assert.equal(slamHitEvents, 1, 'Dhobi Pachad registers damage exactly once during the entire 2.80s throw');
   assert.equal(slamImpactFrame, 132, 'Single-hit slam damage is registered at Frame 132 (2.20s Ground Impact)');
   assert.ok(dhobiDefender.health < initialDefenderHP, 'Opponent takes Dhobi Pachad slam damage at 2.20s');
-  assert.equal(dhobiAttacker.state, 'idle', 'Action Sultan returns cleanly to balanced idle stance at Frame 168 (2.80s)');
+  assert.equal(dhobiAttacker.state, 'idle', 'Bhai Jaan returns cleanly to balanced idle stance at Frame 168 (2.80s)');
   assert.equal(dhobiAttacker.activeGrabTarget, null, 'Grab constraint is released after throw');
   assert.equal(dhobiDefender.grabbedBy, null, 'Opponent grabbedBy reference is cleared');
   assert.ok(
@@ -3525,6 +3525,65 @@ test('28. Phase 2–12 Regression Suite: Browse-Only vs Match Character Select, 
 
   bridge.returnToMenu();
 });
+
+test('29. Bhai Jaan Rename Compatibility, GLB PBR Completeness & Triangle Budget Verification', () => {
+  // 1. Display name renamed to Bhai Jaan while preserving internal ID action_sultan & slug action-sultan
+  assert.equal(CHARACTERS.action_sultan.id, 'action_sultan');
+  assert.equal(CHARACTERS.action_sultan.name, 'Bhai Jaan');
+  assert.equal(CHARACTER_ASSET_MANIFEST.action_sultan.displayName, 'Bhai Jaan');
+  assert.equal(CHARACTER_ASSET_MANIFEST.action_sultan.slug, 'action-sultan');
+  assert.equal(CHARACTER_ASSET_MANIFEST.action_sultan.modelPath, '/assets/characters/action-sultan/model.glb');
+
+  // 2. Other roster fighters remain untouched
+  assert.equal(CHARACTERS.romance_raja.name, 'Romance Raja');
+  assert.equal(CHARACTERS.duggu.name, 'Duggu');
+  assert.equal(CHARACTERS.bhidu.name, 'Bhidu');
+
+  // 3. No leftover user-facing 'Action Sultan' string in characters data, asset manifest, disclaimer UI, or disk manifest.json
+  const filesToCheck = [
+    'src/data/characters.ts',
+    'src/config/characterAssets.ts',
+    'src/config/audioAssets.ts',
+    'src/components/DisclaimerModal.tsx',
+    'public/assets/characters/action-sultan/manifest.json',
+  ];
+  for (const rel of filesToCheck) {
+    const content = fs.readFileSync(path.resolve(process.cwd(), rel), 'utf8');
+    assert.equal(
+      content.includes('Action Sultan'),
+      false,
+      `User-facing file ${rel} must not contain stale 'Action Sultan' display name`
+    );
+    assert.equal(
+      content.includes('Bhai Jaan'),
+      true,
+      `User-facing file ${rel} must reference 'Bhai Jaan'`
+    );
+  }
+
+  // 4. Inspect public/assets/characters/action-sultan/model.glb binary JSON chunk for triangle count <= 60,000, 65 bones, and 7 PBR materials
+  const glbPath = path.resolve(process.cwd(), 'public/assets/characters/action-sultan/model.glb');
+  const buf = fs.readFileSync(glbPath);
+  assert.equal(buf.toString('ascii', 0, 4), 'glTF');
+  const jsonChunkLen = buf.readUInt32LE(12);
+  const gltf = JSON.parse(buf.subarray(20, 20 + jsonChunkLen).toString('utf8'));
+
+  let triangleCount = 0;
+  for (const m of gltf.meshes ?? []) {
+    for (const p of m.primitives ?? []) {
+      const acc = gltf.accessors[p.indices];
+      triangleCount += Math.floor((acc?.count ?? 0) / 3);
+    }
+  }
+  assert.ok(
+    triangleCount >= 10000 && triangleCount <= 60000,
+    `Bhai Jaan GLB triangle count (${triangleCount}) must be cleanly game-ready (10k–60k)`
+  );
+  assert.equal(gltf.materials?.length, 7, 'Bhai Jaan GLB must define 7 PBR materials');
+  assert.equal(gltf.images?.length, 28, 'Bhai Jaan GLB must embed 28 lossless PBR texture maps');
+  assert.equal(gltf.skins?.[0]?.joints?.length, 65, 'Bhai Jaan GLB must have a 65-bone Mixamo skeleton');
+});
+
 
 
 

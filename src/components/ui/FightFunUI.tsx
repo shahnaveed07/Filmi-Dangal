@@ -137,8 +137,7 @@ export const CharacterPortrait: React.FC<{
 }> = ({ character, size = 'md' }) => {
   const { primaryColor, secondaryColor, accentColor, skinTone, hairColor } =
     character.visuals;
-  const hasSunglasses =
-    character.id === 'action_sultan' || character.id === 'duggu';
+  const hasSunglasses = character.id === 'duggu';
   const hasBandana = character.id === 'bhidu';
 
   const dimensions =

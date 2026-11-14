@@ -402,7 +402,7 @@ function createCoreClipMappings(
  * Section 9: Production GLB Asset Contract for Final 3D Character Replacement.
  *
  * Current Roster Asset Status:
- * - `action_sultan` (Action Sultan): Production Skinned GLB (`isTemporaryPlaceholder: false`, `PRODUCTION_SKINNED`).
+ * - `action_sultan` (Bhai Jaan): Production Skinned GLB (`isTemporaryPlaceholder: false`, `PRODUCTION_SKINNED`).
  * - `romance_raja`  (Romance Raja) : Temporary Placeholder (`isTemporaryPlaceholder: true`, `TEMPORARY_PLACEHOLDER`).
  * - `duggu`         (Duggu)        : Temporary Placeholder (`isTemporaryPlaceholder: true`, `TEMPORARY_PLACEHOLDER`).
  * - `bhidu`         (Bhidu)        : Temporary Placeholder (`isTemporaryPlaceholder: true`, `TEMPORARY_PLACEHOLDER`).
@@ -416,7 +416,7 @@ function createCoreClipMappings(
  * into `modelPath`, validate it, and set `isTemporaryPlaceholder: false` in `CHARACTER_ASSET_MANIFEST`:
  *
  * 1. Exact File Path:
- *    - Action Sultan : `public/assets/characters/action-sultan/model.glb`
+ *    - Bhai Jaan     : `public/assets/characters/action-sultan/model.glb`
  *    - Romance Raja  : `public/assets/characters/romance-raja/model.glb`
  *    - Duggu         : `public/assets/characters/duggu/model.glb`
  *    - Bhidu         : `public/assets/characters/bhidu/model.glb`
@@ -428,7 +428,7 @@ function createCoreClipMappings(
  * 7. Scale & Bounds: Consistent meter-scale humanoid proportions (width `0.15m–4.0m`, height `0.5m–4.5m`, depth `0.08m–4.0m`).
  * 8. Forward Axis: Consistent `+Z` local forward axis (rotated onto the 2D `XY` fighting plane via `facingRotationY`).
  * 9. Materials: Valid glTF PBR materials (`pbrMetallicRoughness`) and embedded textures.
- * 10. Animations & Fallback: Embedded `AnimationGroup` clips matching `ALL_STANDARD_ANIMATION_CLIP_IDS` plus character-specific SuperShot/SuperMove clips; any omitted or static clips (such as Action Sultan's `mixamo_com` bind pose) automatically fall back to procedural bone poses without crashing or freezing.
+ * 10. Animations & Fallback: Embedded `AnimationGroup` clips matching `ALL_STANDARD_ANIMATION_CLIP_IDS` plus character-specific SuperShot/SuperMove clips; any omitted or static clips (such as Bhai Jaan's `mixamo_com` bind pose) automatically fall back to procedural bone poses without crashing or freezing.
  */
 export const PRODUCTION_GLB_ASSET_CONTRACT = {
   format: 'glTF 2.0 Binary (.glb)',
@@ -440,7 +440,7 @@ export const PRODUCTION_GLB_ASSET_CONTRACT = {
 
 /**
  * Centralized Character Asset Manifest for all four Filmi Dangal fighters:
- * - action_sultan (Action Sultan — Salman Khan-inspired)
+ * - action_sultan (Bhai Jaan — Salman Khan-inspired)
  * - romance_raja  (Romance Raja — Shah Rukh Khan-inspired)
  * - duggu         (Duggu — Hrithik Roshan-inspired)
  * - bhidu         (Bhidu — Jackie Shroff-inspired)
@@ -449,7 +449,7 @@ export const CHARACTER_ASSET_MANIFEST: Record<FighterId, CharacterAssetConfig> =
   action_sultan: {
     id: 'action_sultan',
     slug: 'action-sultan',
-    displayName: 'Action Sultan',
+    displayName: 'Bhai Jaan',
     realLifeInspiration: 'Salman Khan',
     superShotTitle: 'BLACKBUCK GUNSHOT',
     superShotConcept:
@@ -500,7 +500,7 @@ export const CHARACTER_ASSET_MANIFEST: Record<FighterId, CharacterAssetConfig> =
       superShotImpactVfx: '/assets/vfx/action-sultan/explosive-ricochet-burst.json',
       superMoveChargeVfx: '/assets/vfx/action-sultan/sultan-aura-burst.json',
       superMoveImpactVfx: '/assets/vfx/action-sultan/seismic-slam-pillars.json',
-      primaryHex: '#1D4ED8',
+      primaryHex: '#4A2E1E',
       secondaryHex: '#F59E0B',
       auraHex: '#F59E0B',
     },

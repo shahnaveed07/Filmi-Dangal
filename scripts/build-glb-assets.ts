@@ -4,7 +4,7 @@ import * as path from 'node:path';
 /**
  * Generates valid binary glTF 2.0 (.glb) humanoid placeholder assets and manifest.json
  * for the active Filmi Dangal 3D 4-fighter roster:
- * - action_sultan (Action Sultan — Salman Khan-inspired)
+ * - action_sultan (Bhai Jaan — Salman Khan-inspired)
  * - romance_raja  (Romance Raja — Shah Rukh Khan-inspired)
  * - duggu         (Duggu — Hrithik Roshan-inspired)
  * - bhidu         (Bhidu — Jackie Shroff-inspired)
@@ -42,10 +42,10 @@ export const ACTIVE_CHARACTER_SPECS: readonly CharacterAssetSpec[] = [
   {
     folder: 'action-sultan',
     id: 'action_sultan',
-    name: 'ACTION SULTAN',
+    name: 'BHAI JAAN',
     inspiration: 'Salman Khan-inspired (Configurable Parody Persona)',
-    primaryHex: [0.11, 0.31, 0.85], // Royal Blue Denim Vest
-    secondaryHex: [0.96, 0.62, 0.04], // Gold Belt Buckle & Sidearm Trim
+    primaryHex: [0.29, 0.18, 0.12], // Brown Distressed Leather Jacket
+    secondaryHex: [0.12, 0.16, 0.23], // Black Crew-Neck T-Shirt & Dark Wash Denim
     skinHex: [0.85, 0.61, 0.45],
     hairHex: [0.12, 0.11, 0.09],
     accentHex: [0.08, 0.72, 0.65], // Turquoise Silver Bracelet

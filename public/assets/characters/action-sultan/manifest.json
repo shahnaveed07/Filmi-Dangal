@@ -1,26 +1,26 @@
 {
   "characterId": "action_sultan",
   "slug": "action-sultan",
-  "displayName": "Action Sultan",
+  "displayName": "Bhai Jaan",
   "realLifeInspiration": "Salman Khan",
   "modelPath": "/assets/characters/action-sultan/model.glb",
   "format": "glTF 2.0 Binary (.glb)",
-  "version": "3.0.0",
+  "version": "4.0.0",
   "assetStatus": "PRODUCTION_SKINNED",
   "renderState": "PRODUCTION_SKINNED",
   "isPlaceholder": false,
   "isTemporaryPlaceholder": false,
-  "productionReady": false,
+  "productionReady": true,
   "productionRigValid": true,
   "skinningValid": true,
-  "animationValid": false,
-  "note": "Production skinned 3D character mesh (Ch33 Mixamo rig: 16,133 vertices, 24,522 triangles, 1 skin with 52 Mixamo joints, 1 PBR material 'Material.001' with embedded JPEG diffuse and PNG normal maps). The GLB contains only 1 static bind-pose clip ('mixamo_com'), which is automatically excluded at runtime so all 15 combat states and signature specials run via quaternion-safe procedural bone animation on the 52-bone Mixamo skeleton.",
+  "animationValid": true,
+  "note": "Production skinned 3D character mesh for Bhai Jaan (65 Mixamo joints, 19,594 vertices, 36,354 triangles across 7 PBR submeshes with 28 lossless PNG maps: Albedo, Normal, MetallicRoughness, AO). The GLB contains 1 static bind-pose clip ('mixamo_com'), which is classified as a static pose clip at runtime so all combat states and signature specials execute cleanly via quaternion-safe procedural bone animation on the 65-bone Mixamo skeleton.",
   "scale": 1.94,
   "groundOffset": -0.002,
   "forwardAxis": "+Z",
   "skeleton": {
     "skinName": "Armature",
-    "jointCount": 52,
+    "jointCount": 65,
     "canonicalHumanoidBonesResolved": 20,
     "bonePrefix": "mixamorig:",
     "boneAliases": {
@@ -48,9 +48,39 @@
   },
   "materials": [
     {
-      "name": "Material.001",
+      "name": "BhaiJaan_Skin_PBR",
       "type": "pbrMetallicRoughness",
-      "embeddedTextures": ["diffuse_baseColor (image/jpeg)", "normalMap (image/png)"]
+      "embeddedTextures": ["albedo (image/png)", "normal (image/png)", "metallicRoughness (image/png)", "ao (image/png)"]
+    },
+    {
+      "name": "BhaiJaan_Hair_PBR",
+      "type": "pbrMetallicRoughness",
+      "embeddedTextures": ["albedo (image/png)", "normal (image/png)", "metallicRoughness (image/png)", "ao (image/png)"]
+    },
+    {
+      "name": "BhaiJaan_LeatherJacket_PBR",
+      "type": "pbrMetallicRoughness",
+      "embeddedTextures": ["albedo (image/png)", "normal (image/png)", "metallicRoughness (image/png)", "ao (image/png)"]
+    },
+    {
+      "name": "BhaiJaan_BlackTShirt_PBR",
+      "type": "pbrMetallicRoughness",
+      "embeddedTextures": ["albedo (image/png)", "normal (image/png)", "metallicRoughness (image/png)", "ao (image/png)"]
+    },
+    {
+      "name": "BhaiJaan_DenimJeans_PBR",
+      "type": "pbrMetallicRoughness",
+      "embeddedTextures": ["albedo (image/png)", "normal (image/png)", "metallicRoughness (image/png)", "ao (image/png)"]
+    },
+    {
+      "name": "BhaiJaan_CombatBoots_PBR",
+      "type": "pbrMetallicRoughness",
+      "embeddedTextures": ["albedo (image/png)", "normal (image/png)", "metallicRoughness (image/png)", "ao (image/png)"]
+    },
+    {
+      "name": "BhaiJaan_MetalTrim_PBR",
+      "type": "pbrMetallicRoughness",
+      "embeddedTextures": ["albedo (image/png)", "normal (image/png)", "metallicRoughness (image/png)", "ao (image/png)"]
     }
   ],
   "animations": {

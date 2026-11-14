@@ -37,7 +37,7 @@ export const DisclaimerModal: React.FC<DisclaimerModalProps> = ({ onClose }) => 
             arcade parody inspired by classic 1990s fighting games and celebratory cinema tropes.
           </p>
           <p>
-            All characters (<em className="text-amber-200">Action Sultan</em>,{' '}
+            All characters (<em className="text-amber-200">Bhai Jaan</em>,{' '}
             <em className="text-amber-200">Romance Raja</em>,{' '}
             <em className="text-amber-200">Duggu</em>, and{' '}
             <em className="text-amber-200">Bhidu</em>), arenas, move names, and voice/dialogue
